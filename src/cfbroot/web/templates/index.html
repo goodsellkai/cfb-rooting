@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who To Root For</title>
+<link rel="preconnect" href="https://cdn.collegefootballdata.com">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div class="brandtext">
+      <h1>Who To Root For</h1>
+      <p id="seasonline" class="sub">loading season&hellip;</p>
+    </div>
+  </div>
+  <div id="topmeta" class="topmeta"></div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<section class="controlbar">
+  <div class="group">
+    <span class="grouplabel">Simulation</span>
+    <div class="groupfields">
+      <label class="field">
+        <span>Your team</span>
+        <input id="team" list="teamlist" placeholder="Start typing&hellip;"
+               autocomplete="off" spellcheck="false">
+        <datalist id="teamlist"></datalist>
+      </label>
+      <label class="field narrow">
+        <span>Seasons simulated</span>
+        <select id="nsims">
+          <option value="25000">25,000</option>
+          <option value="100000">100,000</option>
+          <option value="250000">250,000</option>
+          <option value="1000000" selected>1,000,000</option>
+          <option value="2500000">2,500,000</option>
+        </select>
+      </label>
+      <button id="run" class="primary">Run</button>
+      <button id="refresh" title="Re-pull scores and ratings, then re-simulate">Refresh data</button>
+    </div>
+  </div>
+
+  <div class="group view">
+    <span class="grouplabel">View <em>&mdash; applies instantly, no re-run</em></span>
+    <div class="groupfields">
+      <label class="field">
+        <span>Measure success by</span>
+        <select id="primary"></select>
+      </label>
+      <label class="field narrow">
+        <span>Slate</span>
+        <select id="week"></select>
+      </label>
+      <label class="field narrow">
+        <span>Show</span>
+        <select id="sigfilter">
+          <option value="all" selected>All games</option>
+          <option value="sig">Only significant</option>
+        </select>
+      </label>
+    </div>
+  </div>
+</section>
+
+<main>
+  <section id="progress" class="progress" hidden>
+    <div class="bar"><div id="progressfill"></div></div>
+    <p id="progresstext">simulating&hellip;</p>
+  </section>
+
+  <section id="empty" class="empty">
+    <h2>Pick your team and hit Run.</h2>
+    <p>Every unplayed game in the season is simulated up to millions of times.
+       Slicing those same simulations by the result of each individual game
+       shows exactly how much that game moves your team&rsquo;s season &mdash;
+       with a confidence interval, so you can tell a real rooting interest from
+       Monte Carlo noise.</p>
+  </section>
+
+  <section id="results" hidden>
+    <p id="staleness" class="staleness" hidden></p>
+
+    <div id="headline" class="cards"></div>
+
+    <div class="split">
+      <div class="panel">
+        <h2>Win total <span id="winsnote" class="muted"></span></h2>
+        <div id="winsdist" class="dist"></div>
+      </div>
+      <div class="panel">
+        <h2>Playoff seed</h2>
+        <div id="seeddist" class="dist"></div>
+      </div>
+    </div>
+
+    <div id="owngames" class="panel" hidden>
+      <div class="panel-head"><h2>Your own games</h2></div>
+      <div id="owntable"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Who to root for <span id="weeklabel" class="muted"></span></h2>
+        <span id="rootcount" class="muted"></span>
+      </div>
+      <div id="rootlist"></div>
+      <p class="legend">
+        <span class="sig clear">clear</span> survived multiple-comparison control
+        &mdash; a resolved edge.
+        <span class="sig leaning">leaning</span> favoured by the point estimate,
+        but the interval includes zero.
+        <span class="sig thin">thin</span> one result is too unlikely for enough
+        simulations to land there.
+      </p>
+      <p id="rootfoot" class="foot"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>League-wide odds</h2>
+        <select id="leaguemetric" class="inline"></select>
+      </div>
+      <div id="league"></div>
+      <p id="leaguefoot" class="foot"></p>
+    </div>
+
+    <div class="panel">
+      <h2>How this was computed</h2>
+      <div id="method" class="method"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="sitefoot">
+  <span>cfbroot</span>
+  <span id="footmeta"></span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
