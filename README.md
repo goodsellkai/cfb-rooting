@@ -26,17 +26,34 @@ fan would guess, but now with a number and an error bar on each one.
 
 ## Setup
 
-```bash
+> **Windows / PowerShell note.** Windows PowerShell 5.1 has no `&&` operator,
+> and a quoted path at the start of a line is parsed as a string rather than a
+> command. Run one command per line, and put `&` in front of any quoted
+> executable path:
+>
+> ```powershell
+> & "C:\Program Files\GitHub CLI\gh.exe" --version
+> ```
+
+```powershell
 cd cfb-rooting
 python -m venv .venv
-.venv/Scripts/python -m pip install -e .
+.venv\Scripts\python -m pip install -e .
 ```
 
-Get a free API key at <https://collegefootballdata.com/key>, then:
+Get a free API key at <https://collegefootballdata.com/key>. Create a file
+named exactly `.env` next to `pyproject.toml` containing:
 
-```bash
-cp .env.example .env      # and paste your key into CFBD_API_KEY
-.venv/Scripts/cfbroot check
+```
+CFBD_API_KEY=your_key_here
+```
+
+Two things go wrong here on Windows: Notepad silently saves it as `.env.txt`
+(turn on "File name extensions" in Explorer's View tab), and the `CFBD_API_KEY=`
+prefix is required — a file holding only the bare key will not work. Check it:
+
+```powershell
+.venv\Scripts\cfbroot check
 ```
 
 Without a key the app still runs, on a clearly-labelled fabricated season, so
@@ -50,8 +67,8 @@ the app — closing it stops the server.
 
 Or from a terminal:
 
-```bash
-.venv/Scripts/cfbroot serve
+```powershell
+.venv\Scripts\cfbroot serve
 ```
 
 Type your team, hit Run. **Refresh data** re-pulls scores and re-simulates —
@@ -59,11 +76,14 @@ that is the button to press after a day of games.
 
 Or stay in the terminal:
 
-```bash
-.venv/Scripts/cfbroot guide --team Michigan --metric make_playoff --sims 1000000
-.venv/Scripts/cfbroot guide --team Michigan --metric win_conference --all-weeks
-.venv/Scripts/cfbroot --live refresh   # global flags go before the subcommand
+```powershell
+.venv\Scripts\cfbroot guide --team Michigan --metric make_playoff --sims 1000000
+.venv\Scripts\cfbroot guide --team Michigan --metric win_conference --all-weeks
+.venv\Scripts\cfbroot --live refresh
 ```
+
+Global flags (`--live`, `--force`, `--year`, `--demo`) go **before** the
+subcommand; `cfbroot refresh --live` is a parse error.
 
 All nine measures of success are computed from the **same** simulation run, so
 switching between them in the UI is an instant re-render, not another
@@ -225,8 +245,8 @@ tests/                 74 tests, no network required
 
 ## Tests
 
-```bash
-.venv/Scripts/python -m pytest
+```powershell
+.venv\Scripts\python -m pytest
 ```
 
 Structural invariants are asserted exactly, not approximately: across every
