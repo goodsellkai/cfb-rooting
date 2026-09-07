@@ -48,7 +48,7 @@
   </div>
 
   <div class="group view">
-    <span class="grouplabel">View <em>&mdash; applies instantly, no re-run</em></span>
+    <span class="grouplabel">View</span>
     <div class="groupfields">
       <label class="field">
         <span>Measure success by</span>
@@ -77,11 +77,6 @@
 
   <section id="empty" class="empty">
     <h2>Pick your team and hit Run.</h2>
-    <p>Every unplayed game in the season is simulated up to millions of times.
-       Slicing those same simulations by the result of each individual game
-       shows exactly how much that game moves your team&rsquo;s season &mdash;
-       with a confidence interval, so you can tell a real rooting interest from
-       Monte Carlo noise.</p>
   </section>
 
   <section id="results" hidden>
@@ -91,7 +86,7 @@
 
     <div class="split">
       <div class="panel">
-        <h2>Win total <span id="winsnote" class="muted"></span></h2>
+        <h2>Win total</h2>
         <div id="winsdist" class="dist"></div>
       </div>
       <div class="panel">
@@ -111,15 +106,10 @@
         <span id="rootcount" class="muted"></span>
       </div>
       <div id="rootlist"></div>
-      <p class="legend">
-        <span class="sig clear">clear</span> survived multiple-comparison control
-        &mdash; a resolved edge.
-        <span class="sig leaning">leaning</span> favoured by the point estimate,
-        but the interval includes zero.
-        <span class="sig thin">thin</span> one result is too unlikely for enough
-        simulations to land there.
-      </p>
-      <p id="rootfoot" class="foot"></p>
+      <p class="legend"><b>Bold</b> = root for &middot;
+        <span class="sig clear">clear</span> significant &middot;
+        <span class="sig leaning">leaning</span> best guess &middot;
+        <span class="sig thin">thin</span> too few sims</p>
     </div>
 
     <div class="panel">
@@ -128,12 +118,6 @@
         <select id="leaguemetric" class="inline"></select>
       </div>
       <div id="league"></div>
-      <p id="leaguefoot" class="foot"></p>
-    </div>
-
-    <div class="panel">
-      <h2>How this was computed</h2>
-      <div id="method" class="method"></div>
     </div>
   </section>
 </main>

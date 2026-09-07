@@ -1,28 +1,24 @@
 # cfbroot — who should I root for this week?
 
-Pick your college football team. The app simulates the rest of the season a few
-million times, slices those simulations by the result of every other game on the
-slate, and tells you which outcomes actually help you — with confidence
-intervals, so you can tell a real rooting interest from Monte Carlo noise.
+Pick your team. It simulates the rest of the season a few million times, slices
+those simulations by the result of every other game on the slate, and tells you
+which outcomes help you.
 
 ```
 Alabama | 2026 | week 2
-Make the playoff: 42.6%  95% CI 42.49% to 42.68%   expected wins 8.65
+Make the playoff: 49.58%   expected wins 9.06   1,000,000 sims, 11.4s
 
-Your game                          Win%  Root for       Swing pp          95% CI
-Alabama at Kentucky                 22%  Alabama          -24.74  -24.95, -24.54
+Your games
+Matchup             Root for  If away  If home     Swing
+Alabama @ Kentucky  Alabama    53.54%   27.08%  -26.46pp  clear
 
-Who to root for (FDR-controlled at q<=0.05 across 344 tests)
-Matchup                            Win%  Root for       Swing pp          95% CI
-Oregon at Oklahoma State            11%  Oklahoma St       +2.21    +1.90, +2.52
-Penn State at Temple                11%  Temple            +2.09    +1.77, +2.40
-Louisiana Tech at LSU               98%  Louisiana Tech    -2.08    -2.81, -1.35
-Arizona State at Texas A&M          88%  Arizona State     -1.64    -1.93, -1.34
+Who to root for
+Matchup                    Root for        If away  If home    Swing
+Penn State @ Temple        Temple           49.42%   52.59%  +3.16pp  clear
+Oregon @ Oklahoma State    Oklahoma State   49.43%   52.46%  +3.04pp  clear
+Arizona State @ Texas A&M  Arizona State    51.64%   49.27%  -2.37pp  clear
+Oklahoma @ Michigan        Michigan         49.12%   50.46%  +1.35pp  clear
 ```
-
-Root against your own conference's contenders (LSU, Texas A&M, Georgia) and
-against the other leagues' best teams (Oregon, Penn State) — which is what a
-fan would guess, but now with a number and an error bar on each one.
 
 ## Setup
 

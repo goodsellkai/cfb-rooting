@@ -67,49 +67,40 @@ def cmd_guide(args) -> int:
     console.print()
     console.rule(f"[bold]{guide.team}[/] | {state.year} | "
                  f"week {guide.week if week is not None else 'all remaining'}")
-    console.print(f"[bold]{METRIC_LABELS[guide.primary]}: {h.p:.1%}[/]  "
-                  f"[dim]95% CI {h.lo:.2%} to {h.hi:.2%}[/]   "
-                  f"expected wins {guide.expected_wins:.2f}")
-    console.print(f"[dim]{res.n_sims:,} sims in {res.elapsed:.2f}s | "
-                  f"resolution +/-{guide.resolution:.2%}[/]")
-    if state.calibration:
-        console.print(f"[dim]{state.calibration.summary()}[/]")
+    console.print(f"[bold]{METRIC_LABELS[guide.primary]}: {h.p:.2%}[/]   "
+                  f"expected wins {guide.expected_wins:.2f}   "
+                  f"[dim]{res.n_sims:,} sims, {res.elapsed:.1f}s[/]")
     console.print()
+
+    COLUMNS = ("Matchup", "Root for", "If away", "If home", "Swing", "")
 
     def add_rows(table, entries):
         for e in entries:
             s = e.swings[guide.primary]
+            grade = ("[green]clear[/]" if s.significant
+                     else ("[dim]thin[/]" if not s.reliable else "[dim]leaning[/]"))
             table.add_row(
-                f"{e.away} {'vs' if e.neutral else 'at'} {e.home}",
-                f"{e.p_home_win:.0%}",
-                e.root_for or "[dim]too close[/]",
-                f"{'+' if s.delta >= 0 else '-'}{abs(s.delta) * 100:.2f}",
-                f"[dim]{s.lo * 100:+.2f}, {s.hi * 100:+.2f}[/]",
-                f"{s.p_if_home:.1%} / {s.p_if_away:.1%}",
-                ("[green]yes[/]" if s.significant
-                 else ("[dim]thin[/]" if not s.reliable else "[dim]no[/]")))
+                f"{e.away} {'vs' if e.neutral else '@'} {e.home}",
+                f"[bold]{e.root_for}[/]",
+                f"{s.p_if_away:.2%}",
+                f"{s.p_if_home:.2%}",
+                f"{'+' if s.delta >= 0 else '-'}{abs(s.delta) * 100:.2f}pp",
+                grade)
+
+    def make_table(title):
+        t = Table(title=title, title_justify="left", box=None, pad_edge=False)
+        for c in COLUMNS:
+            t.add_column(c, justify="left" if c in ("Matchup", "Root for") else "right")
+        return t
 
     if guide.own_games:
-        t = Table(title="Your game", title_justify="left", box=None, pad_edge=False)
-        for c in ("Matchup", "Win%", "Root for", "Swing pp", "95% CI", "If home/away", "Sig"):
-            t.add_column(c, justify="right" if c not in ("Matchup", "Root for") else "left")
+        t = make_table("Your games")
         add_rows(t, guide.own_games)
         console.print(t)
         console.print()
 
-    shown = [e for e in guide.games if e.swings[guide.primary].significant]
-    if not shown:
-        shown = guide.games[:args.top]
-        subtitle = "(nothing cleared the FDR threshold; showing largest point estimates)"
-    else:
-        shown = shown[:args.top]
-        subtitle = f"(FDR-controlled at q<={guide.fdr_q} across {guide.n_tests} tests)"
-
-    t = Table(title=f"Who to root for {subtitle}", title_justify="left",
-              box=None, pad_edge=False)
-    for c in ("Matchup", "Win%", "Root for", "Swing pp", "95% CI", "If home/away", "Sig"):
-        t.add_column(c, justify="right" if c not in ("Matchup", "Root for") else "left")
-    add_rows(t, shown)
+    t = make_table("Who to root for")
+    add_rows(t, guide.games[:args.top])
     console.print(t)
 
     for n in guide.notes:

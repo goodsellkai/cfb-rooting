@@ -18,11 +18,9 @@ let POLLING = null;
 let RAN = null;        // the inputs RESULT was produced from
 
 const CONF_TITLE = {
-  clear: "Survived Benjamini–Hochberg control over this slate — a resolved edge.",
-  leaning: "The point estimate favours this side, but the 95% interval includes "
-    + "zero, so treat the direction as a best guess.",
-  thin: "One result is so unlikely that too few simulations landed there to say "
-    + "anything reliable.",
+  clear: "Statistically significant.",
+  leaning: "Direction is a best guess.",
+  thin: "Too few simulations on one side.",
 };
 
 // ---------------------------------------------------------------- bootstrap
@@ -153,9 +151,7 @@ function updateStaleness() {
   if (c.data !== RAN.data) why.push("underlying data");
   el.hidden = why.length === 0;
   if (why.length) {
-    el.innerHTML = `Showing results for <b>${esc(RESULT.team)}</b> at `
-      + `${RESULT.n_sims.toLocaleString()} seasons. The ${why.join(" and ")} `
-      + `changed — press <b>Run</b> to re-simulate.`;
+    el.innerHTML = `Showing <b>${esc(RESULT.team)}</b>. Press <b>Run</b> to update.`;
   }
 }
 
@@ -295,11 +291,9 @@ function render() {
   renderHeadline();
   renderDist("winsdist", RESULT.wins_distribution, (i) => i);
   renderDist("seeddist", RESULT.seed_distribution, (i) => (i === 0 ? "out" : String(i)));
-  $("winsnote").textContent = `— ${num(RESULT.expected_wins)} expected`;
   renderOwnGames();
   renderRootList();
   renderLeague();
-  renderMethod();
   $("weeklabel").textContent = selectedWeek() === null
     ? "— all remaining games" : "— week " + selectedWeek();
   $("footmeta").textContent =
@@ -320,15 +314,13 @@ function renderHeadline() {
     const div = document.createElement("div");
     div.className = "card" + (k === key ? " is-primary" : "");
     div.innerHTML = `<div class="label">${esc(h.label)}</div>
-      <div class="value">${pct(h.p)}</div>
-      <div class="ci">95% CI ${pct(h.lo)} – ${pct(h.hi)}</div>`;
+      <div class="value">${pct(h.p)}</div>`;
     wrap.appendChild(div);
   }
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `<div class="label">Expected wins</div>
-    <div class="value">${num(RESULT.expected_wins)}</div>
-    <div class="ci">regular season</div>`;
+    <div class="value">${num(RESULT.expected_wins)}</div>`;
   wrap.appendChild(div);
 }
 
@@ -368,7 +360,7 @@ function gameRowsHTML(games) {
   }));
 
   let html = `<div class="tablewrap"><table class="games"><thead><tr>
-      <th>Matchup <span class="hint">away @ home · bold = root for</span></th>
+      <th>Matchup</th>
       <th class="num">If away wins</th>
       <th class="num">If home wins</th>
       <th class="swingcell">Swing in ${esc(label)}</th>
@@ -406,11 +398,9 @@ function gameRowsHTML(games) {
                style="left:${left}%;width:${w}%"></div>
           <div class="ci" style="left:${Math.min(ciLo, ciHi)}%;width:${Math.abs(ciHi - ciLo)}%"></div>
         </div>
-        <div class="swingnum">${signed(s.delta)}pp
-          <span class="muted">[${signed(s.lo)}, ${signed(s.hi)}]</span></div>
+        <div class="swingnum">${signed(s.delta)}pp</div>
       </td>
-      <td class="num"><span class="sig ${conf}" title="${esc(CONF_TITLE[conf])}"
-        >${conf}</span><div class="qv">q ${qOf(s) < 0.001 ? "&lt;.001" : num(qOf(s), 3)}</div></td>
+      <td class="num"><span class="sig ${conf}" title="${esc(CONF_TITLE[conf])}">${conf}</span></td>
     </tr>`;
   }
   return html + "</tbody></table></div>";
@@ -443,20 +433,9 @@ function renderRootList() {
 
   $("rootlist").innerHTML = shown.length
     ? gameRowsHTML(shown)
-    : `<p class="foot">No game on this slate clears the significance threshold
-       for ${esc(metricLabel(key).toLowerCase())}. Switch <b>Show</b> back to
-       <b>All games</b> to see the best guesses, or raise the simulation count.</p>`;
+    : `<p class="foot">Nothing significant on this slate.</p>`;
 
-  const sig = slate.filter(g => sigOf(g.swings[key])).length;
-  $("rootcount").textContent = `${shown.length} of ${slate.length} shown`;
-
-  const base = RESULT.headline[key].p;
-  $("rootfoot").innerHTML =
-    `Percentages are ${esc(RESULT.team)}'s chance of <b>${esc(metricLabel(key).toLowerCase())}</b> `
-    + `after that result, against a baseline of <b>${pct(base)}</b> today. `
-    + `A side is named for every game; the confidence column says how firm the call is. `
-    + `<b>${sig}</b> of <b>${slate.length}</b> games on this slate clear `
-    + `Benjamini–Hochberg control at q ≤ ${RESULT.fdr_q}.`;
+  $("rootcount").textContent = `${shown.length} of ${slate.length}`;
 }
 
 function renderLeague() {
@@ -469,7 +448,6 @@ function renderLeague() {
     <th class="num">#</th><th>Team</th><th>Conference</th>
     <th class="num">${esc(STATE.rating_label)}</th>
     <th class="num">${esc(metricLabel(key))}</th>
-    <th class="num">95% CI</th>
     ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
     html += `<tr><td class="num">${i + 1}</td>
@@ -477,43 +455,10 @@ function renderLeague() {
       <td class="muted">${esc(r.conference || "")}</td>
       <td class="num">${num(r.rating, 1)}</td>
       <td class="num"><b>${pct(r.p[key])}</b></td>
-      <td class="num muted">${pct(r.lo[key])}–${pct(r.hi[key])}</td>
       ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
         ? pct(r.espn_playoff_prob) : "—"}</td>` : ""}</tr>`;
   });
   $("league").innerHTML = html + "</tbody></table></div>";
-  $("leaguefoot").innerHTML = showEspn
-    ? "The ESPN column is ESPN's own FPI-based playoff probability, shown as an "
-    + "outside reference. It is not an input to anything here."
-    : "";
-}
-
-function renderMethod() {
-  const notes = (RESULT.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("");
-  $("method").innerHTML = notes + `
-    <p><b>${RESULT.n_sims.toLocaleString()}</b> complete seasons simulated in
-       <b>${num(RESULT.elapsed)}s</b>${RESULT.used_numba ? "" : " (without numba)"}.
-       Each unplayed game is drawn independently from a normal model on the
-       ${esc(STATE.rating_label)} rating gap; then conference standings, title
-       games, a committee-ranking proxy, the 12-team playoff field and the full
-       bracket are resolved.</p>
-    <p><b>One run covers everything on this page.</b> All nine measures of
-       success and all ${RESULT.games.length + RESULT.own_games.length} remaining
-       games come from the same set of simulated seasons, so changing the
-       measure, the slate or the filter is a re-render. Only a different team, a
-       different simulation count, or fresh data requires simulating again.</p>
-    <p>Rooting interests come from slicing <em>those same</em> simulations by the
-       result of each game — the subset where the home team won against the
-       subset where it lost. Because both slices share every other game's random
-       draws, the difference between them is far more precisely estimated than
-       two separate runs would give.</p>
-    <p>Each swing is a difference of two binomial proportions, with a Newcombe
-       score interval. <code>q</code> is a Benjamini&ndash;Hochberg
-       false-discovery-rate adjusted p-value, computed within the selected
-       metric over the selected slate. At this sample size, swings below about
-       <b>${num(100 * RESULT.resolution)} percentage points</b> cannot be
-       separated from Monte Carlo noise.</p>
-    <p class="muted">${esc(STATE.calibration)}</p>`;
 }
 
 function esc(s) {
