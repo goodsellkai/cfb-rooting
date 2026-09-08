@@ -1,8 +1,20 @@
-"""Turning power ratings into game win probabilities, and calibrating them."""
+"""Turning power ratings into game win probabilities.
+
+The parameters are fixed, and derived offline from closing betting lines rather
+than re-fit during the season. See :func:`provenance` for where each number
+comes from and :mod:`cfbroot.calibration` for the script that produced them.
+
+Re-fitting in season is the obvious thing to do and it is wrong. FPI is updated
+*after* each week's games, so a fit of "current ratings against already-played
+games" is scored on results the ratings have already absorbed. The estimate is
+biased low no matter how much data accumulates: on the 2025 season it produced
+a residual SD of 13.2, below the 15.3 achieved by a sharp closing line, which
+is impossible for a strictly worse forecaster.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats as sps
@@ -25,89 +37,67 @@ def win_probability(rating_home, rating_away, neutral, params: ModelParams):
     FPI is a points-above-average rating, so the rating gap is already on the
     scale of a point spread. Converting a spread to a win probability with a
     normal CDF is the standard closing-line approach; ``sigma`` is the SD of
-    game results around the spread.
+    results around that spread.
     """
     mu = projected_margin(rating_home, rating_away, neutral, params)
     return sps.norm.cdf(mu / params.sigma)
 
 
 @dataclass
-class Calibration:
-    """Result of re-fitting the outcome model on this season's finished games."""
+class Diagnostics:
+    """How the fixed model scores against games that have been played.
+
+    Reported, never fed back. These numbers flatter the model for the same
+    reason the old calibration was biased: the ratings already know how these
+    games turned out.
+    """
 
     n_games: int
-    slope: float
-    hfa: float
-    sigma: float
-    slope_raw: float
-    hfa_raw: float
-    sigma_raw: float
-    shrink_weight: float
     brier: float = float("nan")
     log_loss: float = float("nan")
+    accuracy: float = float("nan")
+    mean_abs_margin_error: float = float("nan")
 
     def summary(self) -> str:
-        if self.n_games == 0:
-            return "No completed games yet -- using prior model parameters."
-        return (
-            f"Calibrated on {self.n_games} completed games: "
-            f"slope {self.slope:.3f}, HFA {self.hfa:.2f} pts, sigma {self.sigma:.2f} pts "
-            f"(raw fit {self.slope_raw:.3f}/{self.hfa_raw:.2f}/{self.sigma_raw:.2f}, "
-            f"shrunk {1 - self.shrink_weight:.0%} toward prior)."
-        )
+        if self.n_games < 10:
+            return ("Model parameters are fixed from a historical calibration; "
+                    "too few games played to report a fit.")
+        return (f"Fixed parameters. Against {self.n_games} completed games: "
+                f"Brier {self.brier:.3f}, accuracy {self.accuracy:.0%}, mean margin "
+                f"error {self.mean_abs_margin_error:.1f} pts (optimistic -- the "
+                f"ratings already reflect these results).")
 
 
-def calibrate(rating_home, rating_away, neutral, margin, params: ModelParams,
-              prior_strength: float = 150.0) -> tuple[ModelParams, Calibration]:
-    """Re-fit slope, home-field advantage and residual SD on completed games.
+def provenance(params: ModelParams) -> str:
+    return (f"slope {params.rating_scale:.2f}, home field {params.hfa:.2f} pts, "
+            f"sigma {params.sigma:.2f} pts -- calibrated against "
+            f"{params.calibration_n:,} closing betting lines "
+            f"({params.calibration_seasons}).")
 
-    Early in the season there are too few games to trust a raw fit, so the
-    estimates are shrunk toward the priors in ``params`` with a weight of
-    ``n / (n + prior_strength)``. By November the data dominates; in week 2 the
-    prior does.
-    """
+
+def evaluate(rating_home, rating_away, neutral, margin,
+             params: ModelParams) -> Diagnostics:
+    """Score the fixed model on completed games. Does not change ``params``."""
     rating_home = np.asarray(rating_home, dtype=np.float64)
     rating_away = np.asarray(rating_away, dtype=np.float64)
     neutral = np.asarray(neutral, dtype=bool)
     margin = np.asarray(margin, dtype=np.float64)
 
     ok = np.isfinite(rating_home) & np.isfinite(rating_away) & np.isfinite(margin)
-    rating_home, rating_away, neutral, margin = (
-        rating_home[ok], rating_away[ok], neutral[ok], margin[ok])
+    rating_home, rating_away = rating_home[ok], rating_away[ok]
+    neutral, margin = neutral[ok], margin[ok]
     n = int(margin.size)
+    if n == 0:
+        return Diagnostics(n_games=0)
 
-    if n < 25:
-        cal = Calibration(n_games=n, slope=params.rating_scale, hfa=params.hfa,
-                          sigma=params.sigma, slope_raw=float("nan"),
-                          hfa_raw=float("nan"), sigma_raw=float("nan"),
-                          shrink_weight=0.0)
-        return params, cal
-
-    # margin ~ slope * (rating gap) + hfa * (game is not at a neutral site)
-    X = np.column_stack([rating_home - rating_away, (~neutral).astype(np.float64)])
-    coef, *_ = np.linalg.lstsq(X, margin, rcond=None)
-    slope_raw, hfa_raw = float(coef[0]), float(coef[1])
-    resid = margin - X @ coef
-    sigma_raw = float(np.sqrt(resid @ resid / max(n - 2, 1)))
-
-    w = n / (n + prior_strength)
-    slope = w * slope_raw + (1 - w) * params.rating_scale
-    hfa = w * hfa_raw + (1 - w) * params.hfa
-    sigma = w * sigma_raw + (1 - w) * params.sigma
-    # A degenerate fit (e.g. a week of blowouts) must not produce a nonsense model.
-    slope = float(np.clip(slope, 0.3, 2.0))
-    hfa = float(np.clip(hfa, -2.0, 8.0))
-    sigma = float(np.clip(sigma, 8.0, 30.0))
-
-    tuned = replace(params, rating_scale=slope, hfa=hfa, sigma=sigma)
-
-    p = win_probability(rating_home, rating_away, neutral, tuned)
+    mu = projected_margin(rating_home, rating_away, neutral, params)
+    p = np.asarray(win_probability(rating_home, rating_away, neutral, params))
     y = (margin > 0).astype(np.float64)
-    brier = float(np.mean((p - y) ** 2))
     eps = 1e-12
-    log_loss = float(-np.mean(y * np.log(p + eps) + (1 - y) * np.log(1 - p + eps)))
-
-    cal = Calibration(n_games=n, slope=slope, hfa=hfa, sigma=sigma,
-                      slope_raw=slope_raw, hfa_raw=hfa_raw, sigma_raw=sigma_raw,
-                      shrink_weight=w, brier=brier, log_loss=log_loss)
-    return tuned, cal
+    return Diagnostics(
+        n_games=n,
+        brier=float(np.mean((p - y) ** 2)),
+        log_loss=float(-np.mean(y * np.log(p + eps) + (1 - y) * np.log(1 - p + eps))),
+        accuracy=float(np.mean((p > 0.5) == (y > 0.5))),
+        mean_abs_margin_error=float(np.mean(np.abs(margin - mu))),
+    )

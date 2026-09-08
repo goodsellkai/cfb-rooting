@@ -38,16 +38,32 @@ def has_api_key() -> bool:
 class ModelParams:
     """Parameters of the game-outcome and committee-ranking models.
 
-    ``sigma`` and ``hfa`` are re-fit from completed games whenever there are
-    enough of them (see :mod:`cfbroot.model`); the values here are the priors
-    used in week 1 and as the shrinkage target later on.
+    The outcome-model numbers are fixed, not re-fit in season -- see the module
+    docstring of :mod:`cfbroot.model` for why re-fitting is biased. They come
+    from ``python -m cfbroot.calibration``, which scores FPI against closing
+    betting lines.
     """
 
-    # --- game outcome model ---
-    hfa: float = 2.2               # home-field advantage, points
-    sigma: float = 16.5            # SD of (actual margin - projected margin), points
-    rating_scale: float = 1.0      # multiplier on the rating spread (calibration slope)
+    # --- game outcome model (see cfbroot/calibration.py) ---
+    # Home field: the market prices it at 2.74 points and realised margins give
+    # 2.91. Identified by the home/neutral split rather than the rating gap, so
+    # it is the one parameter the rating lookahead does not distort.
+    hfa: float = 2.75
+    # Sigma: results deviate from a closing line with SD 15.26, and FPI's own
+    # projections differ from that line with SD 5.53. A point-in-time FPI
+    # forecast therefore carries sqrt(15.26^2 + 5.53^2) = 16.23 points of error.
+    sigma: float = 16.2
+    # Slope: 1.0 by FPI's definition -- it is already scaled in points against
+    # an average opponent. The two lookahead-contaminated estimates straddle it
+    # near-symmetrically (0.897 regressing the market spread on the gap, 1.171
+    # regressing realised margin on it), which is what an unbiased 1.0 looks
+    # like seen from both sides.
+    rating_scale: float = 1.0
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
+
+    # provenance, for display
+    calibration_n: int = 1496
+    calibration_seasons: str = "2024-25"
 
     # --- committee ranking proxy ---
     # score = rating*w_rating + k_resume*(wins - elite_expected_wins) + k_champ*champion

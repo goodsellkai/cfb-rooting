@@ -1,4 +1,4 @@
-"""Data normalisation, the outcome model, and its calibration."""
+"""Data normalisation and the outcome model."""
 
 import numpy as np
 import pytest
@@ -8,7 +8,7 @@ from cfbroot.data.loader import default_year
 from cfbroot.data.season import (AWAY_WON, HOME_WON, TO_SIMULATE, build_season,
                                  normalise_name)
 from cfbroot.data.synthetic import build_payloads
-from cfbroot.model import calibrate, win_probability
+from cfbroot.model import evaluate, provenance, win_probability
 
 from conftest import make_mini_season
 
@@ -69,46 +69,53 @@ def test_a_two_touchdown_favourite_is_priced_like_the_market():
     assert 0.80 < float(win_probability(14 - p.hfa, 0, False, p)) < 0.87
 
 
-def test_calibration_recovers_known_parameters():
-    """The fit must be unbiased across replications.
+def test_model_parameters_are_fixed_not_refit():
+    """Building a season must not move the outcome model.
 
-    A single replication is a random draw -- the slope's own standard error at
-    n=3000 is about 0.018, so testing one fit against a tight tolerance tests
-    the seed, not the estimator. Averaging over 60 draws shrinks that by ~8x.
+    Re-fitting on completed games is biased: FPI is restated after each week,
+    so the ratings already encode the results the fit is scored against. On the
+    2025 season that produced a residual SD of 13.2, below the 15.3 achieved by
+    a closing betting line -- impossible for a strictly worse forecaster.
     """
-    reps = 60
-    slopes, hfas, sigmas = [], [], []
-    for seed in range(reps):
-        rng = np.random.default_rng(seed)
-        n = 3000
-        rh, ra = rng.normal(0, 10, n), rng.normal(0, 10, n)
-        neutral = rng.random(n) < 0.1
-        margin = 0.85 * (rh - ra) + 3.5 * (~neutral) + rng.normal(0, 14.0, n)
-        _, cal = calibrate(rh, ra, neutral, margin, ModelParams())
-        slopes.append(cal.slope_raw)
-        hfas.append(cal.hfa_raw)
-        sigmas.append(cal.sigma_raw)
-    assert np.mean(slopes) == pytest.approx(0.85, abs=0.01)
-    assert np.mean(hfas) == pytest.approx(3.5, abs=0.15)
-    assert np.mean(sigmas) == pytest.approx(14.0, abs=0.10)
+    from cfbroot.data.synthetic import synthetic_season
+
+    default = ModelParams()
+    for played_through in (0, 6, 12):
+        s = synthetic_season(played_through=played_through)
+        assert s.params.sigma == default.sigma
+        assert s.params.hfa == default.hfa
+        assert s.params.rating_scale == default.rating_scale
 
 
-def test_calibration_shrinks_toward_the_prior_on_thin_data():
-    prior = ModelParams()
-    rng = np.random.default_rng(1)
-    n = 60
+def test_parameters_match_the_documented_calibration():
+    """The defaults must stay tied to what cfbroot.calibration produces."""
+    p = ModelParams()
+    # sqrt(15.26^2 + 5.53^2) = 16.23, from 1,496 closing lines over 2024-25
+    assert p.sigma == pytest.approx(16.23, abs=0.15)
+    assert p.hfa == pytest.approx(2.74, abs=0.15)      # market home field
+    assert p.rating_scale == 1.0                       # FPI is points-scaled
+    assert "closing betting lines" in provenance(p)
+
+
+def test_diagnostics_report_without_changing_anything():
+    rng = np.random.default_rng(0)
+    n = 500
     rh, ra = rng.normal(0, 10, n), rng.normal(0, 10, n)
-    neutral = np.zeros(n, dtype=bool)
-    margin = 2.0 * (rh - ra) + rng.normal(0, 14.0, n)
-    tuned, cal = calibrate(rh, ra, neutral, margin, prior)
-    assert cal.shrink_weight < 0.35
-    assert abs(tuned.rating_scale - prior.rating_scale) < abs(cal.slope_raw - prior.rating_scale)
+    neutral = rng.random(n) < 0.1
+    p = ModelParams()
+    margin = (rh - ra) + p.hfa * (~neutral) + rng.normal(0, p.sigma, n)
+    d = evaluate(rh, ra, neutral, margin, p)
+    assert d.n_games == n
+    assert 0.0 <= d.brier <= 0.25
+    assert 0.5 <= d.accuracy <= 1.0
+    # a correctly specified model should sit near sigma * sqrt(2/pi)
+    assert d.mean_abs_margin_error == pytest.approx(p.sigma * 0.7979, rel=0.12)
 
 
-def test_calibration_declines_to_fit_almost_no_games():
-    prior = ModelParams()
-    tuned, cal = calibrate([1.0], [0.0], [False], [7.0], prior)
-    assert tuned is prior and cal.n_games == 1
+def test_diagnostics_handle_an_empty_season():
+    d = evaluate([], [], [], [], ModelParams())
+    assert d.n_games == 0
+    assert "fixed from a historical calibration" in d.summary()
 
 
 # ---------------------------------------------------------------- season build

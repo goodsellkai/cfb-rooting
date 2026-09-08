@@ -113,8 +113,8 @@ def cmd_refresh(args) -> int:
     state = load_season(args.year, live=True, force=True)
     print(f"{state.year}: {len(state.completed_games)} games played, "
           f"{len(state.remaining_games)} remaining. Week {state.current_week()}.")
-    if state.calibration:
-        print(state.calibration.summary())
+    if state.diagnostics:
+        print(state.diagnostics.summary())
     return 0
 
 

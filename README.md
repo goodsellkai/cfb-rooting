@@ -103,19 +103,34 @@ CollegeFootballData uses ESPN's team ids, so ratings join to teams on an exact
 integer key rather than by fuzzy school-name matching. The header shows how
 stale the ratings are, and **Refresh data** re-pulls them.
 
-**Game model.** Projected margin is `slope × (rating gap) + home-field`, and the
-win probability is the normal CDF of that margin over `sigma`. Rather than
-trusting the defaults, `cfbroot` re-fits `slope`, `home-field` and `sigma` by
-least squares on completed games, shrinking toward the priors with weight
-`n / (n + 150)` — so week 2 leans on the prior and November leans on the data.
-It reports its own Brier score and log loss.
+**Game model.** Projected margin is `slope × (rating gap) + home field`, and the
+win probability is the normal CDF of that margin over `sigma`. Every unplayed
+game is one Bernoulli draw against that probability; scores are never simulated.
 
-Only **FBS-vs-FBS** games are used for that fit. Roughly half of a season's
-early results are an FBS team hosting a non-FBS opponent, always at home, and
-that opponent's rating is an assumption (−32 by default) rather than a
-measurement — so any error in it gets absorbed by the home-field term, which is
-the parameter being estimated. Including those games inflated home-field from
-about 3 points to 8.
+The three parameters are **fixed, and derived from closing betting lines** by
+`python -m cfbroot.calibration` over 1,496 FBS-vs-FBS games in 2024-25:
+
+```
+SD(margin - closing spread)   15.26   irreducible game noise
+SD(FPI projection - spread)    5.53   FPI vs the market
+combined in quadrature        16.23   -> sigma
+home field, market spreads      2.74  -> hfa   (realised margins say 2.91)
+slope                           1.00  -> FPI is already points-scaled
+```
+
+A closing spread is a genuine point-in-time forecast — published before the
+game, unable to absorb the result — which is what makes it a valid yardstick.
+
+**They are deliberately not re-fit during the season.** FPI is restated after
+each week, so fitting "current ratings against already-played games" scores the
+ratings on results they have already absorbed. The bias does not wash out with
+more data: on the 2025 season that fit returns a residual SD of 13.2, *below*
+the 15.3 a sharp closing line achieves, which is impossible for a strictly worse
+forecaster. The same lookahead shows up in the slope, where regressing the
+market spread on the rating gap gives 0.90 and regressing realised margin on it
+gives 1.17 — two contaminated estimates bracketing the true 1.0. The app still
+scores itself on completed games, but reports those numbers rather than feeding
+them back.
 
 **A simulated season.** Draw a winner for every unplayed game; accumulate
 overall and conference records; order each conference and play the title games;
@@ -206,14 +221,18 @@ precisely than two independent runs would manage.
   higher seed's stadium, which is worth ~3 points to that team.
 - Bowls and actual playoff results are not ingested; the bracket is always
   simulated from the projected field.
-- **Ratings are treated as known exactly.** ESPN publishes its own FPI-based
-  playoff odds, shown beside ours in the league table, and ours run high at the
-  top of the board (Ohio State 91% vs ESPN's 78%, Penn State 61% vs 31%). The
-  ordering agrees; the confidence does not. The likely cause is that this model
-  freezes each rating for the whole season, while a team's true strength is
-  uncertain and drifts. Drawing each team's rating per simulated season from a
-  distribution around its point estimate would widen every outcome and pull
-  these numbers toward the middle. Not implemented yet.
+- **Ratings are treated as known exactly, and that is the main known gap.**
+  The 5.53 points of FPI-vs-market error above is folded into per-game `sigma`,
+  which means it is redrawn independently for every game and averages out over
+  a twelve-game season. In reality a misjudged rating is wrong in the *same*
+  direction all year, so it should be drawn once per team per simulated season
+  and should not average out. Modelling it that way would widen season-level
+  outcomes and pull probabilities toward the middle.
+
+  The visible symptom is that our numbers run above ESPN's own FPI-based
+  playoff odds, shown beside ours in the league table — Notre Dame 92.9% vs
+  77.2%, Penn State 54.4% vs 31.5%, about 12 points on average across the top
+  ten. The orderings agree closely; the confidence does not.
 - FPI already embeds a home-field adjustment, and the calibration re-fits home
   field on top of it, so the two are not cleanly separable.
 

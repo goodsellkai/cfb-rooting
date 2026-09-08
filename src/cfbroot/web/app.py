@@ -19,6 +19,7 @@ from ..config import (DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, ModelParams,
                       SimConfig, has_api_key)
 from ..data.loader import default_year, load_season
 from ..data.season import SeasonState
+from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run
 
 HERE = Path(__file__).resolve().parent
@@ -90,7 +91,7 @@ def _season_payload(s: SeasonState) -> dict:
     played = len([g for g in s.games if g["status"] != 0 and not g["is_ccg"]])
     remaining = len(s.remaining_games)
     weeks = sorted({g["week"] for g in s.games if not g["is_ccg"]})
-    cal = s.calibration
+    diag = s.diagnostics
     return _clean({
         "year": s.year,
         "current_week": s.current_week(),
@@ -100,7 +101,8 @@ def _season_payload(s: SeasonState) -> dict:
         "games_remaining": remaining,
         "rating_label": s.rating_label,
         "ratings_updated": s.ratings_updated,
-        "calibration": cal.summary() if cal is not None else "",
+        "model": model_provenance(s.params),
+        "diagnostics": diag.summary() if diag is not None else "",
         "notes": s.notes,
         "has_api_key": has_api_key(),
         "loaded_at": store.loaded_at,

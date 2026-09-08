@@ -11,7 +11,7 @@ import numpy as np
 
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
-from ..model import calibrate, win_probability
+from ..model import evaluate, provenance, win_probability
 
 # status codes on the unified game table
 TO_SIMULATE = 0
@@ -107,7 +107,7 @@ class SeasonState:
     conferences: list[ConferenceInfo]
     games: list[dict]
     params: ModelParams
-    calibration: object = None
+    diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
     ratings_updated: str | None = None
@@ -318,6 +318,8 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
                  sp_raw: list[dict] | None = None,
                  params: ModelParams | None = None,
                  recalibrate: bool = True) -> SeasonState:
+    # ``recalibrate`` now only controls whether fit diagnostics are computed;
+    # the model parameters themselves are fixed.
     params = params or ModelParams()
     sp_raw = sp_raw or []
     notes: list[str] = []
@@ -479,24 +481,14 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
                         params=params, rating_label="FPI", notes=notes)
 
     if recalibrate:
-        # Only FBS-vs-FBS games. Half of a season's early results are an FBS
-        # team hosting a non-FBS opponent, always at home, and that opponent's
-        # rating is an assumption rather than a measurement -- so any error in
-        # it is absorbed by the home-field term, which is exactly the parameter
-        # being fit.
         played = [g for g in games
                   if g["status"] != TO_SIMULATE and not g["is_ccg"]
                   and teams[g["home_idx"]].is_fbs and teams[g["away_idx"]].is_fbs]
-        if played:
-            rh = np.array([teams[g["home_idx"]].rating for g in played])
-            ra = np.array([teams[g["away_idx"]].rating for g in played])
-            neu = np.array([g["neutral"] for g in played])
-            mar = np.array([g["home_points"] - g["away_points"] for g in played],
-                           dtype=np.float64)
-            tuned, cal = calibrate(rh, ra, neu, mar, params)
-            state.params = tuned
-            state.calibration = cal
-        else:
-            _, state.calibration = calibrate([], [], [], [], params)
+        state.diagnostics = evaluate(
+            [teams[g["home_idx"]].rating for g in played],
+            [teams[g["away_idx"]].rating for g in played],
+            [g["neutral"] for g in played],
+            [g["home_points"] - g["away_points"] for g in played],
+            state.params)
 
     return state
