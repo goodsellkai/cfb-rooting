@@ -31,7 +31,7 @@ def cmd_check(args) -> int:
         print("No CFBD_API_KEY found.\n"
               "  1. Get a free key at https://collegefootballdata.com/key\n"
               "  2. Copy .env.example to .env and paste the key in.\n"
-              "Until then the app runs on fabricated demo data.")
+              "Until then the app uses fake demo data.")
         return 1
     year = args.year or default_year()
     try:
@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--live", action="store_true",
                    help="use a short cache TTL for scores (game day)")
     p.add_argument("--demo", action="store_true",
-                   help="use the fabricated demo season instead of the API")
+                   help="use fake demo data instead of the API")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("serve", help="run the local web app")
@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--sims", type=int, default=250_000)
     g.add_argument("--week", type=int, default=None)
     g.add_argument("--all-weeks", action="store_true",
-                   help="score every remaining game, not just this week's")
+                   help="score all remaining games")
     g.add_argument("--metric", default="make_playoff", choices=METRIC_NAMES)
     g.add_argument("--top", type=int, default=20)
     g.add_argument("--seed", type=int, default=12345)

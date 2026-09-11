@@ -1,7 +1,6 @@
-"""Fetch raw college football data from the CollegeFootballData.com API.
+"""CollegeFootballData.com API access.
 
-Everything is normalised to plain JSON-safe dicts here so the rest of the app
-never touches an SDK object, and so the disk cache can hold the raw payloads.
+Responses are converted to plain dicts so they can be cached as JSON.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ class SourceError(RuntimeError):
     pass
 
 
-# Refresh cadences. Results move fast on game days; schedules and ratings do not.
+# How long each kind of data stays cached.
 TTL_TEAMS = 7 * 24 * 3600
 TTL_CONFERENCES = 7 * 24 * 3600
 TTL_RATINGS = 12 * 3600
@@ -27,9 +26,7 @@ TTL_GAMES_LIVE = 10 * 60
 TTL_GAMES_IDLE = 6 * 3600
 
 
-# The generated models serialise by alias, so every payload comes back in
-# camelCase ("homeId", "startTimeTBD"). Normalising to snake_case at this
-# boundary means nothing downstream has to know or care which case it got.
+# The SDK returns camelCase keys (homeId). They are converted to snake_case here.
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
@@ -53,11 +50,7 @@ def _jsonable(obj: Any) -> Any:
 
 
 def _dump(result) -> list[dict]:
-    """Normalise an SDK response to a list of plain dicts.
-
-    Most endpoints return a list of models; a few (``/info/usage``) return a
-    single object, so wrap anything that is not already a sequence.
-    """
+    """Convert an SDK response (a list of models or a single model) to dicts."""
     if result is None:
         return []
     if not isinstance(result, (list, tuple)):
@@ -70,13 +63,11 @@ def _dump(result) -> list[dict]:
 
 
 class CFBDSource:
-    """Thin, cached wrapper around the endpoints this app actually needs."""
+    """Cached access to the CFBD endpoints the app uses."""
 
     def __init__(self, year: int, api_key: str | None = None):
         self.year = year
         self._key = api_key or config.api_key()
-
-    # -- internals -------------------------------------------------------
 
     def _client(self):
         import cfbd
@@ -88,11 +79,9 @@ class CFBDSource:
             with self._client() as client:
                 api = getattr(cfbd, api_cls_name)(client)
                 result = getattr(api, method)(**kwargs)
-        except Exception as exc:  # noqa: BLE001 - surface any SDK/HTTP failure uniformly
+        except Exception as exc:  # noqa: BLE001
             raise SourceError(f"{api_cls_name}.{method} failed: {exc}") from exc
         return _dump(result)
-
-    # -- endpoints -------------------------------------------------------
 
     def teams(self, *, force: bool = False) -> list[dict]:
         return cache.get_or_fetch(
@@ -117,7 +106,7 @@ class CFBDSource:
             force=force)
 
     def games(self, *, live: bool = False, force: bool = False) -> list[dict]:
-        """All regular-season games involving an FBS team."""
+        """All regular season games involving an FBS team."""
         return self._games("regular", TTL_GAMES_LIVE if live else TTL_GAMES_IDLE,
                            force)
 
@@ -138,50 +127,6 @@ class CFBDSource:
             force=force)
 
     def check(self) -> dict:
-        """Verify the key works and report the account's usage allowance."""
+        """Check the API key and return usage info."""
         info = self._call("InfoApi", "get_usage")
         return info[0] if info else {}
-
-
-def espn_fpi(year: int, *, force: bool = False) -> list[dict]:
-    """FPI straight from ESPN's public power-index endpoint.
-
-    Used as a fallback when CFBD has not yet published FPI for the season --
-    early in the year CFBD's mirror can lag ESPN by a few days.
-    """
-    import json
-    import urllib.request
-
-    def fetch() -> list[dict]:
-        url = ("https://site.web.api.espn.com/apis/fitt/v3/sports/football/"
-               f"college-football/powerindex?region=us&lang=en&contentorigin=espn"
-               f"&season={year}&limit=400")
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.load(resp)
-
-        rows = []
-        for entry in payload.get("teams", []):
-            team = entry.get("team", {})
-            stats = entry.get("categories", []) or entry.get("stats", [])
-            value = None
-            for cat in stats:
-                names = cat.get("names") or []
-                vals = cat.get("values") or []
-                if cat.get("name") == "fpi" and names and vals:
-                    if "fpi" in names:
-                        value = vals[names.index("fpi")]
-                    else:
-                        value = vals[0]
-                    break
-            if value is None:
-                continue
-            rows.append({
-                "team": team.get("displayName") or team.get("name"),
-                "abbreviation": team.get("abbreviation"),
-                "espn_id": team.get("id"),
-                "fpi": float(value),
-            })
-        return rows
-
-    return cache.get_or_fetch("espn_fpi", {"year": year}, TTL_RATINGS, fetch, force=force)

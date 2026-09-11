@@ -2,15 +2,13 @@
 
 const $ = (id) => document.getElementById(id);
 
-/* Percentages are always shown to hundredths: at a million simulations the
-   interesting swings live in the second decimal place, and rounding them away
-   makes distinct games look identical. */
+/* Percentages always show two decimals. */
 const pct = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
-  ? "—" : (100 * x).toFixed(d) + "%";
+  ? "-" : (100 * x).toFixed(d) + "%";
 const signed = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
-  ? "—" : (x >= 0 ? "+" : "−") + (100 * Math.abs(x)).toFixed(d);
+  ? "-" : (x >= 0 ? "+" : "−") + (100 * Math.abs(x)).toFixed(d);
 const num = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
-  ? "—" : x.toFixed(d);
+  ? "-" : x.toFixed(d);
 
 let STATE = null;      // /api/state
 let RESULT = null;     // last run: every remaining game x every metric
@@ -23,7 +21,7 @@ const CONF_TITLE = {
   thin: "Too few simulations on one side.",
 };
 
-// ---------------------------------------------------------------- bootstrap
+// Startup
 
 async function boot() {
   try {
@@ -52,7 +50,7 @@ function banner(text, ok) {
 function showNotes() {
   const notes = (STATE.notes || []).filter(Boolean);
   if (!STATE.has_api_key) {
-    banner("No CFBD API key found — showing a fabricated demo season. "
+    banner("No CFBD API key found. Showing a fake demo season. "
       + "Add CFBD_API_KEY to .env and restart for real data.", false);
   } else if (notes.length) {
     banner(notes[0], true);
@@ -76,7 +74,7 @@ function renderSeasonLine() {
     `${STATE.year} season · week ${STATE.current_week} · `
     + `${STATE.games_played} played, ${STATE.games_remaining} to simulate`;
   $("topmeta").innerHTML =
-    `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "—")}</b></span>`;
+    `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`;
 }
 
 function team(idx) {
@@ -120,12 +118,10 @@ function fillWeeks() {
   sel.value = String(STATE.default_week ?? STATE.current_week);
 }
 
-// ------------------------------------------------------------------ running
+// Running
 //
-// Only three things change the simulation itself: which team is the focus
-// (the kernel records metrics for that team alone), how many seasons to draw,
-// and the underlying data. Week, metric, significance filter and sort order
-// are all views over one completed run.
+// Only the team, the number of seasons, and the data need a new run.
+// Week, metric, filter and sort only change the view.
 
 function currentInputs() {
   return {
@@ -231,7 +227,7 @@ async function refreshData() {
   if ($("team").value.trim()) runSim();
 }
 
-// ---------------------------------------------------------------- selection
+// Selection
 
 function metricLabel(key) {
   const m = STATE.metrics.find(x => x.key === key);
@@ -254,7 +250,7 @@ function confidenceOf(s) {
   return sigOf(s) ? "clear" : "leaning";
 }
 
-/** CI bound nearest zero — the swing that can actually be defended. */
+/** Confidence bound closest to zero. */
 function conservative(s) {
   if (!isFinite(s.lo) || !isFinite(s.hi)) return 0;
   if (s.lo <= 0 && 0 <= s.hi) return 0;
@@ -282,7 +278,7 @@ function ownGames() {
   return RESULT.own_games.filter(g => wk === null || g.week === wk);
 }
 
-// ---------------------------------------------------------------- rendering
+// Rendering
 
 function render() {
   if (!RESULT) return;
@@ -295,7 +291,7 @@ function render() {
   renderRootList();
   renderLeague();
   $("weeklabel").textContent = selectedWeek() === null
-    ? "— all remaining games" : "— week " + selectedWeek();
+    ? "(all remaining games)" : "(week " + selectedWeek() + ")";
   $("footmeta").textContent =
     `${RESULT.n_sims.toLocaleString()} seasons · ${num(RESULT.elapsed)}s · `
     + `${STATE.rating_label} ${ago(STATE.ratings_updated)}`;
@@ -379,7 +375,7 @@ function gameRowsHTML(games) {
     const dim = sigOf(s) ? "" : " dim";
     const pHome = g.p_home_win;
 
-    // The team to root for is the one in bold — never simply the home team.
+    // Bold the team to root for.
     const awayCls = "side" + (rootHome ? "" : " root") + (conf === "clear" ? " strong" : "");
     const homeCls = "side" + (rootHome ? " root" : "") + (conf === "clear" ? " strong" : "");
 
@@ -456,7 +452,7 @@ function renderLeague() {
       <td class="num">${num(r.rating, 1)}</td>
       <td class="num"><b>${pct(r.p[key])}</b></td>
       ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
-        ? pct(r.espn_playoff_prob) : "—"}</td>` : ""}</tr>`;
+        ? pct(r.espn_playoff_prob) : "-"}</td>` : ""}</tr>`;
   });
   $("league").innerHTML = html + "</tbody></table></div>";
 }
@@ -466,7 +462,7 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ------------------------------------------------------------------- events
+// Events
 
 $("run").addEventListener("click", runSim);
 $("refresh").addEventListener("click", refreshData);

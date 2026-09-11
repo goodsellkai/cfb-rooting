@@ -1,19 +1,17 @@
-"""The Monte Carlo kernel: one full college football season, many times over.
+"""Numba kernel that simulates full seasons.
 
-Everything here is written against flat numpy arrays so numba can compile it.
-The same source runs uncompiled (slowly, but identically) when numba is absent,
-which keeps the reference implementation and the fast one from drifting apart.
+Works on flat numpy arrays so numba can compile it. Without numba the same
+code runs as plain Python.
 
-One simulated season is:
+Each simulated season:
+1. picks a winner for every unplayed regular season game
+2. adds up overall and conference records
+3. orders each conference, breaks ties, and plays the title games
+4. ranks every team with the committee proxy
+5. picks and seeds the 12-team playoff
+6. plays the bracket
 
-1. draw a winner for every unplayed regular-season game;
-2. accumulate overall and conference records;
-3. order each conference, break ties, and play the title games;
-4. score every team with a committee proxy and rank them;
-5. select and seed the 12-team playoff field;
-6. play the bracket.
-
-Metric columns are indexed by ``cfbroot.config.METRIC_NAMES``.
+Metric columns follow config.METRIC_NAMES.
 """
 
 from __future__ import annotations
@@ -37,7 +35,7 @@ except ImportError:  # pragma: no cover
 
     prange = range
 
-# metric columns -- must match config.METRIC_NAMES
+# Metric columns. Must match config.METRIC_NAMES.
 M_WIN_CONF = 0
 M_CCG = 1
 M_PLAYOFF = 2
@@ -67,13 +65,11 @@ def _win_prob(ra, rb, scale, edge, sigma):
 def _order_conference(members, n_m, cwins, closses, score,
                       conf_games, cg_lo, cg_hi, g_home, g_away, winner,
                       order, pct, mark, h2h):
-    """Order one conference's members best-to-worst into ``order``.
+    """Order a conference's members best to worst into ``order``.
 
-    Conference win percentage first, then head-to-head results among the tied
-    group, then the committee-proxy score. The last step stands in for the
-    "highest ranked team" clause that the Big 12 and Big Ten both fall back on,
-    and for the common-opponent rules that are impractical to reproduce
-    exactly inside the kernel.
+    Sorts by conference win percentage, then head-to-head among tied teams,
+    then committee score. The last step approximates the "highest ranked team"
+    tiebreaker the Big 12 and Big Ten use.
     """
     for j in range(n_m):
         t = members[j]
@@ -186,7 +182,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         picked = np.zeros(n_teams, dtype=np.uint8)
 
         for s in range(lo, hi):
-            # ---- 1. game outcomes ----------------------------------
+            # 1. Game outcomes
             for i in range(n_g):
                 st = g_status[i]
                 if st == 0:
@@ -194,7 +190,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 else:
                     winner[i] = st
 
-            # ---- 2. records ----------------------------------------
+            # 2. Records
             for t in range(n_teams):
                 wins[t] = 0
                 losses[t] = 0
@@ -215,13 +211,13 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     cwins[w] += 1
                     closses[l] += 1
 
-            # ---- 3. pre-title-game committee score -----------------
+            # 3. Committee score before title games
             for j in range(n_fbs):
                 t = fbs_idx[j]
                 score[t] = w_rating * rating[t] + k_resume * (
                     wins[t] - exp_elite_wins[t])
 
-            # ---- 4. conference championships -----------------------
+            # 4. Conference championships
             for t in range(n_teams):
                 champ[t] = 0
                 in_ccg[t] = 0
@@ -295,7 +291,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 champ[won] = 1
                 ccg_delta[won] = 1
 
-            # ---- 5. final ranking ----------------------------------
+            # 5. Final ranking
             for j in range(n_fbs):
                 t = fbs_idx[j]
                 exp = exp_elite_wins[t]
@@ -310,7 +306,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
             for k in range(n_fbs):
                 rank_of[fbs_idx[ranked[k]]] = k
 
-            # ---- 6. playoff field ----------------------------------
+            # 6. Playoff field
             for t in range(n_teams):
                 picked[t] = 0
                 seed_of[t] = 0
@@ -358,7 +354,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
             for k in range(n_byes):
                 reached[k] = 2  # a bye is a free trip to the quarterfinal
 
-            # ---- 7. bracket ----------------------------------------
+            # 7. Bracket
             if n_sel == field:
                 w1 = _play(seeds, 4, 11, rating, scale, hfa, sigma, True)
                 reached[w1] = 2
@@ -388,7 +384,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 for k in range(field):
                     reached[k] = 0
 
-            # ---- 8. record outputs ---------------------------------
+            # 8. Outputs
             for k in range(n_rem):
                 out_hw[s, k] = 1 if winner[remaining_idx[k]] == 1 else 0
 

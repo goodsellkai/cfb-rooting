@@ -12,11 +12,7 @@ from .season import SeasonState, build_season
 
 
 def default_year(today: dt.date | None = None) -> int:
-    """The season a user means when they don't say.
-
-    A college football season spans two calendar years, so anything before
-    July belongs to the previous season.
-    """
+    """Default season. Before July, that's the previous calendar year."""
     today = today or dt.date.today()
     return today.year if today.month >= 7 else today.year - 1
 
@@ -24,10 +20,9 @@ def default_year(today: dt.date | None = None) -> int:
 def load_season(year: int | None = None, *, live: bool = False,
                 force: bool = False, params: ModelParams | None = None,
                 synthetic: bool = False) -> SeasonState:
-    """Build a :class:`SeasonState` from CFBD (or from the test fixture).
+    """Build a SeasonState from CFBD, or from fake data if there is no key.
 
-    ``live=True`` shortens the game-results cache TTL to ten minutes, which is
-    what you want while games are being played.
+    ``live=True`` caches game results for 10 minutes instead of 6 hours.
     """
     year = year or default_year()
 
@@ -37,8 +32,8 @@ def load_season(year: int | None = None, *, live: bool = False,
         from .synthetic import synthetic_season
         through = int(os.environ.get("CFBROOT_DEMO_WEEK", "6"))
         state = synthetic_season(year=year, played_through=through, params=params)
-        state.notes.insert(0, "DEMO DATA -- no CFBD API key found, so this is a "
-                              "fabricated season played through week "
+        state.notes.insert(0, "Demo data: no CFBD API key found, so this is a "
+                              "fake season played through week "
                               f"{through}. Add CFBD_API_KEY to .env for real data.")
         return state
 
@@ -51,9 +46,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     ratings_updated = None
     espn_extra: dict = {}
 
-    # FPI is ESPN's metric and CFBD's mirror of it lags -- in the 2026 opener
-    # CFBD was still serving preseason numbers days after ESPN had updated
-    # (mean gap 1.8 points, max 8.9). Go to the source first.
+    # Get FPI from ESPN first. CFBD's copy can be days behind.
     fpi: list[dict] = []
     try:
         payload = fetch_fpi(year, force=force)
@@ -81,8 +74,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     state.rating_label = "FPI" if fpi else "SP+"
     state.ratings_updated = ratings_updated
     state.notes = notes + state.notes
-    # ESPN publishes its own FPI-based playoff odds; keep them as an external
-    # reference point to display next to ours.
+    # Keep ESPN's own playoff odds to show next to ours.
     for t in state.teams:
         row = espn_extra.get(int(t.team_id)) if t.team_id is not None else None
         if row:

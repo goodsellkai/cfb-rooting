@@ -1,12 +1,7 @@
-"""ESPN's public power-index endpoint.
+"""ESPN power index (FPI).
 
-CFBD mirrors FPI, but its copy can lag ESPN by days -- early in the 2026 season
-CFBD still carried preseason numbers while ESPN had already updated. Since FPI
-is ESPN's metric, ESPN is the authoritative source and this is the primary
-ratings fetcher.
-
-Conveniently, CollegeFootballData uses ESPN's team ids, so ratings join to teams
-on an exact integer key rather than on fuzzy school-name matching.
+This is the main ratings source. CFBD's copy of FPI can be several days behind.
+CFBD uses ESPN team ids, so ratings are matched to teams by id.
 """
 
 from __future__ import annotations
@@ -40,10 +35,9 @@ def _get(url: str) -> dict:
 
 
 def _category_names(payload: dict) -> dict[str, list[str]]:
-    """Map category name -> ordered stat names.
+    """Map each category to its stat names.
 
-    Each team's ``values`` arrays are positional, and the labels for those
-    positions live once at the top level rather than on every team.
+    Team values are positional. The names are listed once at the top level.
     """
     out = {}
     for cat in payload.get("categories") or []:

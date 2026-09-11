@@ -1,11 +1,4 @@
-"""Inference helpers for Monte Carlo output.
-
-Every probability we report is a binomial proportion estimated from a finite
-number of simulations, and every "rooting interest" is a *difference* of two
-such proportions estimated from disjoint slices of the same simulation set.
-This module supplies the interval estimates and multiplicity control that make
-those differences interpretable rather than decorative.
-"""
+"""Confidence intervals and multiple-testing control for simulated probabilities."""
 
 from __future__ import annotations
 
@@ -32,12 +25,7 @@ def _z(alpha: float) -> float:
 
 
 def wilson_ci(k, n, alpha: float = 0.05):
-    """Wilson score interval for a binomial proportion.
-
-    Preferred over the Wald interval because simulated probabilities routinely
-    sit near 0 or 1 (a 0.2% national-title chance, a 99% bowl chance), exactly
-    where Wald intervals fall apart or spill outside [0, 1].
-    """
+    """Wilson score interval for a binomial proportion. Stays sensible near 0 and 1."""
     k = np.asarray(k, dtype=np.float64)
     n = np.asarray(n, dtype=np.float64)
     z = _z(alpha)
@@ -56,12 +44,10 @@ def wilson_ci(k, n, alpha: float = 0.05):
 
 
 def newcombe_diff_ci(k1, n1, k2, n2, alpha: float = 0.05):
-    """Newcombe's method 10 ("square-and-add") CI for p1 - p2.
+    """Newcombe (method 10) interval for p1 - p2, built from two Wilson intervals.
 
-    Two independent Wilson intervals are combined rather than pooling a Wald
-    standard error. This keeps coverage honest when one arm is a small slice of
-    the simulation set -- which is exactly the case for a heavy underdog's
-    upset branch, where n2 may be a few percent of n1.
+    Holds up when one side is a small share of the simulations, as with a big
+    underdog's upset branch.
     """
     k1 = np.asarray(k1, dtype=np.float64)
     n1 = np.asarray(n1, dtype=np.float64)
@@ -94,7 +80,7 @@ def prop_diff_pvalue(k1, n1, k2, n2):
         se = np.sqrt(pooled * (1.0 - pooled) * (1.0 / n1 + 1.0 / n2))
         z = (k1 / n1 - k2 / n2) / se
     p = 2.0 * sps.norm.sf(np.abs(z))
-    # A degenerate arm (se == 0, or an empty slice) carries no evidence.
+    # An empty or degenerate side gives p = 1.
     p = np.where(np.isfinite(p), p, 1.0)
     if np.ndim(p) == 0:
         return float(p)
@@ -102,14 +88,7 @@ def prop_diff_pvalue(k1, n1, k2, n2):
 
 
 def benjamini_hochberg(pvalues, q: float = 0.05):
-    """Benjamini-Hochberg FDR control.
-
-    A single week's guide tests every remaining game against every metric --
-    several hundred hypotheses. Without multiplicity control, a handful of pure
-    Monte Carlo flukes would be labelled "significant" every single week.
-
-    Returns ``(rejected, qvalues)``.
-    """
+    """Benjamini-Hochberg false discovery rate control. Returns (rejected, qvalues)."""
     p = np.asarray(pvalues, dtype=np.float64).ravel()
     n = p.size
     if n == 0:
@@ -136,12 +115,7 @@ def mc_stderr(p, n):
 
 def sims_for_resolution(delta: float, p: float = 0.5, alpha: float = 0.05,
                         power: float = 0.8) -> float:
-    """Total simulations needed to resolve a swing of ``delta`` in a metric.
-
-    Assumes the game splits the simulation set evenly (the worst case is a
-    lopsided split, which needs more). Used to tell the user when a reported
-    edge is simply below the resolution of the run they asked for.
-    """
+    """Simulations needed to detect a swing of ``delta``, assuming an even split."""
     if delta <= 0:
         return math.inf
     za = _z(alpha)

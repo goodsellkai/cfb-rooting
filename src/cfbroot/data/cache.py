@@ -1,8 +1,4 @@
-"""A small TTL disk cache so repeated refreshes don't hammer the API.
-
-Game results need a short TTL on Saturdays and a long one in the offseason, so
-callers pass the TTL per fetch rather than configuring it globally.
-"""
+"""Small disk cache. Each call sets its own expiry."""
 
 from __future__ import annotations
 
@@ -29,7 +25,7 @@ def get_or_fetch(namespace: str, key: dict, ttl_seconds: float,
             if time.time() - blob["fetched_at"] <= ttl_seconds:
                 return blob["data"]
         except (json.JSONDecodeError, KeyError, OSError):
-            pass  # corrupt or partial cache entry -- just refetch
+            pass  # bad cache file, fetch again
 
     data = fetch()
     path.parent.mkdir(parents=True, exist_ok=True)

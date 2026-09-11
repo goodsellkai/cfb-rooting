@@ -1,15 +1,8 @@
-"""Turning power ratings into game win probabilities.
+"""Win probabilities from power ratings.
 
-The parameters are fixed, and derived offline from closing betting lines rather
-than re-fit during the season. See :func:`provenance` for where each number
-comes from and :mod:`cfbroot.calibration` for the script that produced them.
-
-Re-fitting in season is the obvious thing to do and it is wrong. FPI is updated
-*after* each week's games, so a fit of "current ratings against already-played
-games" is scored on results the ratings have already absorbed. The estimate is
-biased low no matter how much data accumulates: on the 2025 season it produced
-a residual SD of 13.2, below the 15.3 achieved by a sharp closing line, which
-is impossible for a strictly worse forecaster.
+The parameters are fixed (see cfbroot.calibration). Fitting them on games that
+have already been played gives a biased answer, because FPI is updated after
+those games and already reflects their results.
 """
 
 from __future__ import annotations
@@ -32,24 +25,17 @@ def projected_margin(rating_home, rating_away, neutral, params: ModelParams):
 
 
 def win_probability(rating_home, rating_away, neutral, params: ModelParams):
-    """P(home team wins).
-
-    FPI is a points-above-average rating, so the rating gap is already on the
-    scale of a point spread. Converting a spread to a win probability with a
-    normal CDF is the standard closing-line approach; ``sigma`` is the SD of
-    results around that spread.
-    """
+    """P(home team wins): normal CDF of the projected margin divided by sigma."""
     mu = projected_margin(rating_home, rating_away, neutral, params)
     return sps.norm.cdf(mu / params.sigma)
 
 
 @dataclass
 class Diagnostics:
-    """How the fixed model scores against games that have been played.
+    """How the fixed model scores on completed games.
 
-    Reported, never fed back. These numbers flatter the model for the same
-    reason the old calibration was biased: the ratings already know how these
-    games turned out.
+    Reported only, never used to change the parameters. The numbers look
+    better than they should, since the ratings already include these games.
     """
 
     n_games: int
@@ -60,19 +46,18 @@ class Diagnostics:
 
     def summary(self) -> str:
         if self.n_games < 10:
-            return ("Model parameters are fixed from a historical calibration; "
-                    "too few games played to report a fit.")
-        return (f"Fixed parameters. Against {self.n_games} completed games: "
+            return ("Parameters are fixed from a historical calibration. "
+                    "Too few completed games to report a fit.")
+        return (f"Fixed parameters. {self.n_games} completed games: "
                 f"Brier {self.brier:.3f}, accuracy {self.accuracy:.0%}, mean margin "
-                f"error {self.mean_abs_margin_error:.1f} pts (optimistic -- the "
-                f"ratings already reflect these results).")
+                f"error {self.mean_abs_margin_error:.1f} pts (optimistic, since the "
+                f"ratings already include these games).")
 
 
 def provenance(params: ModelParams) -> str:
     return (f"slope {params.rating_scale:.2f}, home field {params.hfa:.2f} pts, "
-            f"sigma {params.sigma:.2f} pts -- calibrated against "
-            f"{params.calibration_n:,} closing betting lines "
-            f"({params.calibration_seasons}).")
+            f"sigma {params.sigma:.2f} pts, from {params.calibration_n:,} closing "
+            f"betting lines ({params.calibration_seasons}).")
 
 
 def evaluate(rating_home, rating_away, neutral, margin,

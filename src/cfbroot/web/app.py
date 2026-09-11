@@ -28,9 +28,7 @@ app = FastAPI(title="cfbroot", docs_url="/api/docs")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 
-# ---------------------------------------------------------------------------
-# server state
-# ---------------------------------------------------------------------------
+# Server state
 
 @dataclass
 class Job:
@@ -67,9 +65,7 @@ class Store:
 store = Store()
 
 
-# ---------------------------------------------------------------------------
-# serialisation helpers
-# ---------------------------------------------------------------------------
+# JSON helpers
 
 def _clean(obj):
     """Make numpy scalars and NaNs safe for JSON."""
@@ -114,8 +110,7 @@ def _season_payload(s: SeasonState) -> dict:
              "rating": t.rating, "abbr": t.abbreviation}
             for t in sorted(s.fbs_teams, key=lambda t: t.school)
         ],
-        # Every team the schedule can reference, non-FBS opponents included,
-        # so the client can render a logo for either side of any game.
+        # All teams, including non-FBS opponents, so every game can show logos.
         "team_index": {
             str(t.idx): {"name": t.school, "abbr": t.abbreviation,
                          "logo": t.logo, "color": t.color,
@@ -150,16 +145,10 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
     })
 
 
-# ---------------------------------------------------------------------------
-# routes
-# ---------------------------------------------------------------------------
+# Routes
 
 def _asset_token() -> str:
-    """A token that changes whenever the CSS or JS changes.
-
-    Without this the browser happily keeps a cached app.js across an update,
-    and the stale copy then breaks against a changed API payload.
-    """
+    """Changes when the CSS or JS changes, so browsers don't use a stale copy."""
     stamps = []
     for name in ("static/app.js", "static/app.css"):
         f = HERE / name
@@ -187,7 +176,7 @@ def api_state():
 
 @app.post("/api/refresh")
 def api_refresh():
-    """Re-pull scores and ratings. This is the after-a-day-of-games button."""
+    """Re-pull scores and ratings."""
     try:
         s = store.get_season(force=True, live=True)
     except Exception as exc:  # noqa: BLE001
@@ -232,9 +221,7 @@ def api_run(req: RunRequest):
                 job.total = total
 
             res = run(s, team.idx, cfg, progress=progress)
-            # Score every remaining game for every metric. Week and metric are
-            # both display filters over this one result, so neither costs a
-            # second simulation.
+            # Score every remaining game for every metric. Week and metric are filters.
             guide = build_guide(s, res, primary=req.primary, week=None)
             store.last_results = res
             store.last_team = team.school

@@ -16,7 +16,7 @@ def result(midseason):
     return run(midseason, "SEC Team 08", SimConfig(n_sims=40_000, batch_size=20_000))
 
 
-# ---------------------------------------------------------------- invariants
+# Invariants
 
 @pytest.mark.parametrize("metric,expected", [
     ("win_conference", 10),          # ten conferences crown a champion
@@ -29,7 +29,7 @@ def result(midseason):
     ("win_national_title", 1),
 ])
 def test_bracket_structure_holds_in_every_simulation(result, metric, expected):
-    """These are counts per season, so the mean must be exact, not approximate."""
+    """Per-season counts, so each total equals expected * n_sims."""
     total = result.team_counts[:, M[metric]].sum()
     assert total == expected * result.n_sims
 
@@ -70,7 +70,7 @@ def test_completed_results_are_respected(midseason):
     assert not np.isin(ki.remaining_idx, np.flatnonzero(played)).any()
 
 
-# ------------------------------------------------------------- reproducibility
+# Reproducibility
 
 def test_same_seed_gives_identical_results(midseason):
     cfg = SimConfig(n_sims=10_000, batch_size=5_000, seed=99)
@@ -86,7 +86,7 @@ def test_different_seeds_give_different_results(midseason):
     assert not np.array_equal(a.metric_counts, b.metric_counts)
 
 
-# ------------------------------------------------------------------ calibration
+# Calibration
 
 def test_simulated_win_rate_matches_the_model_probability(midseason):
     """Each game's simulated home-win frequency must match its model input."""
@@ -116,13 +116,10 @@ def test_expected_wins_matches_the_sum_of_win_probabilities(midseason):
     assert res.wins_mean == pytest.approx(expected, abs=0.03)
 
 
-# -------------------------------------------------------------- tiebreakers
+# Tiebreakers
 
 def test_head_to_head_beats_the_rating_fallback():
-    """A and B finish 2-1; A beat B; A must take the title every time.
-
-    B is given a far better rating on purpose -- head-to-head has to win.
-    """
+    """A and B finish 2-1 and A beat B, so A wins the title even though B is rated higher."""
     games = [("A", "B", True), ("A", "C", True), ("D", "A", True),
              ("B", "C", True), ("B", "D", True), ("C", "D", True)]
     s = make_mini_season(games, ratings={"A": -10.0, "B": 25.0, "C": 0.0, "D": 0.0})
@@ -166,17 +163,10 @@ def test_evenly_matched_title_game_is_a_coin_flip():
     assert p == pytest.approx(0.5, abs=0.02)
 
 
-# ------------------------------------------------- committee proxy calibration
+# Committee proxy calibration
 
 def test_at_large_selection_is_driven_by_record_not_by_rating(midseason):
-    """Losses must matter more than the eye test.
-
-    The committee has never taken a four-loss at-large team. An earlier version
-    of the proxy weighted the power rating so heavily that the best team in the
-    country made the field ~100% of the time even at 7-5, because a brutal
-    schedule bought unlimited strength-of-record credit. This pins the shape of
-    P(bid | record) so that cannot silently come back.
-    """
+    """Even the top-rated team rarely gets an at-large bid with 4 losses."""
     best = max(midseason.fbs_teams, key=lambda t: t.rating)
     res = run(midseason, best.idx, SimConfig(n_sims=120_000, batch_size=25_000))
     rates = res.playoff_rate_by_wins()
@@ -188,7 +178,7 @@ def test_at_large_selection_is_driven_by_record_not_by_rating(midseason):
     if rates.get(four_loss, (0, 0))[1] > 2_000:
         assert rates[four_loss][0] < 0.45, (
             f"a 4-loss {best.school} makes the field "
-            f"{rates[four_loss][0]:.0%} of the time -- far too often")
+            f"{rates[four_loss][0]:.0%} of the time, too often")
     if rates.get(two_loss, (0, 0))[1] > 2_000:
         assert rates[two_loss][0] > 0.60
 
@@ -198,7 +188,7 @@ def test_at_large_selection_is_driven_by_record_not_by_rating(midseason):
 
 
 def test_schedule_strength_credit_is_damped(midseason):
-    """resume_shrink must actually compress the spread in expected elite wins."""
+    """resume_shrink compresses the spread in expected elite wins."""
     import dataclasses
 
     ki_full = dataclasses.replace(midseason, params=dataclasses.replace(

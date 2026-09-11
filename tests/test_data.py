@@ -13,7 +13,7 @@ from cfbroot.model import evaluate, provenance, win_probability
 from conftest import make_mini_season
 
 
-# ------------------------------------------------------------- name matching
+# Name matching
 
 @pytest.mark.parametrize("a,b", [
     ("Ohio State", "ohio state"),
@@ -36,7 +36,7 @@ def test_names_that_should_not_match_do_not(a, b):
     assert normalise_name(a) != normalise_name(b)
 
 
-# ------------------------------------------------------------ outcome model
+# Outcome model
 
 def test_even_teams_at_a_neutral_site_are_a_coin_flip():
     p = ModelParams()
@@ -70,13 +70,7 @@ def test_a_two_touchdown_favourite_is_priced_like_the_market():
 
 
 def test_model_parameters_are_fixed_not_refit():
-    """Building a season must not move the outcome model.
-
-    Re-fitting on completed games is biased: FPI is restated after each week,
-    so the ratings already encode the results the fit is scored against. On the
-    2025 season that produced a residual SD of 13.2, below the 15.3 achieved by
-    a closing betting line -- impossible for a strictly worse forecaster.
-    """
+    """Building a season doesn't change the model parameters."""
     from cfbroot.data.synthetic import synthetic_season
 
     default = ModelParams()
@@ -118,7 +112,7 @@ def test_diagnostics_handle_an_empty_season():
     assert "fixed from a historical calibration" in d.summary()
 
 
-# ---------------------------------------------------------------- season build
+# Season build
 
 def test_completed_and_pending_games_are_classified_correctly():
     s = make_mini_season([("A", "B", True), ("C", "D", False), ("A", "C", None)])
@@ -191,7 +185,7 @@ def test_default_year_rolls_over_in_july():
     assert default_year(dt.date(2026, 7, 1)) == 2026
 
 
-# -------------------------------------------------- conference title games
+# Conference title games
 
 def _season_with_note(note, conference_game=True):
     """A 4-team conference plus one extra game carrying ``note``."""
@@ -255,14 +249,12 @@ def test_a_played_title_game_pins_the_champion():
     assert res.team_counts[ccg["home_idx"], mi] == 0
 
 
-# ------------------------------------------- CFBD payload shape (camelCase)
+# CFBD payload shape (camelCase)
 
 def test_sdk_payloads_are_normalised_to_snake_case():
-    """The generated models serialise by alias, so everything arrives camelCase.
+    """SDK payloads arrive in camelCase and are converted to snake_case.
 
-    Getting this wrong is silent and total: `g.get("home_id")` returns None for
-    every game, both teams become unknown non-FBS placeholders, and the season
-    builds cleanly with zero games in it.
+    If this breaks, every game loads with no teams and the season is empty.
     """
     from cfbroot.data.cfbd_source import _jsonable, _snake
     assert _snake("homeId") == "home_id"

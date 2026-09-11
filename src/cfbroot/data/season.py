@@ -57,13 +57,12 @@ class ConferenceInfo:
     abbreviation: str = ""
     is_power: bool = False
     has_ccg: bool = True
-    # Independents have no title to win, so they must not be eligible for the
-    # highest-ranked-champion auto bid.
+    # Independents can't win a conference, so they can't get a champion's bid.
     crowns_champion: bool = True
     divisions: list[str] = field(default_factory=list)
     team_idxs: list[int] = field(default_factory=list)
-    # A title game already played (or already locked in) overrides the
-    # simulated one: (home_idx, away_idx, status).
+    # A scheduled or played title game replaces the simulated one:
+    # (home_idx, away_idx, status).
     fixed_ccg: tuple[int, int, int] | None = None
 
 
@@ -113,7 +112,7 @@ class SeasonState:
     ratings_updated: str | None = None
     notes: list[str] = field(default_factory=list)
 
-    # -- lookups ---------------------------------------------------------
+    # Lookups
 
     def team_by_name(self, name: str) -> TeamInfo | None:
         key = normalise_name(name)
@@ -166,12 +165,9 @@ class SeasonState:
         return min(pending) if pending else max((g["week"] for g in self.games), default=0)
 
     def default_week(self) -> int:
-        """The slate a user most likely means.
+        """First week that is mostly unplayed.
 
-        ``current_week`` is the first week with any unplayed game, which on a
-        Sunday can be a week that is 99% finished and has one Monday nighter
-        left. The useful default is the first week that has actually not been
-        played yet.
+        current_week() can land on a week with only a Monday game left.
         """
         totals: dict[int, int] = {}
         pending: dict[int, int] = {}
@@ -191,7 +187,7 @@ class SeasonState:
                 if g["week"] == week and not g["is_ccg"]
                 and (g["status"] == TO_SIMULATE or not only_remaining)]
 
-    # -- kernel inputs ---------------------------------------------------
+    # Kernel inputs
 
     def kernel_inputs(self) -> KernelInputs:
         p = self.params
@@ -227,8 +223,8 @@ class SeasonState:
 
         remaining_idx = np.flatnonzero(g_status == TO_SIMULATE).astype(np.int32)
 
-        # Expected wins for a reference playoff-caliber team against each
-        # team's schedule -- the resume half of the committee proxy.
+        # Expected wins for a playoff-level team against each schedule.
+        # Used by the committee proxy.
         elite = np.full(n_g, p.elite_rating)
         p_elite_home = np.asarray(win_probability(elite, rating[g_away], g_neutral, p))
         p_elite_away = 1.0 - np.asarray(win_probability(rating[g_home], elite, g_neutral, p))
@@ -236,10 +232,9 @@ class SeasonState:
         np.add.at(exp_elite, g_home, p_elite_home)
         np.add.at(exp_elite, g_away, p_elite_away)
 
-        # Shrink each team's schedule adjustment toward the FBS average, on a
-        # per-game rate so that a 13-game schedule is handled correctly. Without
-        # this, a team with a punishing schedule banks so much strength-of-record
-        # credit that losses stop mattering.
+        # Shrink each team's schedule adjustment toward the FBS average, per
+        # game. Without this a very hard schedule earns so much credit that
+        # losses stop mattering.
         n_games = np.zeros(n_teams, dtype=np.float64)
         np.add.at(n_games, g_home, 1.0)
         np.add.at(n_games, g_away, 1.0)
@@ -297,9 +292,7 @@ class SeasonState:
         )
 
 
-# ---------------------------------------------------------------------------
-# building a SeasonState from raw payloads
-# ---------------------------------------------------------------------------
+# Building a SeasonState from raw payloads
 
 def _pick_rating(team_id, name_key: str, fpi_by_id: dict, fpi_map: dict,
                  sp_map: dict) -> tuple[float, str]:
@@ -318,14 +311,12 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
                  sp_raw: list[dict] | None = None,
                  params: ModelParams | None = None,
                  recalibrate: bool = True) -> SeasonState:
-    # ``recalibrate`` now only controls whether fit diagnostics are computed;
-    # the model parameters themselves are fixed.
+    # recalibrate only controls whether diagnostics are computed.
     params = params or ModelParams()
     sp_raw = sp_raw or []
     notes: list[str] = []
 
-    # CollegeFootballData uses ESPN's team ids, so ratings from either source
-    # join on an exact integer key; names are only a fallback.
+    # CFBD uses ESPN team ids, so ratings match on id. Names are a fallback.
     fpi_by_id = {int(r["espn_id"]): r["fpi"] for r in fpi_raw
                  if r.get("fpi") is not None and r.get("espn_id") is not None}
     fpi_map = {normalise_name(r.get("team", "")): r["fpi"]
@@ -381,8 +372,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             by_id[int(t["id"])] = idx
         by_name[name_key] = idx
 
-    # A team with no published rating gets the FBS median, so one missing row
-    # never silently deletes a team from the field.
+    # Teams with no published rating get the FBS median.
     rated = [t.rating for t in teams if np.isfinite(t.rating)]
     fill = float(np.median(rated)) if rated else 0.0
     missing = [t.school for t in teams if not np.isfinite(t.rating)]
@@ -414,7 +404,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             by_name[key] = idx
         return idx
 
-    # -- games -----------------------------------------------------------
+    # Games
     games: list[dict] = []
     max_week = max((int(g.get("week") or 0) for g in games_raw), default=0)
     for g in games_raw:
@@ -429,11 +419,8 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         status = HOME_WON if (completed and hp > ap) else (
             AWAY_WON if completed else TO_SIMULATE)
         note_txt = g.get("notes") or ""
-        # A conference title game is any game the feed labels a championship
-        # between two FBS teams from the same conference. Matching on the
-        # matchup rather than on the conference_game flag means a feed that
-        # leaves that flag unset cannot smuggle a title game into the regular
-        # schedule, where it would be counted twice.
+        # A title game is a "championship" game between two FBS teams in the
+        # same conference. CFBD doesn't set conference_game on these.
         is_ccg = bool(
             CCG_PATTERN.search(note_txt)
             and teams[hi].is_fbs and teams[ai].is_fbs
@@ -454,7 +441,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             "sim_idx": -1, "pwin_home": float("nan"),
         })
 
-    # -- conferences -----------------------------------------------------
+    # Conferences
     conferences: list[ConferenceInfo] = []
     for i, name in enumerate(conf_names):
         meta = conf_meta.get(name, {})
@@ -468,8 +455,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             crowns_champion=not independent and len(members) >= 2,
             divisions=conf_divisions.get(i, []), team_idxs=members))
 
-    # A title game already scheduled with both participants known (or already
-    # played) overrides the simulated matchup.
+    # A scheduled or played title game replaces the simulated matchup.
     for g in games:
         if not g["is_ccg"]:
             continue

@@ -1,13 +1,9 @@
-"""Drive the kernel in batches and accumulate everything the guide needs.
+"""Runs the kernel in batches and adds up the results.
 
-The whole design rests on one property: every unplayed game is simulated
-independently, so *slicing the same simulation set* by the outcome of a game
-gives an unbiased conditional distribution. Nothing has to be re-simulated per
-game, which is what makes a full-season rooting guide affordable.
-
-Because the two slices come from one set of draws, they share every other
-game's randomness -- common random numbers -- so the difference between them
-has far lower variance than two independent runs would.
+Unplayed games are simulated independently, so splitting one set of
+simulations by the result of a game gives that game's effect. No game needs its
+own run, and since both halves share the other games' draws, the difference
+between them is less noisy than two separate runs.
 """
 
 from __future__ import annotations
@@ -29,7 +25,7 @@ MAX_WINS = 20
 
 @dataclass
 class SimResults:
-    """Sufficient statistics from a run -- never the raw simulations."""
+    """Summary counts from a run. The raw simulations are not kept."""
 
     n_sims: int
     focus_idx: int

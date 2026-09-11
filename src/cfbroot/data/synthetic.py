@@ -1,8 +1,6 @@
-"""A fabricated season in the exact shape of the CFBD payloads.
+"""Fake season in the same format as the CFBD data.
 
-This exists so the simulator, the statistics and the web app can be developed
-and tested end to end without an API key, and so the test suite never needs
-network access. It is not a data source -- nothing here is real.
+Used by the tests and when there is no API key. None of it is real.
 """
 
 from __future__ import annotations
@@ -112,7 +110,7 @@ def build_payloads(seed: int = 7, year: int = 2026, weeks: int = 14,
             "notes": notes, "venue": "Sim Stadium",
         })
 
-    # -- conference schedules: a round-robin slice, one game per week -----
+    # Conference schedules: round robin, one game per week
     for name, members in conf_members.items():
         rows = [m["row"] for m in members]
         n = len(rows)
@@ -135,7 +133,7 @@ def build_payloads(seed: int = 7, year: int = 2026, weeks: int = 14,
                 add_game(home, away, week, conference_game=True)
             rot = [rot[0]] + [rot[-1]] + rot[1:-1]
 
-    # -- non-conference: FCS buy games and cross-conference matchups ------
+    # Non-conference: FCS games and cross-conference matchups
     all_fbs = [m["row"] for members in conf_members.values() for m in members]
     for week in (1, 2, 12):
         pool = list(all_fbs)
@@ -160,7 +158,7 @@ def build_payloads(seed: int = 7, year: int = 2026, weeks: int = 14,
 
 def synthetic_season(seed: int = 7, year: int = 2026, played_through: int = 0,
                      params=None):
-    """Convenience wrapper returning a fully built :class:`SeasonState`."""
+    """Build a SeasonState from the fake payloads."""
     from .season import build_season
 
     p = build_payloads(seed=seed, year=year, played_through=played_through)

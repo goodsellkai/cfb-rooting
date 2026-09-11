@@ -23,11 +23,7 @@ def guide(midseason, result):
 
 
 def test_conditioning_obeys_the_law_of_total_probability(result):
-    """P(m) must equal P(m|home wins)P(home wins) + P(m|away wins)P(away wins).
-
-    This is the identity the whole approach rests on: slicing one simulation
-    set by a game's outcome has to reconstruct the unconditional answer.
-    """
+    """P(m) = P(m|home wins)P(home wins) + P(m|away wins)P(away wins)."""
     n = result.n_sims
     for mi in range(len(METRIC_NAMES)):
         total = result.metric_counts[mi]
@@ -94,8 +90,7 @@ def test_a_rivals_loss_helps_you_win_the_conference(midseason, result):
 
 
 def test_an_unrelated_game_has_no_detectable_leverage(midseason, result):
-    """A game between two teams in another conference, far from the bubble,
-    should move nothing measurably. This is the null the FDR control protects."""
+    """Games outside the team's conference shouldn't affect its conference title odds."""
     guide = build_guide(midseason, result, primary="win_conference",
                         week=midseason.current_week())
     focus = midseason.teams[result.focus_idx]
@@ -104,8 +99,7 @@ def test_an_unrelated_game_has_no_detectable_leverage(midseason, result):
               and midseason.teams[e.away_idx].conf_idx != focus.conf_idx]
     assert others, "fixture produced no out-of-conference games"
     sig = sum(1 for e in others if e.swings["win_conference"].significant)
-    # A team's conference title is decided entirely inside its own conference,
-    # so essentially nothing outside it should clear the threshold.
+    # Conference titles are decided inside the conference.
     assert sig <= max(1, int(0.05 * len(others)))
 
 
@@ -118,12 +112,7 @@ def test_significance_requires_both_a_real_effect_and_enough_samples(guide):
 
 
 def test_every_game_names_a_side_to_root_for(guide):
-    """The guide must never refuse to answer.
-
-    A blank "too close to call" is useless to a fan: the point estimate always
-    favours one side, and the honest move is to name it and grade how firm the
-    call is, not to withhold it.
-    """
+    """Every game names a team to root for."""
     for e in guide.games + guide.own_games:
         assert e.root_for, f"{e.away} at {e.home} produced no side to root for"
         assert e.root_for in (e.home, e.away)
@@ -161,11 +150,7 @@ def test_guide_is_sorted_with_resolved_games_first(guide):
 
 
 def test_every_metric_is_available_without_re_simulating(midseason, result):
-    """Switching the measure of success must not need another run.
-
-    All nine metrics come from the same simulation set, so the guide carries
-    every one of them and the client re-renders instead of re-simulating.
-    """
+    """All metrics come from one run, so switching metric needs no re-run."""
     g = build_guide(midseason, result, primary="make_playoff", week=None)
     for e in g.games + g.own_games:
         assert set(e.swings) == set(METRIC_NAMES)

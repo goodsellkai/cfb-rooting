@@ -1,32 +1,14 @@
-"""Derive the outcome-model parameters from closing betting lines.
+"""Derive the game model parameters from closing betting lines.
 
-Run with ``python -m cfbroot.calibration`` to reproduce the numbers baked into
-:class:`cfbroot.config.ModelParams`.
+Run ``python -m cfbroot.calibration`` to reproduce the values in ModelParams.
 
-The point of using betting lines is that a closing spread is a genuine
-point-in-time forecast: it was published before the game and cannot have
-absorbed the result. Ratings cannot make that claim -- FPI is restated after
-each week -- which is why calibrating on "current ratings vs already-played
-games" understates the error and why this runs offline instead.
+Closing spreads are set before each game, so unlike end-of-season FPI they have
+not seen the result.
 
-Three quantities come out of it:
-
-``sigma``   Results scatter around a closing line with an SD of about 15.3
-            points; that is the irreducible noise in a college football game.
-            FPI's own projections differ from the line by about 5.5 points of
-            SD, so a forecast built on FPI carries both, and the two combine in
-            quadrature.
-
-``hfa``     The coefficient on a home-site indicator when the closing spread is
-            regressed on the rating gap. Home field is identified by which
-            games are at neutral sites, not by the rating gap, so it is the one
-            parameter the rating lookahead leaves alone.
-
-``slope``   1.0, because FPI is defined in points against an average opponent.
-            The check here is that the two contaminated estimates bracket it:
-            regressing the market spread on an inflated gap pulls the slope
-            below 1, regressing realised margin on it pulls above, and the
-            truth sits between.
+sigma   SD of results around the closing line, combined with FPI's SD from the line.
+hfa     Coefficient on a home-site indicator when regressing the spread on the FPI gap.
+slope   1.0, since FPI is already in points. The two regression slopes, both
+        biased by end-of-season ratings, fall on either side of it.
 """
 
 from __future__ import annotations
@@ -40,7 +22,7 @@ from .data.loader import load_season
 
 
 def _pull(years: list[int]) -> np.ndarray:
-    """Rows of (margin, spread, rating gap, is_home) for FBS-vs-FBS games."""
+    """Rows of (margin, spread, rating gap, is_home) for FBS vs FBS games."""
     import cfbd
 
     from .config import api_key
@@ -100,26 +82,24 @@ def calibrate(years: list[int]) -> dict:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="cfbroot.calibration", description=__doc__)
+    ap = argparse.ArgumentParser(prog="cfbroot.calibration", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--years", type=int, nargs="+", default=[2025, 2024])
     args = ap.parse_args(argv)
 
     r = calibrate(args.years)
     p = ModelParams()
-    print(f"{r['n']:,} FBS-vs-FBS games with a closing spread, {r['years']}\n")
-    print(f"  SD(margin - closing spread)   {r['game_noise']:6.2f}   irreducible game noise")
+    print(f"{r['n']:,} FBS vs FBS games with a closing spread, {r['years']}\n")
+    print(f"  SD(margin - closing spread)   {r['game_noise']:6.2f}   game noise")
     print(f"  SD(FPI projection - spread)   {r['rating_error']:6.2f}   FPI vs the market")
-    print(f"  combined in quadrature        {r['sigma']:6.2f}   -> sigma "
-          f"(in use: {p.sigma})")
+    print(f"  combined                      {r['sigma']:6.2f}   sigma (in use: {p.sigma})")
     print()
-    print(f"  home field, market spreads    {r['hfa_market']:6.2f}   -> hfa "
-          f"(in use: {p.hfa})")
-    print(f"  home field, realised margins  {r['hfa_realised']:6.2f}")
+    print(f"  home field, market spreads    {r['hfa_market']:6.2f}   hfa (in use: {p.hfa})")
+    print(f"  home field, actual margins    {r['hfa_realised']:6.2f}")
     print()
-    print(f"  slope, market on gap          {r['slope_market']:6.2f}   biased low")
+    print(f"  slope, spread on gap          {r['slope_market']:6.2f}   biased low")
     print(f"  slope, margin on gap          {r['slope_realised']:6.2f}   biased high")
-    print(f"  FPI is points-scaled          {1.00:6.2f}   -> rating_scale "
-          f"(in use: {p.rating_scale})")
+    print(f"  slope in use                  {p.rating_scale:6.2f}")
     return 0
 
 

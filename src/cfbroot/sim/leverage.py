@@ -1,4 +1,4 @@
-"""Turn simulation counts into a ranked, error-barred rooting guide."""
+"""Turns simulation counts into the rooting guide."""
 
 from __future__ import annotations
 
@@ -25,10 +25,8 @@ class MetricSwing:
     lo: float
     hi: float
     pvalue: float
-    # Two false-discovery-rate scopes, because the family of tests depends on
-    # what you screen at once: one week's slate, or every remaining game. Both
-    # are computed server-side so the client can switch weeks without either
-    # re-simulating or reimplementing the statistics.
+    # FDR results at two scopes: within the game's week, and across all
+    # remaining games.
     q_week: float = 1.0
     q_all: float = 1.0
     sig_week: bool = False
@@ -40,19 +38,18 @@ class MetricSwing:
 
     @property
     def root_for_home(self) -> bool:
-        """Which side helps. Always answerable -- see ``confidence`` for how sure."""
+        """Whether the home team winning helps. See ``confidence`` for how sure."""
         if not np.isfinite(self.delta):
             return self.p_if_home >= self.p_if_away
         return self.delta >= 0
 
     @property
     def confidence(self) -> str:
-        """How much weight the direction carries.
+        """How reliable the direction is.
 
-        ``clear``    survived FDR control -- a real, resolved edge.
-        ``leaning``  the point estimate favours one side but the interval
-                     includes zero, so the direction is a best guess.
-        ``thin``     one branch has too few simulations to say anything.
+        ``clear``    significant after FDR control
+        ``leaning``  the estimate favors one side, but the interval includes zero
+        ``thin``     too few simulations on one side
         """
         if not self.reliable:
             return "thin"
@@ -64,11 +61,9 @@ class MetricSwing:
 
     @property
     def conservative(self) -> float:
-        """The confidence bound nearest zero -- the swing we can actually defend.
+        """The confidence bound closest to zero, or zero if the interval crosses it.
 
-        Zero when the interval straddles zero. Ranking on this instead of the
-        point estimate keeps games whose apparent leverage is indistinguishable
-        from Monte Carlo noise from floating to the top of the guide.
+        Used for ranking so noisy games don't rise to the top.
         """
         if not (np.isfinite(self.lo) and np.isfinite(self.hi)):
             return 0.0
@@ -82,12 +77,7 @@ class MetricSwing:
 
     @property
     def reliable(self) -> bool:
-        """Whether the thinner branch has enough simulations to trust.
-
-        A 99.9% favourite leaves only a sliver of simulations in the upset
-        branch. That branch can still be a legitimate rooting interest, but
-        below a few hundred draws its estimate is dominated by noise.
-        """
+        """Whether the smaller side has enough simulations (250+) to trust."""
         return self.min_arm >= 250
 
 
@@ -152,9 +142,7 @@ class GameLeverage:
             "defensible": self.defensible,
             "reliable": self.reliable,
             "primary": self.primary,
-            # The metric name is the dict key and the label is already on the
-            # client, so neither is repeated here -- with nine metrics per game
-            # that redundancy dominated the payload.
+            # Metric name is the key and labels are on the client, so neither is repeated.
             "swings": {k: {"p_if_home": v.p_if_home, "p_if_away": v.p_if_away,
                            "delta": v.delta, "lo": v.lo, "hi": v.hi,
                            "q_week": v.q_week, "q_all": v.q_all,
@@ -215,14 +203,11 @@ def build_guide(state: SeasonState, res: SimResults, *,
                 week: int | None = None,
                 alpha: float = 0.05,
                 fdr_q: float = 0.05) -> Guide:
-    """Rank every candidate game by how much it moves the focus team's season.
+    """Rank games by how much they move the focus team's season.
 
-    ``week=None`` scores every remaining game; passing a week restricts the
-    guide to that slate, which is the normal Saturday-morning use.
+    ``week=None`` scores every remaining game. Passing a week limits it to that slate.
     """
-    # Every metric is computed from the same simulation set, so there is no
-    # reason to compute only the selected one -- doing them all lets the client
-    # switch the measure of success without re-simulating.
+    # Compute every metric so the client can switch without re-running.
     metrics = list(metrics or METRIC_NAMES)
     primary = primary or DEFAULT_METRICS[0]
     if primary not in metrics:
@@ -230,8 +215,7 @@ def build_guide(state: SeasonState, res: SimResults, *,
     m_idx = {m: res.metric_names.index(m) for m in metrics}
 
     focus_idx = res.focus_idx
-    # Always score every remaining game. Restricting to a week is a filter
-    # applied afterwards, never a reason to simulate again.
+    # Score every remaining game. Week is a filter applied afterwards.
     entries_all: list[GameLeverage] = []
     for gi in range(len(res.game_keys)):
         g = res.game_keys[gi]
@@ -246,11 +230,7 @@ def build_guide(state: SeasonState, res: SimResults, *,
             lev.swings[m] = _swing(res, gi, m_idx[m], alpha)
         entries_all.append(lev)
 
-    # Multiplicity control, applied within each metric. The family is the set
-    # of tests you actually screen at once -- one metric's ranking over one
-    # slate. Pooling metrics into a single family would make any one metric's
-    # q-values depend on how many others happened to be computed, which is not
-    # a property the answer should have.
+    # FDR control is applied within each metric.
     def _apply(group: list[GameLeverage], metric: str, attr_q: str, attr_sig: str) -> int:
         pvals = np.array([e.swings[metric].pvalue for e in group], dtype=np.float64)
         if not pvals.size:
@@ -308,16 +288,15 @@ def build_guide(state: SeasonState, res: SimResults, *,
     if np.isfinite(p_primary) and (p_primary < 0.02 or p_primary > 0.98):
         notes.append(
             f"{res.focus_name}'s {METRIC_LABELS.get(primary, primary).lower()} "
-            f"chance is already {p_primary:.1%}, so almost nothing this week moves "
-            f"it much. Switch the metric to see where the real leverage is.")
+            f"chance is {p_primary:.1%}, so this week's games barely move it. "
+            f"Try a different metric.")
     if res.n_sims < 50_000:
         notes.append(
-            f"{res.n_sims:,} simulations resolves swings of roughly "
-            f"{resolution:.1%} or larger; smaller edges are noise. "
-            f"Resolving 1 percentage point would take about "
+            f"With {res.n_sims:,} simulations, swings under about "
+            f"{resolution:.1%} are noise. A 1 point swing needs about "
             f"{sims_for_resolution(0.01, p_primary):,.0f} simulations.")
     if not res.used_numba:
-        notes.append("numba is not installed -- the kernel ran in pure Python, "
+        notes.append("numba is not installed, so the kernel ran in pure Python, "
                      "which is orders of magnitude slower.")
 
     return Guide(
@@ -331,11 +310,7 @@ def build_guide(state: SeasonState, res: SimResults, *,
 
 
 def league_all(state: SeasonState, res: SimResults, alpha: float = 0.05) -> list[dict]:
-    """Every FBS team's odds for every metric, in one pass.
-
-    Returned whole so the client can re-sort by a different measure of success
-    without another simulation run.
-    """
+    """Every FBS team's odds for every metric."""
     rows = []
     for t in state.fbs_teams:
         probs, los, his = {}, {}, {}
