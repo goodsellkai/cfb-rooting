@@ -24,10 +24,19 @@ def projected_margin(rating_home, rating_away, neutral, params: ModelParams):
     return edge + np.where(neutral, 0.0, params.hfa)
 
 
+def total_sigma(params: ModelParams) -> float:
+    """SD of a result around the projection, including rating error.
+
+    Each team's rating error is drawn once per simulated season, so the error
+    in the gap between two teams has variance 2 * rating_sd^2.
+    """
+    return float(np.sqrt(params.sigma ** 2 + 2.0 * params.rating_sd ** 2))
+
+
 def win_probability(rating_home, rating_away, neutral, params: ModelParams):
-    """P(home team wins): normal CDF of the projected margin divided by sigma."""
+    """P(home team wins), averaged over the rating error."""
     mu = projected_margin(rating_home, rating_away, neutral, params)
-    return sps.norm.cdf(mu / params.sigma)
+    return sps.norm.cdf(mu / total_sigma(params))
 
 
 @dataclass
@@ -56,8 +65,10 @@ class Diagnostics:
 
 def provenance(params: ModelParams) -> str:
     return (f"slope {params.rating_scale:.2f}, home field {params.hfa:.2f} pts, "
-            f"sigma {params.sigma:.2f} pts, from {params.calibration_n:,} closing "
-            f"betting lines ({params.calibration_seasons}).")
+            f"game noise {params.sigma:.2f} pts, rating error "
+            f"{params.rating_sd:.2f} pts per team ({total_sigma(params):.2f} total), "
+            f"from {params.calibration_n:,} closing betting lines "
+            f"({params.calibration_seasons}).")
 
 
 def evaluate(rating_home, rating_away, neutral, margin,

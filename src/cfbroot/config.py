@@ -46,7 +46,12 @@ class ModelParams:
 
     # Game outcome model
     hfa: float = 2.75              # home field advantage, points
-    sigma: float = 16.2            # sqrt(15.26^2 + 5.53^2): game noise plus FPI's error vs the line
+    sigma: float = 15.26           # game noise: SD of results around a closing line
+    # FPI's error against the market is 5.53 points on the gap between two
+    # teams, so one team's own error is 5.53/sqrt(2). It is drawn once per
+    # simulated season, since a misjudged rating is wrong all year.
+    # sqrt(sigma^2 + 2*rating_sd^2) = 16.23, the calibrated total.
+    rating_sd: float = 3.91
     rating_scale: float = 1.0      # FPI is already in points
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
 
@@ -56,13 +61,15 @@ class ModelParams:
 
     # Committee ranking proxy:
     #   score = w_rating*rating + k_resume*(wins - elite_expected_wins) + k_champ*champion
-    # Tuned so at-large odds by record match the 12-team era: 10-2 is usually
-    # in, 9-3 is on the bubble, 8-4 almost never gets in without a title.
+    # Tuned against ESPN's published playoff odds, subject to a 4-loss team
+    # rarely getting an at-large bid. At shrink 0.30 the error was uneven by
+    # conference (Big Ten +4.1pp, SEC -4.6pp) because hard schedules got too
+    # little credit; 0.50 roughly halves that spread.
     w_rating: float = 1.0
-    k_resume: float = 30.0         # credit per win above elite expectation
+    k_resume: float = 40.0         # credit per win above elite expectation
     k_champ: float = 5.0           # bonus for winning the conference
     elite_rating: float = 20.0     # rating of the reference playoff-level team
-    resume_shrink: float = 0.30    # share of the schedule strength adjustment that is kept
+    resume_shrink: float = 0.50    # share of the schedule strength adjustment that is kept
     ccg_elite_expectation: float = 0.75  # elite team's expected wins in a title game
 
     # Playoff format (2026: 12 teams, straight seeding)

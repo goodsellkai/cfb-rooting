@@ -19,6 +19,7 @@ import numpy as np
 
 from .config import ModelParams
 from .data.loader import load_season
+from .model import total_sigma
 
 
 def _pull(years: list[int]) -> np.ndarray:
@@ -90,9 +91,14 @@ def main(argv=None) -> int:
     r = calibrate(args.years)
     p = ModelParams()
     print(f"{r['n']:,} FBS vs FBS games with a closing spread, {r['years']}\n")
-    print(f"  SD(margin - closing spread)   {r['game_noise']:6.2f}   game noise")
-    print(f"  SD(FPI projection - spread)   {r['rating_error']:6.2f}   FPI vs the market")
-    print(f"  combined                      {r['sigma']:6.2f}   sigma (in use: {p.sigma})")
+    print(f"  SD(margin - closing spread)   {r['game_noise']:6.2f}   "
+          f"game noise, sigma (in use: {p.sigma})")
+    print(f"  SD(FPI projection - spread)   {r['rating_error']:6.2f}   "
+          f"FPI vs the market, on the gap between two teams")
+    print(f"  that divided by sqrt(2)       {r['rating_error'] / 2 ** 0.5:6.2f}   "
+          f"rating_sd, one team (in use: {p.rating_sd})")
+    print(f"  combined                      {r['sigma']:6.2f}   "
+          f"total per game (in use: {total_sigma(p):.2f})")
     print()
     print(f"  home field, market spreads    {r['hfa_market']:6.2f}   hfa (in use: {p.hfa})")
     print(f"  home field, actual margins    {r['hfa_realised']:6.2f}")

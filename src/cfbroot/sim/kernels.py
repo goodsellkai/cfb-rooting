@@ -138,7 +138,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    conf_has_ccg, conf_crowns, conf_n_div, conf_is_power,
                    conf_fixed_ccg,
                    fbs_idx,
-                   hfa, sigma, scale, w_rating, k_resume, k_champ,
+                   hfa, sigma, tau, scale, w_rating, k_resume, k_champ,
                    ccg_elite_expectation, n_byes,
                    focus_team,
                    out_hw, out_metrics, out_wins, out_losses, out_seed,
@@ -158,6 +158,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         hi = min(lo + sims_per_chunk, n_sims)
         np.random.seed(seed + c * 7919 + 1)
 
+        eff = rating.copy()          # true strength; non-FBS teams keep their rating
         winner = np.zeros(n_g, dtype=np.uint8)
         wins = np.zeros(n_teams, dtype=np.int32)
         losses = np.zeros(n_teams, dtype=np.int32)
@@ -182,13 +183,27 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         picked = np.zeros(n_teams, dtype=np.uint8)
 
         for s in range(lo, hi):
+            # 0. Rating draw. A team's true strength is its published rating
+            # plus an error that lasts the whole season. The committee still
+            # ranks on the published rating, so only games use eff.
+            if tau > 0.0:
+                for j in range(n_fbs):
+                    t = fbs_idx[j]
+                    eff[t] = rating[t] + tau * np.random.normal(0.0, 1.0)
+
             # 1. Game outcomes
             for i in range(n_g):
                 st = g_status[i]
-                if st == 0:
-                    winner[i] = 1 if np.random.random() < g_pwin[i] else 2
-                else:
+                if st != 0:
                     winner[i] = st
+                    continue
+                if tau > 0.0:
+                    edge = 0.0 if g_neutral[i] else hfa
+                    p = _norm_cdf((scale * (eff[g_home[i]] - eff[g_away[i]])
+                                   + edge) / sigma)
+                else:
+                    p = g_pwin[i]
+                winner[i] = 1 if np.random.random() < p else 2
 
             # 2. Records
             for t in range(n_teams):
@@ -281,7 +296,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     won = t2
                     lost = t1
                 else:
-                    p = _win_prob(rating[t1], rating[t2], scale, 0.0, sigma)
+                    p = _win_prob(eff[t1], eff[t2], scale, 0.0, sigma)
                     if np.random.random() < p:
                         won = t1
                         lost = t2
@@ -356,29 +371,29 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
             # 7. Bracket
             if n_sel == field:
-                w1 = _play(seeds, 4, 11, rating, scale, hfa, sigma, True)
+                w1 = _play(seeds, 4, 11, eff, scale, hfa, sigma, True)
                 reached[w1] = 2
-                w2 = _play(seeds, 5, 10, rating, scale, hfa, sigma, True)
+                w2 = _play(seeds, 5, 10, eff, scale, hfa, sigma, True)
                 reached[w2] = 2
-                w3 = _play(seeds, 6, 9, rating, scale, hfa, sigma, True)
+                w3 = _play(seeds, 6, 9, eff, scale, hfa, sigma, True)
                 reached[w3] = 2
-                w4 = _play(seeds, 7, 8, rating, scale, hfa, sigma, True)
+                w4 = _play(seeds, 7, 8, eff, scale, hfa, sigma, True)
                 reached[w4] = 2
 
-                q1 = _play(seeds, 0, w4, rating, scale, hfa, sigma, False)
+                q1 = _play(seeds, 0, w4, eff, scale, hfa, sigma, False)
                 reached[q1] = 3
-                q2 = _play(seeds, 1, w3, rating, scale, hfa, sigma, False)
+                q2 = _play(seeds, 1, w3, eff, scale, hfa, sigma, False)
                 reached[q2] = 3
-                q3 = _play(seeds, 2, w2, rating, scale, hfa, sigma, False)
+                q3 = _play(seeds, 2, w2, eff, scale, hfa, sigma, False)
                 reached[q3] = 3
-                q4 = _play(seeds, 3, w1, rating, scale, hfa, sigma, False)
+                q4 = _play(seeds, 3, w1, eff, scale, hfa, sigma, False)
                 reached[q4] = 3
 
-                s1 = _play(seeds, q1, q4, rating, scale, hfa, sigma, False)
+                s1 = _play(seeds, q1, q4, eff, scale, hfa, sigma, False)
                 reached[s1] = 4
-                s2 = _play(seeds, q2, q3, rating, scale, hfa, sigma, False)
+                s2 = _play(seeds, q2, q3, eff, scale, hfa, sigma, False)
                 reached[s2] = 4
-                ch = _play(seeds, s1, s2, rating, scale, hfa, sigma, False)
+                ch = _play(seeds, s1, s2, eff, scale, hfa, sigma, False)
                 reached[ch] = 5
             else:
                 for k in range(field):
@@ -440,10 +455,10 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
 
 @njit(cache=True, inline="always")
-def _play(seeds, i, j, rating, scale, hfa, sigma, home_field):
+def _play(seeds, i, j, eff, scale, hfa, sigma, home_field):
     """Play seed slot ``i`` against slot ``j``; return the winning slot."""
     a = seeds[i]
     b = seeds[j]
     edge = hfa if home_field else 0.0
-    p = _norm_cdf((scale * (rating[a] - rating[b]) + edge) / sigma)
+    p = _norm_cdf((scale * (eff[a] - eff[b]) + edge) / sigma)
     return i if np.random.random() < p else j

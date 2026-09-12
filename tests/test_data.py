@@ -8,7 +8,7 @@ from cfbroot.data.loader import default_year
 from cfbroot.data.season import (AWAY_WON, HOME_WON, TO_SIMULATE, build_season,
                                  normalise_name)
 from cfbroot.data.synthetic import build_payloads
-from cfbroot.model import evaluate, provenance, win_probability
+from cfbroot.model import evaluate, provenance, total_sigma, win_probability
 
 from conftest import make_mini_season
 
@@ -84,8 +84,11 @@ def test_model_parameters_are_fixed_not_refit():
 def test_parameters_match_the_documented_calibration():
     """The defaults must stay tied to what cfbroot.calibration produces."""
     p = ModelParams()
-    # sqrt(15.26^2 + 5.53^2) = 16.23, from 1,496 closing lines over 2024-25
-    assert p.sigma == pytest.approx(16.23, abs=0.15)
+    # From 1,496 closing lines over 2024-25: game noise 15.26, and FPI error of
+    # 5.53 on the gap between two teams, so 5.53/sqrt(2) for one team.
+    assert p.sigma == pytest.approx(15.26, abs=0.15)
+    assert p.rating_sd == pytest.approx(5.53 / np.sqrt(2), abs=0.15)
+    assert total_sigma(p) == pytest.approx(16.23, abs=0.15)
     assert p.hfa == pytest.approx(2.74, abs=0.15)      # market home field
     assert p.rating_scale == 1.0                       # FPI is points-scaled
     assert "closing betting lines" in provenance(p)
