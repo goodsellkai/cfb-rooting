@@ -70,6 +70,14 @@ class ModelParams:
     k_champ: float = 5.0           # bonus for winning the conference
     elite_rating: float = 20.0     # rating of the reference playoff-level team
     resume_shrink: float = 0.50    # share of the schedule strength adjustment that is kept
+    # Schedule strength from opponents' final records in that simulated season,
+    # which is what makes a past opponent's later wins help you. Each game adds
+    # (opponent win pct - 0.5), so a win over a team that finishes strong helps
+    # and a loss to a team that collapses hurts most. At k_sos 8 the gap between
+    # the toughest and softest schedule is worth roughly one win, which is about
+    # what it has been worth to the committee.
+    k_sos: float = 8.0
+    sos_loss_ratio: float = 0.45   # a quality loss counts this much of a quality win
     ccg_elite_expectation: float = 0.75  # elite team's expected wins in a title game
 
     # Playoff format (2026: 12 teams, straight seeding)

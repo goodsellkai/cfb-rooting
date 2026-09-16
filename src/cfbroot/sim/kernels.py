@@ -139,6 +139,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    conf_fixed_ccg,
                    fbs_idx,
                    hfa, sigma, tau, scale, w_rating, k_resume, k_champ,
+                   k_sos, sos_loss_ratio,
                    ccg_elite_expectation, n_byes,
                    focus_team,
                    out_hw, out_metrics, out_wins, out_losses, out_seed,
@@ -166,6 +167,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         closses = np.zeros(n_teams, dtype=np.int32)
         score = np.zeros(n_teams, dtype=np.float64)
         final = np.zeros(n_teams, dtype=np.float64)
+        wpct = np.zeros(n_teams, dtype=np.float64)
+        sos = np.zeros(n_teams, dtype=np.float64)
         champ = np.zeros(n_teams, dtype=np.uint8)
         in_ccg = np.zeros(n_teams, dtype=np.uint8)
         ccg_played = np.zeros(n_teams, dtype=np.uint8)
@@ -226,11 +229,34 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     cwins[w] += 1
                     closses[l] += 1
 
+            # 2b. Schedule strength from opponents' final records. Each game
+            # contributes (opponent win pct - 0.5), full weight for a win and
+            # sos_loss_ratio for a loss, so beating a team that finishes strong
+            # helps most and losing to one that collapses hurts most.
+            for t in range(n_teams):
+                played = wins[t] + losses[t]
+                wpct[t] = wins[t] / played if played > 0 else 0.5
+                sos[t] = 0.0
+            for i in range(n_g):
+                h = g_home[i]
+                a = g_away[i]
+                if not is_fbs[h] or not is_fbs[a]:
+                    continue
+                qh = wpct[h] - 0.5
+                qa = wpct[a] - 0.5
+                if winner[i] == 1:
+                    sos[h] += qa
+                    sos[a] += sos_loss_ratio * qh
+                else:
+                    sos[h] += sos_loss_ratio * qa
+                    sos[a] += qh
+
             # 3. Committee score before title games
             for j in range(n_fbs):
                 t = fbs_idx[j]
-                score[t] = w_rating * rating[t] + k_resume * (
-                    wins[t] - exp_elite_wins[t])
+                score[t] = (w_rating * rating[t]
+                            + k_resume * (wins[t] - exp_elite_wins[t])
+                            + k_sos * sos[t])
 
             # 4. Conference championships
             for t in range(n_teams):
@@ -314,7 +340,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     exp += ccg_elite_expectation
                 final[t] = (w_rating * rating[t]
                             + k_resume * (wins[t] + ccg_delta[t] - exp)
-                            + k_champ * champ[t])
+                            + k_champ * champ[t]
+                            + k_sos * sos[t])
                 sortkey[j] = -final[t]
 
             ranked = np.argsort(sortkey)
