@@ -69,13 +69,24 @@ class ModelParams:
     k_resume: float = 40.0         # credit per win above elite expectation
     k_champ: float = 5.0           # bonus for winning the conference
     elite_rating: float = 20.0     # rating of the reference playoff-level team
-    resume_shrink: float = 0.50    # share of the schedule strength adjustment that is kept
+    # Share of the rating-based schedule adjustment that is kept. This is what
+    # separates a weak conference from a strong one. Set by backtesting against
+    # the committee's final rankings: at 0.50 the proxy ranked unbeaten Group
+    # of 5 teams far too high, and 0.70 cut that error from 4.6 to 3.4 places
+    # in 2024 while improving power conference teams too. Above 0.70 the gains
+    # stop and 4-loss teams start getting in.
+    resume_shrink: float = 0.70
     # Schedule strength from opponents' final records in that simulated season,
     # which is what makes a past opponent's later wins help you. Each game adds
     # (opponent win pct - 0.5), so a win over a team that finishes strong helps
-    # and a loss to a team that collapses hurts most. At k_sos 8 the gap between
-    # the toughest and softest schedule is worth roughly one win, which is about
-    # what it has been worth to the committee.
+    # and a loss to a team that collapses hurts most.
+    #
+    # At 8 the gap between the toughest and softest schedule is worth roughly
+    # one win, about what it has been worth to the committee. Raising it does
+    # not fix the proxy's habit of overrating unbeaten Group of 5 teams: within
+    # a conference the average opponent win pct is pinned near 0.5, so this
+    # term barely separates a weak league from a strong one (2024: 0.503 vs
+    # 0.567). That separation lives in resume_shrink, which uses ratings.
     k_sos: float = 8.0
     sos_loss_ratio: float = 0.45   # a quality loss counts this much of a quality win
     ccg_elite_expectation: float = 0.75  # elite team's expected wins in a title game
