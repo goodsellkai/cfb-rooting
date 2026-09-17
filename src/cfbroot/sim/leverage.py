@@ -175,26 +175,33 @@ class Guide:
     notes: list[str] = field(default_factory=list)
 
 
-def _swing(res: SimResults, gi: int, mi: int, alpha: float) -> MetricSwing:
-    n = res.n_sims
-    n1 = int(res.n_home_wins[gi])
-    n2 = n - n1
-    k1 = int(res.cond_counts[gi, mi])
-    k2 = int(res.metric_counts[mi]) - k1
-    name = res.metric_names[mi]
-    if n1 == 0 or n2 == 0:
-        p1 = k1 / n1 if n1 else float("nan")
-        p2 = k2 / n2 if n2 else float("nan")
-        return MetricSwing(metric=name, label=METRIC_LABELS.get(name, name),
-                           p_if_home=p1, p_if_away=p2, delta=float("nan"),
-                           lo=float("nan"), hi=float("nan"), pvalue=1.0,
-                           n_home=n1, n_away=n2)
-    delta, lo, hi = newcombe_diff_ci(k1, n1, k2, n2, alpha)
-    pv = prop_diff_pvalue(k1, n1, k2, n2)
-    return MetricSwing(metric=name, label=METRIC_LABELS.get(name, name),
-                       p_if_home=k1 / n1, p_if_away=k2 / n2,
-                       delta=float(delta), lo=float(lo), hi=float(hi),
-                       pvalue=float(pv), n_home=n1, n_away=n2)
+def _all_swings(res: SimResults, metrics: list[str], alpha: float) -> dict:
+    """Every game against every metric, in one pass.
+
+    Done one at a time this called into scipy six thousand times for what is a
+    handful of array operations, and took most of the time spent building a
+    guide.
+    """
+    mi = np.array([res.metric_names.index(m) for m in metrics])
+    n1 = res.n_home_wins.astype(np.float64)[:, None]        # (G, 1)
+    n2 = float(res.n_sims) - n1
+    k1 = res.cond_counts[:, mi].astype(np.float64)          # (G, M)
+    k2 = res.metric_counts[mi].astype(np.float64)[None, :] - k1
+    ok = (n1 > 0) & (n2 > 0)
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        p1 = np.where(n1 > 0, k1 / n1, np.nan)
+        p2 = np.where(n2 > 0, k2 / n2, np.nan)
+        delta, lo, hi = newcombe_diff_ci(k1, n1, k2, n2, alpha)
+        pv = prop_diff_pvalue(k1, n1, k2, n2)
+
+    nan = np.full_like(p1, np.nan)
+    return {"p1": p1, "p2": p2,
+            "delta": np.where(ok, delta, nan),
+            "lo": np.where(ok, lo, nan), "hi": np.where(ok, hi, nan),
+            "pvalue": np.where(ok, pv, 1.0),
+            "n1": np.broadcast_to(n1, p1.shape).astype(np.int64),
+            "n2": np.broadcast_to(n2, p1.shape).astype(np.int64)}
 
 
 def build_guide(state: SeasonState, res: SimResults, *,
@@ -217,6 +224,7 @@ def build_guide(state: SeasonState, res: SimResults, *,
     focus_idx = res.focus_idx
     # Score every remaining game. Week is a filter applied afterwards.
     entries_all: list[GameLeverage] = []
+    sw = _all_swings(res, metrics, alpha)
     for gi in range(len(res.game_keys)):
         g = res.game_keys[gi]
         lev = GameLeverage(
@@ -226,8 +234,15 @@ def build_guide(state: SeasonState, res: SimResults, *,
             neutral=g["neutral"], p_home_win=g.get("pwin_home", float("nan")),
             is_own_game=(g["home_idx"] == focus_idx or g["away_idx"] == focus_idx),
             primary=primary)
-        for m in metrics:
-            lev.swings[m] = _swing(res, gi, m_idx[m], alpha)
+        for mj, m in enumerate(metrics):
+            lev.swings[m] = MetricSwing(
+                metric=m, label=METRIC_LABELS.get(m, m),
+                p_if_home=float(sw["p1"][gi, mj]),
+                p_if_away=float(sw["p2"][gi, mj]),
+                delta=float(sw["delta"][gi, mj]),
+                lo=float(sw["lo"][gi, mj]), hi=float(sw["hi"][gi, mj]),
+                pvalue=float(sw["pvalue"][gi, mj]),
+                n_home=int(sw["n1"][gi, mj]), n_away=int(sw["n2"][gi, mj]))
         entries_all.append(lev)
 
     # FDR control is applied within each metric.
@@ -310,33 +325,39 @@ def build_guide(state: SeasonState, res: SimResults, *,
 
 
 def league_all(state: SeasonState, res: SimResults, alpha: float = 0.05) -> list[dict]:
-    """Every FBS team's odds for every metric."""
-    rows = []
-    for t in state.fbs_teams:
-        probs, los, his = {}, {}, {}
-        for m in res.metric_names:
-            k = int(res.team_counts[t.idx, res.metric_names.index(m)])
-            probs[m] = k / res.n_sims
-            lo, hi = wilson_ci(k, res.n_sims, alpha)
-            los[m], his[m] = float(lo), float(hi)
-        rows.append({"idx": t.idx, "team": t.school, "conference": t.conference,
-                     "rating": t.rating, "p": probs, "lo": los, "hi": his,
-                     "espn_playoff_prob": getattr(t, "espn_playoff_prob", None)})
-    return rows
+    """Every FBS team's odds for every metric.
+
+    Every interval in one call. Asking for them one at a time was most of the
+    cost of answering a request, and none of it depends on which team was asked
+    about.
+    """
+    fbs = state.fbs_teams
+    idx = np.array([t.idx for t in fbs], dtype=np.int64)
+    counts = res.team_counts[idx]                      # (teams, metrics)
+    probs = counts / max(res.n_sims, 1)
+    lo, hi = wilson_ci(counts, res.n_sims, alpha)
+    names = res.metric_names
+    return [{"idx": t.idx, "team": t.school, "conference": t.conference,
+             "rating": t.rating,
+             "p": dict(zip(names, probs[i].tolist())),
+             "lo": dict(zip(names, np.asarray(lo)[i].tolist())),
+             "hi": dict(zip(names, np.asarray(hi)[i].tolist())),
+             "espn_playoff_prob": getattr(t, "espn_playoff_prob", None)}
+            for i, t in enumerate(fbs)]
 
 
 def league_table(state: SeasonState, res: SimResults, metric: str = "make_playoff",
                  limit: int = 25, alpha: float = 0.05) -> list[dict]:
     """League-wide odds for one metric, best first."""
-    mi = res.metric_names.index(metric)
-    counts = res.team_counts[:, mi]
-    rows = []
-    for t in state.fbs_teams:
-        k = int(counts[t.idx])
-        p = k / res.n_sims
-        lo, hi = wilson_ci(k, res.n_sims, alpha)
-        rows.append({"team": t.school, "conference": t.conference,
-                     "rating": t.rating, "p": p, "lo": float(lo), "hi": float(hi),
-                     "se": float(mc_stderr(p, res.n_sims))})
+    fbs = state.fbs_teams
+    idx = np.array([t.idx for t in fbs], dtype=np.int64)
+    counts = res.team_counts[idx, res.metric_names.index(metric)]
+    probs = counts / max(res.n_sims, 1)
+    lo, hi = wilson_ci(counts, res.n_sims, alpha)
+    rows = [{"team": t.school, "conference": t.conference, "rating": t.rating,
+             "p": float(probs[i]), "lo": float(np.asarray(lo)[i]),
+             "hi": float(np.asarray(hi)[i]),
+             "se": float(mc_stderr(float(probs[i]), res.n_sims))}
+            for i, t in enumerate(fbs)]
     rows.sort(key=lambda r: -r["p"])
     return rows[:limit]

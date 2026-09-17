@@ -44,8 +44,8 @@ def test_the_kernel_fit_reproduces_the_standalone_one():
     grad = np.zeros(ks.n_nodes + 1)
     step = np.zeros(ks.n_nodes + 1)
     power = np.zeros(ks.n_nodes)
-    _massey_power(n_g, ki.g_home, ki.g_away, at_home, ki.g_hpts, ki.g_apts,
-                  ks.node, ks.hinv, ks.prior, ks.prec, ks.n_nodes,
+    _massey_power(n_g, ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
+                  ki.g_hpts, ki.g_apts, ks.hinv, ks.prior, ks.prec, ks.n_nodes,
                   mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat,
                   40, r, gval, grad, step)
     assert np.abs(step).max() < 1e-6, "the reused Hessian has to converge"
@@ -61,8 +61,8 @@ def test_the_kernel_fit_reproduces_the_standalone_one():
     assert spearmanr(arr[:, 0], arr[:, 1]).statistic > 0.99
     assert np.abs(arr[:, 0] - arr[:, 1]).mean() < 2.0
 
-    _massey_correct(ki.g_home, ki.g_away, at_home, ki.g_hpts, ki.g_apts,
-                    ks.node, ks.n_nodes, r, mp.correction_abs, 2,
+    _massey_correct(ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
+                    ki.g_hpts, ki.g_apts, ks.n_nodes, r, mp.correction_abs, 2,
                     ks.team_games_ptr, ks.team_games, ks.team_at_home,
                     np.full(ks.n_nodes, -1, dtype=np.int32), power)
     full = {t.school: power[ks.node[t.idx]] for t in state.fbs_teams}
@@ -86,17 +86,17 @@ def test_a_title_game_win_is_added_and_a_loss_is_not():
     n_g = ki.g_home.size
     at_home = (~ki.g_neutral).astype(np.float64)
     r = ks.prior.copy()
-    args = (n_g, ki.g_home, ki.g_away, at_home, ki.g_hpts, ki.g_apts, ks.node,
-            ks.hinv, ks.prior, ks.prec, ks.n_nodes, mp.gof_k, mp.gof_c,
-            mp.gof_q, mp.mov_weight, mp.mov_flat, 30)
+    args = (n_g, ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
+            ki.g_hpts, ki.g_apts, ks.hinv, ks.prior, ks.prec, ks.n_nodes,
+            mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat, 30)
     _massey_power(*args, r, np.zeros(n_g), np.zeros(ks.n_nodes + 1),
                   np.zeros(ks.n_nodes + 1))
 
     def correct(ccg):
         out = np.zeros(ks.n_nodes)
-        _massey_correct(ki.g_home, ki.g_away, at_home, ki.g_hpts, ki.g_apts,
-                        ks.node, ks.n_nodes, r, mp.correction_abs, 2,
-                        ks.team_games_ptr, ks.team_games, ks.team_at_home,
+        _massey_correct(ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
+                        ki.g_hpts, ki.g_apts, ks.n_nodes, r, mp.correction_abs,
+                        2, ks.team_games_ptr, ks.team_games, ks.team_at_home,
                         ccg, out)
         return out
 

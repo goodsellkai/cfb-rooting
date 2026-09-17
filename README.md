@@ -25,6 +25,9 @@ Double-click `Start cfbroot.bat`, or run:
 
 Then open http://127.0.0.1:8000.
 
+It simulates a million seasons as it starts, which takes about a minute. That
+one run answers for every team, so picking a team after that is instant.
+
 From the command line:
 
 ```

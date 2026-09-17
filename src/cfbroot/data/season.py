@@ -111,6 +111,10 @@ class SeasonState:
     games: list[dict]
     params: ModelParams
     massey: MasseyParams = field(default_factory=MasseyParams)
+    # Known ratings for opponents outside FBS, by team index, worked out once
+    # from their own schedules. Without them they all share one average.
+    non_fbs_rating: dict = field(default_factory=dict)
+    non_fbs_centre: float = 0.0
     diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
@@ -232,7 +236,9 @@ class SeasonState:
         # between simulated seasons, so the curvature does not either; it is
         # built and inverted once here and every season reuses it.
         msys = kernel_system(is_fbs, g_home, g_away, g_neutral, rating,
-                             p.sigma, p.hfa, self.massey)
+                             p.sigma, p.hfa, self.massey,
+                             fixed=self.non_fbs_rating,
+                             fixed_centre=self.non_fbs_centre)
 
         # CSR: teams per conference, and conference games per conference
         conf_teams_list = [c.team_idxs for c in self.conferences]

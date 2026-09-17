@@ -104,11 +104,12 @@ class ModelParams:
 class SimConfig:
     """How many seasons to simulate. Model parameters live on SeasonState.params."""
 
-    # 100,000 seasons puts the error on a playoff probability near 0.12 of a
-    # percentage point, which is finer than the model itself is. Fitting a
-    # rating inside every season costs about 4 seconds at that count.
+    # The web app runs a million seasons once at start-up, because the result
+    # serves every team; the error on a playoff probability is then about four
+    # hundredths of a percentage point. Anything calling the library directly
+    # gets a lighter default.
     n_sims: int = 100_000
-    batch_size: int = 20_000
+    batch_size: int = 50_000
     seed: int = 12345
 
     def to_dict(self) -> dict:

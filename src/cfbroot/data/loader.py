@@ -80,6 +80,21 @@ def load_season(year: int | None = None, *, live: bool = False,
         if row:
             t.espn_playoff_prob = row.get("espn_playoff_prob")
 
+    # Rate the FCS opponents from their own schedules, once. They barely move
+    # between simulated seasons, so the simulator can treat them as known
+    # instead of averaging them all into one rating, which is worth about four
+    # places of rank per FBS team.
+    try:
+        from .. import massey
+        fcs = src.fcs_games(force=force)
+        if fcs:
+            state.non_fbs_rating, state.non_fbs_centre = massey.non_fbs_ratings(
+                state, fcs)
+    except Exception as exc:  # noqa: BLE001
+        state.notes.append(
+            f"FCS schedules were unavailable ({exc}), so every non-FBS "
+            "opponent shares one rating.")
+
     age = cache.cache_age("games", {"year": year, "season_type": "regular"})
     if age is not None and age > 3600:
         state.notes.append(f"Scores are from a cache written {age / 3600:.1f} hours "

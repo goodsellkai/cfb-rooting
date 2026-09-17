@@ -22,7 +22,7 @@ import numpy as np
 from . import selection
 from .config import METRIC_NAMES, POWER_CONFERENCES, SimConfig
 from .data.loader import load_season
-from .sim import run
+from .sim import run_league
 
 WIN_CONF = METRIC_NAMES.index("win_conference")
 FIELD = 12
@@ -77,16 +77,16 @@ def committee_pre_title(year: int) -> dict[str, int]:
 
 
 def proxy_ranking(state) -> tuple[dict[str, int], set[str]]:
-    """Committee rank for every FBS team, plus the conference champions."""
-    cfg = SimConfig(n_sims=24, batch_size=24, seed=1)
-    ranks: dict[str, int] = {}
-    champs: set[str] = set()
-    for i, t in enumerate(state.fbs_teams):
-        res = run(state, t.idx, cfg)
-        ranks[t.school] = int(np.argmax(res.rank_hist))
-        if i == 0:
-            champs = {u.school for u in state.fbs_teams
-                      if res.team_counts[u.idx, WIN_CONF] == res.n_sims}
+    """Committee rank for every FBS team, plus the conference champions.
+
+    A finished season is the same in every simulation, so one run answers for
+    the whole league rather than one per team.
+    """
+    league = run_league(state, SimConfig(n_sims=24, batch_size=24, seed=1))
+    ranks = {league.names[j]: int(np.argmax(league.rank_hist[j]))
+             for j in range(len(league.names))}
+    champs = {league.names[j] for j in range(len(league.names))
+              if league.team_counts[j, WIN_CONF] == league.n_sims}
     return ranks, champs
 
 
