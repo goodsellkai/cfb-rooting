@@ -15,8 +15,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ..config import (DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, ModelParams,
-                      SimConfig, has_api_key)
+from ..config import (DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig,
+                      has_api_key)
 from ..data.loader import default_year, load_season
 from ..data.season import SeasonState
 from ..model import provenance as model_provenance
@@ -186,7 +186,7 @@ def api_refresh():
 
 class RunRequest(BaseModel):
     team: str
-    n_sims: int = 200_000
+    n_sims: int = 100_000
     week: int | None = None
     primary: str = "make_playoff"
     metrics: list[str] | None = None

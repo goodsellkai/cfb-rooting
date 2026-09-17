@@ -163,16 +163,6 @@ def test_conference_games_are_flagged_only_within_a_conference():
         assert bool(ki.g_conf[i]) == bool(same and ki.is_fbs[h] and ki.is_fbs[a])
 
 
-def test_expected_elite_wins_is_bounded_by_games_played():
-    p = build_payloads(seed=3, played_through=0)
-    s = build_season(2026, p["teams"], p["conferences"], p["games"], p["fpi"])
-    ki = s.kernel_inputs()
-    counts = np.bincount(np.concatenate([ki.g_home, ki.g_away]),
-                         minlength=ki.n_teams)
-    assert np.all(ki.exp_elite_wins <= counts + 1e-9)
-    assert np.all(ki.exp_elite_wins >= 0)
-
-
 def test_team_search_finds_teams_by_prefix():
     p = build_payloads(seed=3, played_through=0)
     s = build_season(2026, p["teams"], p["conferences"], p["games"], p["fpi"])

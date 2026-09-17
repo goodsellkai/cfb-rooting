@@ -110,10 +110,6 @@ class CFBDSource:
         return self._games("regular", TTL_GAMES_LIVE if live else TTL_GAMES_IDLE,
                            force)
 
-    def postseason_games(self, *, live: bool = False, force: bool = False) -> list[dict]:
-        return self._games("postseason",
-                           TTL_GAMES_LIVE if live else TTL_GAMES_IDLE, force)
-
     def fcs_games(self, *, live: bool = False, force: bool = False) -> list[dict]:
         """Games between FCS teams.
 

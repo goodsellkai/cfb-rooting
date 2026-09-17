@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .selection import COMMITTEE_SD, TITLE_JUMP_MARGIN
+
 PKG_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PKG_DIR.parent.parent
 CACHE_DIR = Path(os.environ.get("CFBROOT_CACHE", PROJECT_DIR / "cache"))
@@ -55,47 +57,36 @@ class ModelParams:
     rating_scale: float = 1.0      # FPI is already in points
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
 
+    # Simulated scores. The margin is drawn first, from the same distribution
+    # the win probability already came from, so no game's odds change; the
+    # total is then drawn around it and the two scores fall out. Measured over
+    # 2,398 FBS games in 2023-25: totals average 53.1 with an SD of 16.8, and
+    # rise slightly with the margin (a blowout is a little higher scoring, not
+    # lower), which is the slope below.
+    total_base: float = 50.19
+    total_slope: float = 0.180     # extra points per point of margin
+    total_sd: float = 16.61
+
     # Source of the values above, for display
     calibration_n: int = 1496
     calibration_seasons: str = "2024-25"
 
-    # Committee ranking proxy:
-    #   score = w_rating*rating + k_resume*(wins - elite_expected_wins) + k_champ*champion
-    # Tuned against ESPN's published playoff odds, subject to a 4-loss team
-    # rarely getting an at-large bid. At shrink 0.30 the error was uneven by
-    # conference (Big Ten +4.1pp, SEC -4.6pp) because hard schedules got too
-    # little credit; 0.50 roughly halves that spread.
-    w_rating: float = 1.0
-    k_resume: float = 40.0         # credit per win above elite expectation
-    k_champ: float = 5.0           # bonus for winning the conference
-    elite_rating: float = 20.0     # rating of the reference playoff-level team
-    # Share of the rating-based schedule adjustment that is kept. This is what
-    # separates a weak conference from a strong one. Set by backtesting against
-    # the committee's final rankings: at 0.50 the proxy ranked unbeaten Group
-    # of 5 teams far too high, and 0.70 cut that error from 4.6 to 3.4 places
-    # in 2024 while improving power conference teams too. Above 0.70 the gains
-    # stop and 4-loss teams start getting in.
-    resume_shrink: float = 0.70
-    # Schedule strength from opponents' final records in that simulated season,
-    # which is what makes a past opponent's later wins help you. Each game adds
-    # (opponent win pct - 0.5), so a win over a team that finishes strong helps
-    # and a loss to a team that collapses hurts most.
+    # Ranking and selection. The rating itself is Massey's, and its own
+    # settings live in cfbroot.massey; these are the parts the Monte Carlo
+    # needs to know about.
     #
-    # At 8 the gap between the toughest and softest schedule is worth roughly
-    # one win, about what it has been worth to the committee. Raising it does
-    # not fix the proxy's habit of overrating unbeaten Group of 5 teams: within
-    # a conference the average opponent win pct is pinned near 0.5, so this
-    # term barely separates a weak league from a strong one (2024: 0.503 vs
-    # 0.567). That separation lives in resume_shrink, which uses ratings.
-    k_sos: float = 8.0
-    sos_loss_ratio: float = 0.45   # a quality loss counts this much of a quality win
-    # Weight on the least squares win-loss rating the kernel computes for
-    # each simulated season (cfbroot.massey.LinearSystem). This is a linear
-    # stand-in, not the Massey rating: the real one needs Newton iterations per
-    # season, which the Monte Carlo cannot afford. Its units are games, and the
-    # spread from best to worst team is about 2. At 0 it is not computed at all.
-    k_lsq: float = 0.0
-    ccg_elite_expectation: float = 0.75  # elite team's expected wins in a title game
+    # massey_iters is how many passes the per-season fit takes. The Hessian is
+    # built at the curvature bound so every step is an under-step, which makes
+    # the fit converge from anywhere, and each season starts from the last
+    # one's answer. Eight passes and one correction match twelve and two to
+    # within a hundredth of a place of rank and run a fifth faster.
+    massey_iters: int = 8
+    correction_passes: int = 1     # a second pass moves nothing measurable
+    # How far down the table the head-to-head pass looks. Only the top matters
+    # to the field, and scanning all of it every season is wasted work.
+    h2h_depth: int = 30
+    committee_sd: float = COMMITTEE_SD
+    title_jump_margin: float = TITLE_JUMP_MARGIN
 
     # Playoff format, 2026-27: 12 teams, straight seeding, byes to the top four
     # seeds. Five automatic bids: the four power conference champions plus the
@@ -113,7 +104,10 @@ class ModelParams:
 class SimConfig:
     """How many seasons to simulate. Model parameters live on SeasonState.params."""
 
-    n_sims: int = 200_000
+    # 100,000 seasons puts the error on a playoff probability near 0.12 of a
+    # percentage point, which is finer than the model itself is. Fitting a
+    # rating inside every season costs about 4 seconds at that count.
+    n_sims: int = 100_000
     batch_size: int = 20_000
     seed: int = 12345
 

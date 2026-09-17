@@ -19,6 +19,7 @@ import dataclasses
 
 import numpy as np
 
+from . import selection
 from .config import METRIC_NAMES, POWER_CONFERENCES, SimConfig
 from .data.loader import load_season
 from .sim import run
@@ -89,29 +90,6 @@ def proxy_ranking(state) -> tuple[dict[str, int], set[str]]:
     return ranks, champs
 
 
-def pick_field(ranks, champs, conference_of, rule: str) -> list[str]:
-    order = sorted(ranks, key=lambda s: ranks[s])
-    sel: list[str] = []
-    if rule == "2026":
-        for s in order:
-            if s in champs and conference_of.get(s) in POWER_CONFERENCES:
-                sel.append(s)
-        for s in order:
-            if s in champs and conference_of.get(s) not in POWER_CONFERENCES:
-                sel.append(s)
-                break
-    else:
-        for s in order:
-            if s in champs and len(sel) < 5:
-                sel.append(s)
-    for s in order:
-        if len(sel) >= FIELD:
-            break
-        if s not in sel:
-            sel.append(s)
-    return sel[:FIELD]
-
-
 def _compare(label: str, mine: dict[str, int], theirs: dict[str, int],
              conference_of: dict[str, str], depth: int = 25) -> None:
     """Print how one ranking lines up with a committee poll."""
@@ -166,25 +144,6 @@ def massey_ranking(state, use_scores: bool = True) -> dict[str, int]:
     return {s: i + 1 for i, s in enumerate(order)}
 
 
-def selection_day_field(state, rng=None, rule: str = "2026"):
-    """The ranking and playoff field once the title games are in.
-
-    Title game losses are dropped, so playing for a title can only help. Pass an
-    ``rng`` to draw the committee's own variability and get a different field
-    each time, which is what the simulator wants.
-    """
-    from . import massey, selection
-
-    ratings, diagnostics = massey.rate_selection_day(
-        state, extra_games=fcs_games_for(state.year))
-    ranking = selection.rank_teams(state, ratings, rng=rng)
-    champions, _ = massey.title_game_results(state)
-    field = selection.pick_field(
-        ranking.order, champions,
-        {t.school: t.conference for t in state.fbs_teams}, rule=rule)
-    return ranking, field, diagnostics
-
-
 def run_year(year: int) -> None:
     state = load_season(year)
     state.params = dataclasses.replace(state.params, rating_sd=0.0)
@@ -195,9 +154,11 @@ def run_year(year: int) -> None:
 
     parts = actual_field(year)
     if len(parts) == FIELD:
-        for rule, label in (("2026", "4 power champions + best other (2026 rule)"),
-                            ("hist", "5 highest ranked champions (2024-25 rule)")):
-            mine = set(pick_field(ranks, champs, conference_of, rule))
+        for rule, label in (("2026", "2026-27 rules"),
+                            ("2024", "five highest ranked champions (2024-25)")):
+            order = sorted(ranks, key=lambda t: ranks[t])
+            mine = set(selection.pick_field(order, champs, conference_of,
+                                            rule=rule, size=FIELD).seeds)
             print(f"\nField, {label}: {len(mine & set(parts))}/{FIELD} correct")
             if mine - set(parts):
                 print("   I add:  " + ", ".join(sorted(mine - set(parts))))

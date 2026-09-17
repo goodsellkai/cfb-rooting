@@ -467,76 +467,6 @@ def rate_season(state, include_ccg: bool = False, through_week: int | None = Non
             if int(f.fbs_idx[j]) < n_state and state.teams[int(f.fbs_idx[j])].is_fbs}
 
 
-# A cheap stand-in for use inside the Monte Carlo
-
-@dataclass
-class LinearSystem:
-    """Least squares on win-loss, the linear approximation to fit_power.
-
-    The maximum likelihood fit above needs Newton iterations, which is far too
-    slow to run once per simulated season. Replacing the probit link with a
-    straight line turns it into one linear solve whose matrix depends only on
-    the schedule, so the inverse is built once and each season costs a single
-    matrix-vector product. It is not the Massey rating and does not claim to be
-    -- see the accuracy note in the tests for how far apart they are.
-    """
-
-    node: np.ndarray
-    fbs_idx: np.ndarray
-    n_nodes: int
-    normal: np.ndarray
-    solve: np.ndarray
-    g_hnode: np.ndarray
-    g_anode: np.ndarray
-    g_at_home: np.ndarray
-
-    @property
-    def n_fbs(self) -> int:
-        return int(self.fbs_idx.size)
-
-    def rhs(self, home_won) -> np.ndarray:
-        s = np.where(np.asarray(home_won, dtype=bool), 1.0, -1.0)
-        b = np.zeros(self.n_nodes + 1, dtype=np.float64)
-        np.add.at(b, self.g_hnode, s)
-        np.add.at(b, self.g_anode, -s)
-        b[self.n_nodes] = float(s[self.g_at_home].sum())
-        return b
-
-    def ratings(self, home_won) -> np.ndarray:
-        return self.solve @ self.rhs(home_won)
-
-    def home_field(self, home_won) -> float:
-        full = np.linalg.pinv(self.normal, rcond=1e-10) @ self.rhs(home_won)
-        return float(full[self.n_nodes])
-
-
-def build_linear(is_fbs, g_home, g_away, g_neutral) -> LinearSystem:
-    """Build and invert the least squares normal equations for one schedule."""
-    node, fbs_idx, n_nodes = build_nodes(is_fbs)
-    h = node[np.asarray(g_home, dtype=np.int64)].astype(np.int64)
-    a = node[np.asarray(g_away, dtype=np.int64)].astype(np.int64)
-    at_home = ~np.asarray(g_neutral, dtype=bool)
-    hf = n_nodes
-    n = n_nodes + 1
-
-    normal = np.zeros((n, n), dtype=np.float64)
-    np.add.at(normal, (h, h), 1.0)
-    np.add.at(normal, (a, a), 1.0)
-    np.add.at(normal, (h, a), -1.0)
-    np.add.at(normal, (a, h), -1.0)
-    w = at_home.astype(np.float64)
-    np.add.at(normal, (h, hf), w)
-    np.add.at(normal, (hf, h), w)
-    np.add.at(normal, (a, hf), -w)
-    np.add.at(normal, (hf, a), -w)
-    normal[hf, hf] = float(w.sum())
-
-    solve = np.ascontiguousarray(np.linalg.pinv(normal, rcond=1e-10)[:fbs_idx.size])
-    return LinearSystem(node=node, fbs_idx=fbs_idx, n_nodes=n_nodes,
-                        normal=normal, solve=solve,
-                        g_hnode=h, g_anode=a, g_at_home=at_home)
-
-
 # Conference title games
 
 def title_game_results(state, through_week: int | None = None):
@@ -601,3 +531,110 @@ def rate_selection_day(state, extra_games=None, params: MasseyParams | None = No
         "mean_drift": float(np.abs(drift).mean()),
         "rating_spread": float(spread),
     }
+
+
+# Everything the Monte Carlo needs to fit a rating per simulated season
+
+@dataclass
+class KernelSystem:
+    """A Massey fit reduced to what a simulated season can afford.
+
+    The schedule is the same in every simulated season, so the curvature of the
+    fit barely changes from one to the next. Building the Hessian once at a
+    reference rating and keeping its inverse turns each season's fit from a
+    sequence of matrix solves into a sequence of matrix-vector products. Each
+    season also starts from the previous one's answer, which are close
+    together, so a handful of steps is enough.
+
+    ``team_games`` is the same idea for the win-loss correction: which games a
+    team played never changes either, so the lookup is built once.
+    """
+
+    node: np.ndarray            # team index -> node
+    n_nodes: int                # FBS teams plus the combined non-FBS node
+    hinv: np.ndarray            # (n_nodes+1, n_nodes+1) inverse reference Hessian
+    prior: np.ndarray           # (n_nodes+1,) prior mean, last entry the home edge
+    prec: np.ndarray            # (n_nodes+1,) prior precision
+    team_games_ptr: np.ndarray  # CSR over nodes -> game indices
+    team_games: np.ndarray
+    team_at_home: np.ndarray    # was this node the home side in that game
+
+
+def kernel_system(is_fbs, g_home, g_away, g_neutral, rating, sigma, hfa,
+                  params: MasseyParams | None = None) -> KernelSystem:
+    """Build the reusable half of the fit for one schedule.
+
+    The reference point is a full fit of an average season: every game is fed
+    its own win probability instead of a result, which is the middle of the
+    distribution of seasons the simulator will draw. Curvature taken at the
+    prior instead was far enough off that the reused Hessian overshot and the
+    iteration diverged.
+    """
+    p = params or MasseyParams()
+    node, fbs_idx, n_nodes = build_nodes(is_fbs)
+    h = node[np.asarray(g_home, dtype=np.int64)].astype(np.int64)
+    a = node[np.asarray(g_away, dtype=np.int64)].astype(np.int64)
+    at_home_b = ~np.asarray(g_neutral, dtype=bool)
+    at_home = at_home_b.astype(np.float64)
+    n = n_nodes + 1
+
+    # Published ratings on the fit's scale, where one unit is one standard
+    # deviation of a game's outcome. These seed the prior.
+    rating = np.asarray(rating, dtype=np.float64)
+    centre = float(rating[fbs_idx].mean()) if fbs_idx.size else 0.0
+    seed = np.zeros(n_nodes)
+    for j, t in enumerate(fbs_idx):
+        seed[j] = (rating[t] - centre) / sigma
+    non_fbs = np.flatnonzero(~np.asarray(is_fbs, dtype=bool))
+    if non_fbs.size:
+        seed[n_nodes - 1] = (float(rating[non_fbs].mean()) - centre) / sigma
+
+    # An average season: each game carries its own win probability.
+    mu = rating[np.asarray(g_home)] - rating[np.asarray(g_away)] + hfa * at_home
+    g_ref = ndtr(mu / sigma)
+    ones = np.ones(h.size)
+    ref, ref_hfa, _, _, _ = fit_power(h, a, at_home_b, g_ref, ones, n_nodes,
+                                      seed, p)
+
+    prior = np.concatenate([ref, [ref_hfa]])
+    played = np.zeros(n_nodes)
+    np.add.at(played, h, 1.0)
+    np.add.at(played, a, 1.0)
+    prec = np.zeros(n)
+    prec[:n_nodes] = (1.0 / p.prior_sd ** 2
+                      + np.maximum(0.0, p.prior_games - played) * INFO_PER_GAME)
+    prec[n_nodes] = 1.0 / p.hfa_sd ** 2
+
+    # Curvature is bounded above by its value at an even matchup, and a game
+    # can only be flatter than that. Building the Hessian at the bound rather
+    # than at the reference makes every reused step an under-step, so the
+    # iteration cannot overshoot and converges from any start. Taking the
+    # curvature at the reference fit instead diverged: a season with upsets in
+    # it is more sharply curved than an average one, and the steps grew.
+    w = np.full(h.size, INFO_PER_GAME)
+    hess = np.zeros((n, n))
+    np.add.at(hess, (h, h), w)
+    np.add.at(hess, (a, a), w)
+    np.add.at(hess, (h, a), -w)
+    np.add.at(hess, (a, h), -w)
+    wh = w * at_home
+    np.add.at(hess, (h, n_nodes), wh)
+    np.add.at(hess, (n_nodes, h), wh)
+    np.add.at(hess, (a, n_nodes), -wh)
+    np.add.at(hess, (n_nodes, a), -wh)
+    hess[n_nodes, n_nodes] = float(wh.sum())
+    hess[np.diag_indices(n)] += prec
+
+    order = np.argsort(np.concatenate([h, a]), kind="stable")
+    flat_node = np.concatenate([h, a])[order]
+    flat_game = np.concatenate([np.arange(h.size), np.arange(a.size)])[order]
+    flat_home = np.concatenate([np.ones(h.size), np.zeros(a.size)])[order]
+    ptr = np.zeros(n_nodes + 1, dtype=np.int32)
+    ptr[1:] = np.cumsum(np.bincount(flat_node, minlength=n_nodes))
+
+    return KernelSystem(
+        node=node.astype(np.int32), n_nodes=n_nodes,
+        hinv=np.ascontiguousarray(np.linalg.inv(hess)),
+        prior=prior, prec=prec,
+        team_games_ptr=ptr, team_games=flat_game.astype(np.int32),
+        team_at_home=flat_home.astype(np.uint8))

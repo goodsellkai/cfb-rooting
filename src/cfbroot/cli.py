@@ -199,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = sub.add_parser("guide", help="print a rooting guide in the terminal")
     g.add_argument("--team", required=True)
-    g.add_argument("--sims", type=int, default=250_000)
+    g.add_argument("--sims", type=int, default=100_000)
     g.add_argument("--week", type=int, default=None)
     g.add_argument("--all-weeks", action="store_true",
                    help="score all remaining games")

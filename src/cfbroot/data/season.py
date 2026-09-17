@@ -11,7 +11,7 @@ import numpy as np
 
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
-from ..massey import build_linear
+from ..massey import MasseyParams, kernel_system
 from ..model import evaluate, win_probability
 
 # status codes on the unified game table
@@ -75,7 +75,6 @@ class KernelInputs:
     conf_id: np.ndarray
     div_id: np.ndarray
     is_fbs: np.ndarray
-    exp_elite_wins: np.ndarray
 
     g_home: np.ndarray
     g_away: np.ndarray
@@ -83,6 +82,8 @@ class KernelInputs:
     g_conf: np.ndarray
     g_pwin: np.ndarray
     g_status: np.ndarray
+    g_hpts: np.ndarray                 # real score, for games already played
+    g_apts: np.ndarray
 
     remaining_idx: np.ndarray          # indices into g_* that get simulated
 
@@ -96,8 +97,7 @@ class KernelInputs:
     conf_is_power: np.ndarray
     conf_fixed_ccg: np.ndarray         # (n_conf, 3): home, away, status; -1 if none
 
-    lsq_node: np.ndarray            # team index -> rating node
-    lsq_solve: np.ndarray           # (n_fbs, n_nodes+1) rows of pinv(X'X)
+    massey: object                  # cfbroot.massey.KernelSystem for this schedule
 
     n_teams: int
     n_conf: int
@@ -110,6 +110,7 @@ class SeasonState:
     conferences: list[ConferenceInfo]
     games: list[dict]
     params: ModelParams
+    massey: MasseyParams = field(default_factory=MasseyParams)
     diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
@@ -186,11 +187,6 @@ class SeasonState:
                 return wk
         return self.current_week()
 
-    def games_in_week(self, week: int, only_remaining: bool = True) -> list[dict]:
-        return [g for g in self.games
-                if g["week"] == week and not g["is_ccg"]
-                and (g["status"] == TO_SIMULATE or not only_remaining)]
-
     # Kernel inputs
 
     def kernel_inputs(self) -> KernelInputs:
@@ -210,12 +206,17 @@ class SeasonState:
         g_neutral = np.empty(n_g, dtype=np.bool_)
         g_conf = np.empty(n_g, dtype=np.bool_)
         g_status = np.empty(n_g, dtype=np.uint8)
+        g_hpts = np.zeros(n_g, dtype=np.float64)
+        g_apts = np.zeros(n_g, dtype=np.float64)
         for i, g in enumerate(sim_games):
             h, a = g["home_idx"], g["away_idx"]
             g_home[i] = h
             g_away[i] = a
             g_neutral[i] = g["neutral"]
             g_status[i] = g["status"]
+            if g["status"] != TO_SIMULATE:
+                g_hpts[i] = float(g["home_points"])
+                g_apts[i] = float(g["away_points"])
             g_conf[i] = bool(conf_id[h] >= 0 and conf_id[h] == conf_id[a]
                              and is_fbs[h] and is_fbs[a])
             g["sim_idx"] = i
@@ -227,33 +228,11 @@ class SeasonState:
 
         remaining_idx = np.flatnonzero(g_status == TO_SIMULATE).astype(np.int32)
 
-        # The least squares win-loss system. Only who plays whom goes into it,
-        # so it is built and inverted once here and every simulated season
-        # reuses it. Title games are excluded along with everything else in
-        # sim_games, which puts the rating at the week before title games.
-        msys = build_linear(is_fbs, g_home, g_away, g_neutral)
-
-        # Expected wins for a playoff-level team against each schedule.
-        # Used by the committee proxy.
-        elite = np.full(n_g, p.elite_rating)
-        p_elite_home = np.asarray(win_probability(elite, rating[g_away], g_neutral, p))
-        p_elite_away = 1.0 - np.asarray(win_probability(rating[g_home], elite, g_neutral, p))
-        exp_elite = np.zeros(n_teams, dtype=np.float64)
-        np.add.at(exp_elite, g_home, p_elite_home)
-        np.add.at(exp_elite, g_away, p_elite_away)
-
-        # Shrink each team's schedule adjustment toward the FBS average, per
-        # game. Without this a very hard schedule earns so much credit that
-        # losses stop mattering.
-        n_games = np.zeros(n_teams, dtype=np.float64)
-        np.add.at(n_games, g_home, 1.0)
-        np.add.at(n_games, g_away, 1.0)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            rate = np.where(n_games > 0, exp_elite / np.maximum(n_games, 1), 0.0)
-        fbs_mask = is_fbs & (n_games > 0)
-        mean_rate = float(rate[fbs_mask].mean()) if fbs_mask.any() else 0.0
-        shrunk = mean_rate + p.resume_shrink * (rate - mean_rate)
-        exp_elite = shrunk * n_games
+        # The reusable half of the Massey fit. The schedule never changes
+        # between simulated seasons, so the curvature does not either; it is
+        # built and inverted once here and every season reuses it.
+        msys = kernel_system(is_fbs, g_home, g_away, g_neutral, rating,
+                             p.sigma, p.hfa, self.massey)
 
         # CSR: teams per conference, and conference games per conference
         conf_teams_list = [c.team_idxs for c in self.conferences]
@@ -290,15 +269,14 @@ class SeasonState:
 
         return KernelInputs(
             rating=rating, conf_id=conf_id, div_id=div_id, is_fbs=is_fbs,
-            exp_elite_wins=exp_elite,
             g_home=g_home, g_away=g_away, g_neutral=g_neutral, g_conf=g_conf,
-            g_pwin=g_pwin, g_status=g_status,
+            g_pwin=g_pwin, g_status=g_status, g_hpts=g_hpts, g_apts=g_apts,
             remaining_idx=remaining_idx,
             conf_teams_ptr=conf_teams_ptr, conf_teams=conf_teams,
             conf_games_ptr=conf_games_ptr, conf_games=conf_games,
             conf_has_ccg=conf_has_ccg, conf_crowns=conf_crowns, conf_n_div=conf_n_div,
             conf_is_power=conf_is_power, conf_fixed_ccg=conf_fixed,
-            lsq_node=msys.node, lsq_solve=msys.solve,
+            massey=msys,
             n_teams=n_teams, n_conf=n_conf,
         )
 

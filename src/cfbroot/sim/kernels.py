@@ -62,6 +62,25 @@ def _win_prob(ra, rb, scale, edge, sigma):
     return _norm_cdf((scale * (ra - rb) + edge) / sigma)
 
 
+@njit(cache=True, inline="always")
+def _draw_score(mu, sigma, tb, ts, tsd):
+    """One game's margin and the two scores, as (margin, home, away).
+
+    The margin is drawn from the distribution the win probability already came
+    from, so switching from a coin flip to a margin leaves every game's odds
+    untouched. The total is drawn around it -- blowouts are slightly higher
+    scoring, which is the ts slope -- and is held at or above the margin so the
+    loser never finishes below zero.
+    """
+    m = mu + sigma * np.random.normal(0.0, 1.0)
+    if m == 0.0:
+        m = 1.0                      # football has no ties any more
+    t = tb + ts * abs(m) + tsd * np.random.normal(0.0, 1.0)
+    if t < abs(m):
+        t = abs(m)
+    return m, 0.5 * (t + m), 0.5 * (t - m)
+
+
 @njit(cache=True)
 def _order_conference(members, n_m, cwins, closses, score,
                       conf_games, cg_lo, cg_hi, g_home, g_away, winner,
@@ -132,18 +151,20 @@ def _order_conference(members, n_m, cwins, closses, score,
 
 @njit(cache=True, parallel=True, nogil=True)
 def simulate_batch(n_sims, sims_per_chunk, seed,
-                   rating, conf_id, div_id, is_fbs, exp_elite_wins,
-                   g_home, g_away, g_neutral, g_conf, g_pwin, g_status,
+                   rating, conf_id, div_id, is_fbs,
+                   g_home, g_away, g_neutral, g_conf, g_status, g_hpts, g_apts,
                    remaining_idx,
                    conf_teams_ptr, conf_teams, conf_games_ptr, conf_games,
                    conf_has_ccg, conf_crowns, conf_n_div, conf_is_power,
                    conf_fixed_ccg,
                    fbs_idx,
-                   lsq_node, lsq_solve,
-                   hfa, sigma, tau, scale, w_rating, k_resume, k_champ,
-                   k_sos, sos_loss_ratio, k_lsq,
-                   ccg_elite_expectation, n_byes,
-                   focus_team,
+                   m_node, m_hinv, m_prior, m_prec, m_tg_ptr, m_tg_games,
+                   m_tg_home,
+                   hfa, sigma, tau, scale,
+                   total_base, total_slope, total_sd,
+                   gof_k, gof_c, gof_q, mov_w, mov_flat, m_iters,
+                   corr_sd, corr_passes, committee_sd, jump_margin, h2h_depth,
+                   n_byes, focus_team,
                    out_hw, out_metrics, out_wins, out_losses, out_seed,
                    out_rank, team_counts):
     n_teams = rating.shape[0]
@@ -152,7 +173,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
     n_rem = remaining_idx.shape[0]
     n_fbs = fbs_idx.shape[0]
     n_chunks = team_counts.shape[0]
-    n_mcol = lsq_solve.shape[1]   # FBS nodes, the combined non-FBS node, home field
+    n_nodes = m_prior.shape[0] - 1
     field = 12
 
     for c in prange(n_chunks):
@@ -164,20 +185,28 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
         eff = rating.copy()          # true strength; non-FBS teams keep their rating
         winner = np.zeros(n_g, dtype=np.uint8)
+        hpts = np.zeros(n_g, dtype=np.float64)
+        apts = np.zeros(n_g, dtype=np.float64)
         wins = np.zeros(n_teams, dtype=np.int32)
         losses = np.zeros(n_teams, dtype=np.int32)
         cwins = np.zeros(n_teams, dtype=np.int32)
         closses = np.zeros(n_teams, dtype=np.int32)
         score = np.zeros(n_teams, dtype=np.float64)
         final = np.zeros(n_teams, dtype=np.float64)
-        wpct = np.zeros(n_teams, dtype=np.float64)
-        sos = np.zeros(n_teams, dtype=np.float64)
-        lsq = np.zeros(n_teams, dtype=np.float64)
-        mb = np.zeros(n_mcol, dtype=np.float64)
+        g_at_home = np.zeros(n_g, dtype=np.float64)
+        for i in range(n_g):
+            if not g_neutral[i]:
+                g_at_home[i] = 1.0
+        mr = m_prior.copy()          # warm start, carried between seasons
+        gval = np.zeros(n_g, dtype=np.float64)
+        mgrad = np.zeros(n_nodes + 1, dtype=np.float64)
+        mstep = np.zeros(n_nodes + 1, dtype=np.float64)
+        mpower = np.zeros(n_nodes, dtype=np.float64)
+        ccg_beat = np.full(n_nodes, -1, dtype=np.int32)
+        ccg_w = np.full(n_conf, -1, dtype=np.int32)
+        ccg_l = np.full(n_conf, -1, dtype=np.int32)
         champ = np.zeros(n_teams, dtype=np.uint8)
         in_ccg = np.zeros(n_teams, dtype=np.uint8)
-        ccg_played = np.zeros(n_teams, dtype=np.uint8)
-        ccg_delta = np.zeros(n_teams, dtype=np.int32)
         rank_of = np.full(n_teams, 9999, dtype=np.int32)
         seed_of = np.zeros(n_teams, dtype=np.int32)
         order = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
@@ -199,19 +228,25 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     t = fbs_idx[j]
                     eff[t] = rating[t] + tau * np.random.normal(0.0, 1.0)
 
-            # 1. Game outcomes
+            # 1. Game outcomes and scores. Played games keep their real
+            # scores; the rest get a drawn margin, and the two scores follow
+            # from it. Drawing the margin rather than flipping a weighted coin
+            # gives exactly the same win probability, because it is the same
+            # distribution the probability was read off in the first place.
             for i in range(n_g):
                 st = g_status[i]
                 if st != 0:
                     winner[i] = st
+                    hpts[i] = g_hpts[i]
+                    apts[i] = g_apts[i]
                     continue
-                if tau > 0.0:
-                    edge = 0.0 if g_neutral[i] else hfa
-                    p = _norm_cdf((scale * (eff[g_home[i]] - eff[g_away[i]])
-                                   + edge) / sigma)
-                else:
-                    p = g_pwin[i]
-                winner[i] = 1 if np.random.random() < p else 2
+                edge = 0.0 if g_neutral[i] else hfa
+                mu = scale * (eff[g_home[i]] - eff[g_away[i]]) + edge
+                m, hp, ap = _draw_score(mu, sigma, total_base, total_slope,
+                                        total_sd)
+                winner[i] = 1 if m > 0.0 else 2
+                hpts[i] = hp
+                apts[i] = ap
 
             # 2. Records
             for t in range(n_teams):
@@ -234,63 +269,27 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     cwins[w] += 1
                     closses[l] += 1
 
-            # 2b. Schedule strength from opponents' final records. Each game
-            # contributes (opponent win pct - 0.5), full weight for a win and
-            # sos_loss_ratio for a loss, so beating a team that finishes strong
-            # helps most and losing to one that collapses hurts most.
-            for t in range(n_teams):
-                played = wins[t] + losses[t]
-                wpct[t] = wins[t] / played if played > 0 else 0.5
-                sos[t] = 0.0
-            for i in range(n_g):
-                h = g_home[i]
-                a = g_away[i]
-                if not is_fbs[h] or not is_fbs[a]:
-                    continue
-                qh = wpct[h] - 0.5
-                qa = wpct[a] - 0.5
-                if winner[i] == 1:
-                    sos[h] += qa
-                    sos[a] += sos_loss_ratio * qh
-                else:
-                    sos[h] += sos_loss_ratio * qa
-                    sos[a] += qh
-
-            # 2c. Least squares win-loss rating, a cheap stand-in for the
-            # Massey fit in cfbroot.massey. The normal equations only depend on
-            # the schedule, so they were inverted once when the season was
-            # built and each season here is one matrix-vector product. Title
-            # games are not in this loop, which puts it at the week before
-            # championship weekend.
-            if k_lsq != 0.0:
-                for k in range(n_mcol):
-                    mb[k] = 0.0
-                for i in range(n_g):
-                    sgn = 1.0 if winner[i] == 1 else -1.0
-                    mb[lsq_node[g_home[i]]] += sgn
-                    mb[lsq_node[g_away[i]]] -= sgn
-                    if not g_neutral[i]:
-                        mb[n_mcol - 1] += sgn
-                for j in range(n_fbs):
-                    acc = 0.0
-                    for k in range(n_mcol):
-                        acc += lsq_solve[j, k] * mb[k]
-                    lsq[fbs_idx[j]] = acc
-
-            # 3. Committee score before title games
+            # 3. Massey power rating for this season's scores. Only the
+            # power stage runs here; the win-loss correction waits until the
+            # title games are played, because a title game win has to count
+            # for the winner and a loss has to not count against the loser.
+            _massey_power(n_g, g_home, g_away, g_at_home, hpts, apts,
+                          m_node, m_hinv, m_prior, m_prec, n_nodes,
+                          gof_k, gof_c, gof_q, mov_w, mov_flat, m_iters,
+                          mr, gval, mgrad, mstep)
             for j in range(n_fbs):
                 t = fbs_idx[j]
-                score[t] = (w_rating * rating[t]
-                            + k_resume * (wins[t] - exp_elite_wins[t])
-                            + k_sos * sos[t]
-                            + k_lsq * lsq[t])
+                score[t] = mr[m_node[t]]
 
             # 4. Conference championships
             for t in range(n_teams):
                 champ[t] = 0
                 in_ccg[t] = 0
-                ccg_played[t] = 0
-                ccg_delta[t] = 0
+            for k in range(n_nodes):
+                ccg_beat[k] = -1
+            for cf in range(n_conf):
+                ccg_w[cf] = -1
+                ccg_l[cf] = -1
 
             for cf in range(n_conf):
                 m_lo = conf_teams_ptr[cf]
@@ -340,8 +339,6 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
                 in_ccg[t1] = 1
                 in_ccg[t2] = 1
-                ccg_played[t1] = 1
-                ccg_played[t2] = 1
                 if st == 1:
                     won = t1
                     lost = t2
@@ -357,22 +354,70 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                         won = t2
                         lost = t1
                 champ[won] = 1
-                ccg_delta[won] = 1
+                ccg_w[cf] = won
+                ccg_l[cf] = lost
+                ccg_beat[m_node[won]] = m_node[lost]
 
-            # 5. Final ranking
+            # 5. The win-loss correction, then the ranking. The correction
+            # sees the title games, one way only. A nudge on top stands in for
+            # the committee's own variability.
+            _massey_correct(g_home, g_away, g_at_home, hpts, apts, m_node,
+                            n_nodes, mr, corr_sd, corr_passes,
+                            m_tg_ptr, m_tg_games, m_tg_home, ccg_beat, mpower)
             for j in range(n_fbs):
                 t = fbs_idx[j]
-                exp = exp_elite_wins[t]
-                if ccg_played[t] == 1:
-                    exp += ccg_elite_expectation
-                final[t] = (w_rating * rating[t]
-                            + k_resume * (wins[t] + ccg_delta[t] - exp)
-                            + k_champ * champ[t]
-                            + k_sos * sos[t]
-                            + k_lsq * lsq[t])
-                sortkey[j] = -final[t]
+                v = mpower[m_node[t]]
+                if committee_sd > 0.0:
+                    v += committee_sd * np.random.normal(0.0, 1.0)
+                final[t] = v
+                sortkey[j] = -v
 
             ranked = np.argsort(sortkey)
+
+            # Head to head: a team directly below one it beat in the regular
+            # season swaps with it. Only the top of the table can matter to the
+            # field, so only that far down is checked.
+            depth = h2h_depth
+            if depth > n_fbs:
+                depth = n_fbs
+            for _pass in range(6):
+                moved = False
+                for k in range(depth - 1):
+                    hi = fbs_idx[ranked[k]]
+                    lo = fbs_idx[ranked[k + 1]]
+                    if _beat(m_node[lo], m_node[hi], m_node, g_home, g_away,
+                             hpts, apts, m_tg_ptr, m_tg_games, m_tg_home):
+                        tmp = ranked[k]
+                        ranked[k] = ranked[k + 1]
+                        ranked[k + 1] = tmp
+                        moved = True
+                if not moved:
+                    break
+
+            # A title game winner sitting just behind the team it beat moves in
+            # front of it, when the rating says the two are that close.
+            for cf in range(n_conf):
+                w = ccg_w[cf]
+                l = ccg_l[cf]
+                if w < 0 or l < 0:
+                    continue
+                if final[l] - final[w] > jump_margin:
+                    continue
+                pw = -1
+                pl = -1
+                for k in range(n_fbs):
+                    t = fbs_idx[ranked[k]]
+                    if t == w:
+                        pw = k
+                    elif t == l:
+                        pl = k
+                if pw < 0 or pl < 0 or pw <= pl:
+                    continue
+                tmp = ranked[pw]
+                for k in range(pw, pl, -1):
+                    ranked[k] = ranked[k - 1]
+                ranked[pl] = tmp
+
             for k in range(n_fbs):
                 rank_of[fbs_idx[ranked[k]]] = k
 
@@ -523,3 +568,163 @@ def _play(seeds, i, j, eff, scale, hfa, sigma, home_field):
     edge = hfa if home_field else 0.0
     p = _norm_cdf((scale * (eff[a] - eff[b]) + edge) / sigma)
     return i if np.random.random() < p else j
+
+
+# Massey rating, fitted inside each simulated season
+
+_INV_SQRT_2PI = 0.3989422804014327
+_MCLIP = 8.0
+
+
+@njit(cache=True, inline="always")
+def _norm_pdf(x):
+    return _INV_SQRT_2PI * math.exp(-0.5 * x * x)
+
+
+@njit(cache=True, inline="always")
+def _beat(lo, hi, node, g_home, g_away, hpts, apts, tg_ptr, tg_games, tg_home):
+    """Did node ``lo`` beat node ``hi``, and never lose to them?"""
+    wins = 0
+    losses = 0
+    for gi in range(tg_ptr[lo], tg_ptr[lo + 1]):
+        i = tg_games[gi]
+        if tg_home[gi] == 1:
+            if node[g_away[i]] != hi:
+                continue
+            won = hpts[i] > apts[i]
+        else:
+            if node[g_home[i]] != hi:
+                continue
+            won = apts[i] > hpts[i]
+        if won:
+            wins += 1
+        else:
+            losses += 1
+    return wins > 0 and losses == 0
+
+
+@njit(cache=True)
+def _massey_power(n_g, g_home, g_away, g_at_home, hpts, apts,
+                  node, hinv, prior, prec, n_nodes,
+                  gof_k, gof_c, gof_q, mov_w, mov_flat, n_iter,
+                  r, gval, grad, step):
+    """Stage one and two: score each game, then fit the power rating.
+
+    ``r`` is warm started from the previous season and updated in place. The
+    Hessian was built once at the curvature bound, so every step is an
+    under-step and this converges from anywhere; ten passes leave it moving by
+    about a thousandth of a rating unit.
+    """
+    n = n_nodes + 1
+    for i in range(n_g):
+        hp = hpts[i]
+        ap = apts[i]
+        gi = _norm_cdf(gof_k * (hp - ap) / ((hp + ap + gof_c) ** gof_q))
+        if mov_w < 1.0:
+            tgt = mov_flat if hp > ap else 1.0 - mov_flat
+            gi = mov_w * gi + (1.0 - mov_w) * tgt
+        gval[i] = gi
+
+    for _ in range(n_iter):
+        for k in range(n):
+            grad[k] = 0.0
+        for i in range(n_g):
+            h = node[g_home[i]]
+            a = node[g_away[i]]
+            d = r[h] - r[a] + r[n_nodes] * g_at_home[i]
+            if d > _MCLIP:
+                d = _MCLIP
+            elif d < -_MCLIP:
+                d = -_MCLIP
+            cdf = _norm_cdf(d)
+            if cdf < 1e-12:
+                cdf = 1e-12
+            omc = 1.0 - cdf
+            if omc < 1e-12:
+                omc = 1e-12
+            sc = _norm_pdf(d) * (gval[i] / cdf - (1.0 - gval[i]) / omc)
+            grad[h] += sc
+            grad[a] -= sc
+            if g_at_home[i] > 0:
+                grad[n_nodes] += sc
+        for k in range(n):
+            grad[k] -= prec[k] * (r[k] - prior[k])
+        for k in range(n):
+            acc = 0.0
+            for j in range(n):
+                acc += hinv[k, j] * grad[j]
+            step[k] = acc
+        for k in range(n):
+            r[k] += step[k]
+
+
+@njit(cache=True)
+def _massey_correct(g_home, g_away, g_at_home, hpts, apts, node, n_nodes,
+                    r, corr_sd, corr_passes, tg_ptr, tg_games, tg_home,
+                    ccg_beat, power):
+    """Stage three: the Bayesian win-loss correction, taken at the mode.
+
+    The standalone integrates the posterior over a grid; with a prior this
+    tight the mode is within a couple of places of the mean and costs a
+    fraction as much, which is what a Monte Carlo needs.
+
+    ``ccg_beat`` carries a conference title game win, and only a win. Adding it
+    here rather than to the power fit is what lets a title game help the winner
+    without the loss touching the loser: the loser simply has no entry.
+    """
+    hfa_r = r[n_nodes]
+    inv_s2 = 1.0 / (corr_sd * corr_sd)
+    for k in range(n_nodes):
+        power[k] = r[k]
+    for _ in range(corr_passes):
+        for t in range(n_nodes):
+            x = power[t]
+            for _newton in range(2):
+                f1 = -(x - r[t]) * inv_s2
+                f2 = -inv_s2
+                for gi in range(tg_ptr[t], tg_ptr[t + 1]):
+                    i = tg_games[gi]
+                    home_side = tg_home[gi] == 1
+                    if home_side:
+                        opp = node[g_away[i]]
+                        edge = hfa_r * g_at_home[i]
+                        won = hpts[i] > apts[i]
+                    else:
+                        opp = node[g_home[i]]
+                        edge = -hfa_r * g_at_home[i]
+                        won = apts[i] > hpts[i]
+                    d = x - power[opp] + edge
+                    if d > _MCLIP:
+                        d = _MCLIP
+                    elif d < -_MCLIP:
+                        d = -_MCLIP
+                    cdf = _norm_cdf(d)
+                    if cdf < 1e-12:
+                        cdf = 1e-12
+                    omc = 1.0 - cdf
+                    if omc < 1e-12:
+                        omc = 1e-12
+                    pdf = _norm_pdf(d)
+                    if won:
+                        f1 += pdf / cdf
+                    else:
+                        f1 -= pdf / omc
+                    f2 -= pdf * pdf / (cdf * omc)
+                if ccg_beat[t] >= 0:
+                    d = x - power[ccg_beat[t]]
+                    if d > _MCLIP:
+                        d = _MCLIP
+                    elif d < -_MCLIP:
+                        d = -_MCLIP
+                    cdf = _norm_cdf(d)
+                    if cdf < 1e-12:
+                        cdf = 1e-12
+                    omc = 1.0 - cdf
+                    if omc < 1e-12:
+                        omc = 1e-12
+                    pdf = _norm_pdf(d)
+                    f1 += pdf / cdf
+                    f2 -= pdf * pdf / (cdf * omc)
+                if f2 < -1e-12:
+                    x = x - f1 / f2
+            power[t] = x

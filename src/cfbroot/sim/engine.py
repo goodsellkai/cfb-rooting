@@ -95,6 +95,8 @@ def run(state: SeasonState, focus: str | int, cfg: SimConfig | None = None,
 
     ki = state.kernel_inputs()
     p = state.params
+    mp = state.massey
+    m = ki.massey
     fbs_idx = np.flatnonzero(ki.is_fbs).astype(np.int32)
     n_fbs = fbs_idx.size
     n_rem = int(ki.remaining_idx.size)
@@ -133,18 +135,21 @@ def run(state: SeasonState, focus: str | int, cfg: SimConfig | None = None,
         chunk_counts[:] = 0
         kernels.simulate_batch(
             this, sims_per_chunk, int(cfg.seed) + b * 104729,
-            ki.rating, ki.conf_id, ki.div_id, ki.is_fbs, ki.exp_elite_wins,
-            ki.g_home, ki.g_away, ki.g_neutral, ki.g_conf, ki.g_pwin, ki.g_status,
-            ki.remaining_idx,
+            ki.rating, ki.conf_id, ki.div_id, ki.is_fbs,
+            ki.g_home, ki.g_away, ki.g_neutral, ki.g_conf, ki.g_status,
+            ki.g_hpts, ki.g_apts, ki.remaining_idx,
             ki.conf_teams_ptr, ki.conf_teams, ki.conf_games_ptr, ki.conf_games,
             ki.conf_has_ccg, ki.conf_crowns, ki.conf_n_div, ki.conf_is_power,
             ki.conf_fixed_ccg,
             fbs_idx,
-            ki.lsq_node, ki.lsq_solve,
-            p.hfa, p.sigma, p.rating_sd, p.rating_scale, p.w_rating, p.k_resume,
-            p.k_champ, p.k_sos, p.sos_loss_ratio, p.k_lsq,
-            p.ccg_elite_expectation, p.n_byes,
-            focus_idx,
+            m.node, m.hinv, m.prior, m.prec,
+            m.team_games_ptr, m.team_games, m.team_at_home,
+            p.hfa, p.sigma, p.rating_sd, p.rating_scale,
+            p.total_base, p.total_slope, p.total_sd,
+            mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat,
+            p.massey_iters, mp.correction_abs, p.correction_passes,
+            p.committee_sd, p.title_jump_margin, p.h2h_depth,
+            p.n_byes, focus_idx,
             out_hw, out_metrics, out_wins, out_losses, out_seed, out_rank,
             chunk_counts)
 

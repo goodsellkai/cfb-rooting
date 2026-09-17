@@ -187,73 +187,40 @@ def test_at_large_selection_is_driven_by_record_not_by_rating(midseason):
     assert ordered == sorted(ordered), "more wins must never lower playoff odds"
 
 
-def test_schedule_strength_credit_is_damped(midseason):
-    """resume_shrink compresses the spread in expected elite wins."""
-    import dataclasses
-
-    ki_full = dataclasses.replace(midseason, params=dataclasses.replace(
-        midseason.params, resume_shrink=1.0)).kernel_inputs()
-    ki_damped = dataclasses.replace(midseason, params=dataclasses.replace(
-        midseason.params, resume_shrink=0.3)).kernel_inputs()
-    # Compare the per-game rate, not the raw total: teams play different
-    # numbers of games, and that length difference is not what gets shrunk.
-    fbs = ki_full.is_fbs
-    played = np.bincount(np.concatenate([ki_full.g_home, ki_full.g_away]),
-                         minlength=ki_full.n_teams).astype(float)
-    keep = fbs & (played > 0)
-    rate_full = ki_full.exp_elite_wins[keep] / played[keep]
-    rate_damped = ki_damped.exp_elite_wins[keep] / played[keep]
-    assert rate_damped.std() < rate_full.std()
-    assert rate_damped.std() / rate_full.std() == pytest.approx(0.3, abs=0.02)
-    # shrinking pulls toward the mean without moving it
-    assert rate_damped.mean() == pytest.approx(rate_full.mean(), abs=1e-9)
-
-
-# Schedule strength
-
 def test_past_opponents_later_wins_help_you(midseason):
     """A team gains when a team it already played goes on to win more.
 
-    Beating a team that finishes strong is worth more to the committee than
-    beating one that collapses. Without k_sos nothing connects the two, and
-    the effect measured here is noise around zero.
+    Nothing in the model says this directly. It falls out of the rating being
+    a network: an opponent's later results move that opponent's rating, and
+    yours is fitted against theirs.
     """
-    import dataclasses
-
     from cfbroot.sim import build_guide
 
     # A bubble team, so the odds are not pinned near 0 or 1.
     ranked = sorted(midseason.fbs_teams, key=lambda t: -t.rating)
     focus = ranked[13]
-    past = {}
+    past = set()
     for g in midseason.games:
-        if g["is_ccg"] or focus.idx not in (g["home_idx"], g["away_idx"]):
+        if g["is_ccg"] or g["status"] == 0:
             continue
-        if g["status"] == 0:
+        if focus.idx not in (g["home_idx"], g["away_idx"]):
             continue
         opp = g["away_idx"] if g["home_idx"] == focus.idx else g["home_idx"]
         if midseason.teams[opp].is_fbs:
-            past[opp] = True
+            past.add(opp)
     assert past, "fixture team has no completed games against FBS opponents"
 
-    def mean_effect(k_sos):
-        state = dataclasses.replace(midseason,
-                                    params=dataclasses.replace(midseason.params,
-                                                               k_sos=k_sos))
-        res = run(state, focus.idx, SimConfig(n_sims=120_000, batch_size=25_000))
-        guide = build_guide(state, res, primary="make_playoff", week=None)
-        vals = []
-        for e in guide.games:
-            for opp in past:
-                if opp in (e.home_idx, e.away_idx):
-                    s = e.swings["make_playoff"]
-                    # Orient to "my past opponent wins this game".
-                    vals.append(s.delta if e.home_idx == opp else -s.delta)
-        return float(np.mean(vals)), res.probability("make_playoff")
+    res = run(midseason, focus.idx, SimConfig(n_sims=120_000, batch_size=25_000))
+    p = res.probability("make_playoff")
+    assert 0.02 < p < 0.98, f"focus team is saturated at {p:.1%}"
 
-    off, p_off = mean_effect(0.0)
-    on, p_on = mean_effect(midseason.params.k_sos)
-    assert 0.02 < p_off < 0.98, f"focus team is saturated at {p_off:.1%}"
-    assert on > off, (f"schedule term did not help past opponents: "
-                      f"{on:.5f} vs {off:.5f}")
-    assert on > 0, f"past opponents winning should help, got {on:.5f}"
+    guide = build_guide(midseason, res, primary="make_playoff", week=None)
+    vals = []
+    for e in guide.games:
+        for opp in past:
+            if opp in (e.home_idx, e.away_idx):
+                sw = e.swings["make_playoff"]
+                # Orient to "my past opponent wins this game".
+                vals.append(sw.delta if e.home_idx == opp else -sw.delta)
+    assert vals, "no remaining games involve a past opponent"
+    assert float(np.mean(vals)) > 0, "past opponents winning should help"
