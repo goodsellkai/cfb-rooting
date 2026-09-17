@@ -89,11 +89,20 @@ class ModelParams:
     # 0.567). That separation lives in resume_shrink, which uses ratings.
     k_sos: float = 8.0
     sos_loss_ratio: float = 0.45   # a quality loss counts this much of a quality win
+    # Weight on the least squares win-loss rating the kernel computes for
+    # each simulated season (cfbroot.massey.LinearSystem). This is a linear
+    # stand-in, not the Massey rating: the real one needs Newton iterations per
+    # season, which the Monte Carlo cannot afford. Its units are games, and the
+    # spread from best to worst team is about 2. At 0 it is not computed at all.
+    k_lsq: float = 0.0
     ccg_elite_expectation: float = 0.75  # elite team's expected wins in a title game
 
-    # Playoff format (2026: 12 teams, straight seeding)
+    # Playoff format, 2026-27: 12 teams, straight seeding, byes to the top four
+    # seeds. Five automatic bids: the four power conference champions plus the
+    # highest ranked Group of Six team, which from this season does not have to
+    # have won its conference.
     playoff_size: int = 12
-    n_auto_bids: int = 5           # 4 power conference champions + best other champion
+    n_auto_bids: int = 5
     n_byes: int = 4
 
     def to_dict(self) -> dict:

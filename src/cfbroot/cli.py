@@ -108,6 +108,68 @@ def cmd_guide(args) -> int:
     return 0
 
 
+def cmd_massey(args) -> int:
+    from rich.console import Console
+    from rich.table import Table
+
+    from .massey import rate_season, title_game_week
+
+    console = Console()
+    with console.status("loading season data..."):
+        state = _load(args)
+
+    ccg_week = title_game_week(state)
+    through = args.through_week
+    if through is None and ccg_week is not None:
+        through = ccg_week - 1
+    extra = []
+    if not args.no_fcs:
+        try:
+            from .data.cfbd_source import CFBDSource
+            with console.status("loading FCS games..."):
+                extra = CFBDSource(state.year).fcs_games(force=args.force)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]note[/] FCS games unavailable ({exc}); "
+                          "every non-FBS opponent will share one rating.")
+    ratings = rate_season(state, through_week=through, extra_games=extra,
+                          use_scores=not args.bcs,
+                          prior_from_rating=args.fpi_prior,
+                          which="power" if args.power else "rating")
+    if not ratings:
+        print("No finished games yet.")
+        return 1
+
+    rec: dict[str, list[int]] = {}
+    for g in state.games:
+        if g["status"] == 0 or g["is_ccg"]:
+            continue
+        if through is not None and g["week"] > through:
+            continue
+        win, lose = ((g["home"], g["away"]) if g["status"] == 1
+                     else (g["away"], g["home"]))
+        rec.setdefault(win, [0, 0])[0] += 1
+        rec.setdefault(lose, [0, 0])[1] += 1
+
+    kind = "power" if args.power else "rating"
+    basis = "win-loss only (BCS rules)" if args.bcs else "scores"
+    console.rule(f"[bold]Massey {kind}[/] | {state.year}"
+                 + (f" | through week {through}" if through is not None else "")
+                 + f" | {basis}")
+    t = Table(box=None, pad_edge=False)
+    for c, j in (("#", "right"), ("Team", "left"), ("Conference", "left"),
+                 ("Record", "right"), ("Rating", "right")):
+        t.add_column(c, justify=j)
+    by_school = {x.school: x for x in state.fbs_teams}
+    for i, school in enumerate(sorted(ratings, key=lambda x: -ratings[x]), 1):
+        if i > args.top:
+            break
+        w, l = rec.get(school, [0, 0])
+        t.add_row(str(i), school, by_school[school].conference or "",
+                  f"{w}-{l}", f"{ratings[school]:+.3f}")
+    console.print(t)
+    return 0
+
+
 def cmd_refresh(args) -> int:
     from .data.loader import load_season
     state = load_season(args.year, live=True, force=True)
@@ -145,6 +207,22 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--top", type=int, default=20)
     g.add_argument("--seed", type=int, default=12345)
     g.set_defaults(func=cmd_guide)
+
+    m = sub.add_parser("massey", help="print the Massey ratings")
+    m.add_argument("--top", type=int, default=25)
+    m.add_argument("--through-week", type=int, default=None,
+                   help="last week to count (default: the week before the "
+                        "conference title games)")
+    m.add_argument("--power", action="store_true",
+                   help="show the power rating instead of the overall rating")
+    m.add_argument("--bcs", action="store_true",
+                   help="ignore margin of victory, as the BCS required")
+    m.add_argument("--no-fcs", action="store_true",
+                   help="skip the FCS games, lumping all non-FBS into one team")
+    m.add_argument("--fpi-prior", action="store_true",
+                   help="start each team at its published rating instead of at "
+                        "average, which steadies the first few weeks")
+    m.set_defaults(func=cmd_massey)
 
     c = sub.add_parser("check", help="verify the CFBD API key")
     c.set_defaults(func=cmd_check)

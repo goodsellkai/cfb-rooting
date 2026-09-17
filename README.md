@@ -31,6 +31,12 @@ From the command line:
 .venv\Scripts\cfbroot guide --team Michigan
 ```
 
+Massey ratings for the current season:
+
+```
+.venv\Scripts\cfbroot massey
+```
+
 ## Tests
 
 ```

@@ -11,7 +11,8 @@ import numpy as np
 
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
-from ..model import evaluate, provenance, win_probability
+from ..massey import build_linear
+from ..model import evaluate, win_probability
 
 # status codes on the unified game table
 TO_SIMULATE = 0
@@ -94,6 +95,9 @@ class KernelInputs:
     conf_n_div: np.ndarray
     conf_is_power: np.ndarray
     conf_fixed_ccg: np.ndarray         # (n_conf, 3): home, away, status; -1 if none
+
+    lsq_node: np.ndarray            # team index -> rating node
+    lsq_solve: np.ndarray           # (n_fbs, n_nodes+1) rows of pinv(X'X)
 
     n_teams: int
     n_conf: int
@@ -223,6 +227,12 @@ class SeasonState:
 
         remaining_idx = np.flatnonzero(g_status == TO_SIMULATE).astype(np.int32)
 
+        # The least squares win-loss system. Only who plays whom goes into it,
+        # so it is built and inverted once here and every simulated season
+        # reuses it. Title games are excluded along with everything else in
+        # sim_games, which puts the rating at the week before title games.
+        msys = build_linear(is_fbs, g_home, g_away, g_neutral)
+
         # Expected wins for a playoff-level team against each schedule.
         # Used by the committee proxy.
         elite = np.full(n_g, p.elite_rating)
@@ -288,6 +298,7 @@ class SeasonState:
             conf_games_ptr=conf_games_ptr, conf_games=conf_games,
             conf_has_ccg=conf_has_ccg, conf_crowns=conf_crowns, conf_n_div=conf_n_div,
             conf_is_power=conf_is_power, conf_fixed_ccg=conf_fixed,
+            lsq_node=msys.node, lsq_solve=msys.solve,
             n_teams=n_teams, n_conf=n_conf,
         )
 

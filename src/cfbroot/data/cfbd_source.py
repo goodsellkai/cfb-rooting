@@ -114,6 +114,29 @@ class CFBDSource:
         return self._games("postseason",
                            TTL_GAMES_LIVE if live else TTL_GAMES_IDLE, force)
 
+    def fcs_games(self, *, live: bool = False, force: bool = False) -> list[dict]:
+        """Games between FCS teams.
+
+        The Massey rating needs these. It rates all of Division I at once, and
+        an FCS team judged only on its one trip to an FBS stadium would drag
+        that result around. These games never enter the simulation.
+        """
+        ttl = TTL_GAMES_LIVE if live else TTL_GAMES_IDLE
+        out = []
+        for season_type in ("regular", "postseason"):
+            out += self._fcs(season_type, ttl, force)
+        return out
+
+    def _fcs(self, season_type: str, ttl: float, force: bool) -> list[dict]:
+        import cfbd
+
+        return cache.get_or_fetch(
+            "fcs_games", {"year": self.year, "season_type": season_type}, ttl,
+            lambda: self._call("GamesApi", "get_games", year=self.year,
+                               season_type=cfbd.SeasonType(season_type),
+                               classification=cfbd.DivisionClassification.FCS),
+            force=force)
+
     def fpi(self, *, force: bool = False) -> list[dict]:
         return cache.get_or_fetch(
             "fpi", {"year": self.year}, TTL_RATINGS,

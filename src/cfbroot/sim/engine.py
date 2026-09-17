@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
@@ -140,8 +140,9 @@ def run(state: SeasonState, focus: str | int, cfg: SimConfig | None = None,
             ki.conf_has_ccg, ki.conf_crowns, ki.conf_n_div, ki.conf_is_power,
             ki.conf_fixed_ccg,
             fbs_idx,
+            ki.lsq_node, ki.lsq_solve,
             p.hfa, p.sigma, p.rating_sd, p.rating_scale, p.w_rating, p.k_resume,
-            p.k_champ, p.k_sos, p.sos_loss_ratio,
+            p.k_champ, p.k_sos, p.sos_loss_ratio, p.k_lsq,
             p.ccg_elite_expectation, p.n_byes,
             focus_idx,
             out_hw, out_metrics, out_wins, out_losses, out_seed, out_rank,

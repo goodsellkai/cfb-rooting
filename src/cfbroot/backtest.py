@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import os
 
 import numpy as np
 
@@ -42,22 +41,38 @@ def actual_field(year: int) -> dict:
         return {p.team.school: p for p in cfbd.PlayoffsApi(c).get_cfp_participants(year=year)}
 
 
-def committee_ranking(year: int) -> dict[str, int]:
-    """The last Playoff Committee Rankings poll of the season."""
+def committee_polls(year: int) -> dict[int, dict[str, int]]:
+    """Every Playoff Committee Rankings poll of the regular season, by week."""
     cfbd, cfg = _client()
-    out: dict[str, int] = {}
+    out: dict[int, dict[str, int]] = {}
     with cfbd.ApiClient(cfg) as c:
         api = cfbd.RankingsApi(c)
-        for week in (14, 15, 16):
-            try:
-                weeks = api.get_rankings(year=year, week=week)
-            except Exception:  # noqa: BLE001
-                continue
-            for w in weeks:
-                for poll in w.polls:
-                    if "Playoff Committee" in poll.poll:
-                        out = {r.school: r.rank for r in poll.ranks}
+        weeks = api.get_rankings(year=year,
+                                 season_type=cfbd.SeasonType("regular"))
+        for w in weeks:
+            for poll in w.polls:
+                if "Playoff Committee" in poll.poll:
+                    out[int(w.week)] = {r.school: int(r.rank) for r in poll.ranks}
     return out
+
+
+def committee_ranking(year: int) -> dict[str, int]:
+    """The final Playoff Committee Rankings poll, the one the field came from."""
+    polls = committee_polls(year)
+    return polls[max(polls)] if polls else {}
+
+
+def committee_pre_title(year: int) -> dict[str, int]:
+    """The last committee poll before championship weekend.
+
+    The committee publishes one poll a week. The last is released after the
+    title games and is the one the field comes from; the one before it is the
+    standing going into championship weekend, which is where the Massey rating
+    is fitted.
+    """
+    polls = committee_polls(year)
+    weeks = sorted(polls)
+    return polls[weeks[-2]] if len(weeks) >= 2 else {}
 
 
 def proxy_ranking(state) -> tuple[dict[str, int], set[str]]:
@@ -97,6 +112,79 @@ def pick_field(ranks, champs, conference_of, rule: str) -> list[str]:
     return sel[:FIELD]
 
 
+def _compare(label: str, mine: dict[str, int], theirs: dict[str, int],
+             conference_of: dict[str, str], depth: int = 25) -> None:
+    """Print how one ranking lines up with a committee poll."""
+    from scipy.stats import spearmanr
+
+    pairs = [(v, mine[k], k) for k, v in theirs.items() if k in mine and v <= depth]
+    if len(pairs) < 3:
+        print()
+        print(f"{label}: not enough overlap to compare")
+        return
+    arr = np.array([(a, b) for a, b, _ in pairs], dtype=float)
+    err = np.abs(arr[:, 0] - arr[:, 1])
+    power = [e for e, q in zip(err, pairs) if conference_of.get(q[2]) in POWER_CONFERENCES]
+    other = [e for e, q in zip(err, pairs) if conference_of.get(q[2]) not in POWER_CONFERENCES]
+    their12 = {k for k, v in theirs.items() if v <= FIELD}
+    my12 = set(sorted(mine, key=lambda x: mine[x])[:FIELD])
+    print()
+    print(f"{label} ({len(pairs)} matched):")
+    print(f"   Spearman {spearmanr(arr[:, 0], arr[:, 1]).statistic:+.2f}, "
+          f"mean rank error {err.mean():.1f}")
+    if power and other:
+        print(f"   power conferences {np.mean(power):.1f}, others {np.mean(other):.1f}")
+    print(f"   {len(their12 & my12)}/{len(their12)} of their top 12 are in my top 12")
+    pairs.sort(key=lambda q: -abs(q[1] - q[0]))
+    print("   biggest misses (negative means I rank them too high):")
+    for c, m, school in pairs[:4]:
+        print(f"      {school:<20}committee {c:>3}   mine {m:>3}   {m - c:+d}")
+
+
+def fcs_games_for(year: int) -> list[dict]:
+    """FCS games, or nothing if they cannot be fetched.
+
+    Without them the rating still works; every non-FBS opponent just shares one
+    rating, which costs about three places of accuracy per team.
+    """
+    from .data.cfbd_source import CFBDSource
+    try:
+        return CFBDSource(year).fcs_games()
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def massey_ranking(state, use_scores: bool = True) -> dict[str, int]:
+    """Massey rank per school, fitted to the week before the title games."""
+    from .massey import rate_season, title_game_week
+
+    ccg_week = title_game_week(state)
+    ratings = rate_season(state, extra_games=fcs_games_for(state.year),
+                          use_scores=use_scores,
+                          through_week=None if ccg_week is None else ccg_week - 1)
+    order = sorted(ratings, key=lambda s: -ratings[s])
+    return {s: i + 1 for i, s in enumerate(order)}
+
+
+def selection_day_field(state, rng=None, rule: str = "2026"):
+    """The ranking and playoff field once the title games are in.
+
+    Title game losses are dropped, so playing for a title can only help. Pass an
+    ``rng`` to draw the committee's own variability and get a different field
+    each time, which is what the simulator wants.
+    """
+    from . import massey, selection
+
+    ratings, diagnostics = massey.rate_selection_day(
+        state, extra_games=fcs_games_for(state.year))
+    ranking = selection.rank_teams(state, ratings, rng=rng)
+    champions, _ = massey.title_game_results(state)
+    field = selection.pick_field(
+        ranking.order, champions,
+        {t.school: t.conference for t in state.fbs_teams}, rule=rule)
+    return ranking, field, diagnostics
+
+
 def run_year(year: int) -> None:
     state = load_season(year)
     state.params = dataclasses.replace(state.params, rating_sd=0.0)
@@ -117,6 +205,11 @@ def run_year(year: int) -> None:
                 print("   I miss: " + ", ".join(sorted(set(parts) - mine)))
     else:
         print(f"\n{len(parts)}-team playoff this season, field not comparable")
+
+    pre = committee_pre_title(year)
+    if pre:
+        _compare("Massey vs the committee going into championship weekend",
+                 massey_ranking(state), pre, conference_of)
 
     final = committee_ranking(year)
     if not final:

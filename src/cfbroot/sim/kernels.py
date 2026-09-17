@@ -6,6 +6,7 @@ code runs as plain Python.
 Each simulated season:
 1. picks a winner for every unplayed regular season game
 2. adds up overall and conference records
+2b. measures schedule strength and fits the least squares rating
 3. orders each conference, breaks ties, and plays the title games
 4. ranks every team with the committee proxy
 5. picks and seeds the 12-team playoff
@@ -138,8 +139,9 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    conf_has_ccg, conf_crowns, conf_n_div, conf_is_power,
                    conf_fixed_ccg,
                    fbs_idx,
+                   lsq_node, lsq_solve,
                    hfa, sigma, tau, scale, w_rating, k_resume, k_champ,
-                   k_sos, sos_loss_ratio,
+                   k_sos, sos_loss_ratio, k_lsq,
                    ccg_elite_expectation, n_byes,
                    focus_team,
                    out_hw, out_metrics, out_wins, out_losses, out_seed,
@@ -150,6 +152,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
     n_rem = remaining_idx.shape[0]
     n_fbs = fbs_idx.shape[0]
     n_chunks = team_counts.shape[0]
+    n_mcol = lsq_solve.shape[1]   # FBS nodes, the combined non-FBS node, home field
     field = 12
 
     for c in prange(n_chunks):
@@ -169,6 +172,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         final = np.zeros(n_teams, dtype=np.float64)
         wpct = np.zeros(n_teams, dtype=np.float64)
         sos = np.zeros(n_teams, dtype=np.float64)
+        lsq = np.zeros(n_teams, dtype=np.float64)
+        mb = np.zeros(n_mcol, dtype=np.float64)
         champ = np.zeros(n_teams, dtype=np.uint8)
         in_ccg = np.zeros(n_teams, dtype=np.uint8)
         ccg_played = np.zeros(n_teams, dtype=np.uint8)
@@ -251,12 +256,34 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     sos[h] += sos_loss_ratio * qa
                     sos[a] += qh
 
+            # 2c. Least squares win-loss rating, a cheap stand-in for the
+            # Massey fit in cfbroot.massey. The normal equations only depend on
+            # the schedule, so they were inverted once when the season was
+            # built and each season here is one matrix-vector product. Title
+            # games are not in this loop, which puts it at the week before
+            # championship weekend.
+            if k_lsq != 0.0:
+                for k in range(n_mcol):
+                    mb[k] = 0.0
+                for i in range(n_g):
+                    sgn = 1.0 if winner[i] == 1 else -1.0
+                    mb[lsq_node[g_home[i]]] += sgn
+                    mb[lsq_node[g_away[i]]] -= sgn
+                    if not g_neutral[i]:
+                        mb[n_mcol - 1] += sgn
+                for j in range(n_fbs):
+                    acc = 0.0
+                    for k in range(n_mcol):
+                        acc += lsq_solve[j, k] * mb[k]
+                    lsq[fbs_idx[j]] = acc
+
             # 3. Committee score before title games
             for j in range(n_fbs):
                 t = fbs_idx[j]
                 score[t] = (w_rating * rating[t]
                             + k_resume * (wins[t] - exp_elite_wins[t])
-                            + k_sos * sos[t])
+                            + k_sos * sos[t]
+                            + k_lsq * lsq[t])
 
             # 4. Conference championships
             for t in range(n_teams):
@@ -341,7 +368,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 final[t] = (w_rating * rating[t]
                             + k_resume * (wins[t] + ccg_delta[t] - exp)
                             + k_champ * champ[t]
-                            + k_sos * sos[t])
+                            + k_sos * sos[t]
+                            + k_lsq * lsq[t])
                 sortkey[j] = -final[t]
 
             ranked = np.argsort(sortkey)
@@ -362,11 +390,17 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                         picked[t] = 1
                         seeds[n_sel] = t
                         n_sel += 1
-            # plus the highest-ranked champion from everywhere else
+            # plus the highest-ranked Group of Six team. From 2026 this bid
+            # goes to the best team in those leagues whether or not it won its
+            # conference, which is the rule that changed after Tulane and
+            # James Madison both auto-qualified in 2025. Independents are not
+            # a Group of Six conference and cannot take it, which is what
+            # conf_crowns screens out here.
             for k in range(n_fbs):
                 t = fbs_idx[ranked[k]]
-                if (champ[t] == 1 and picked[t] == 0
-                        and conf_id[t] >= 0 and not conf_is_power[conf_id[t]]):
+                if (picked[t] == 0 and conf_id[t] >= 0
+                        and not conf_is_power[conf_id[t]]
+                        and conf_crowns[conf_id[t]]):
                     picked[t] = 1
                     seeds[n_sel] = t
                     n_sel += 1
