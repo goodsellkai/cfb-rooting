@@ -392,16 +392,17 @@ function renderRootList() {
 
 function renderLeague() {
   const key = $("leaguemetric").value;
-  const rows = RESULT.league.slice()
-    .sort((a, b) => b.p[key] - a.p[key]).slice(0, 25);
+  const rows = RESULT.league.slice().sort((a, b) => b.p[key] - a.p[key]);
   const showEspn = key === "make_playoff"
     && rows.some(r => r.espn_playoff_prob !== null && r.espn_playoff_prob !== undefined);
-  let html = `<div class="tablewrap"><table><thead><tr>
+  let html = `<div class="tablewrap tall"><table><thead><tr>
     <th class="num">#</th><th>Team</th><th>Conference</th>
     <th class="num">${esc(STATE.rating_label)}</th>
     <th class="num">${esc(metricLabel(key))}</th>
     ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
+  let total = 0;
   rows.forEach((r, i) => {
+    total += r.p[key];
     html += `<tr><td class="num">${i + 1}</td>
       <td class="teamcell">${logo(r.idx, 18)}${esc(r.team)}</td>
       <td class="muted">${esc(r.conference || "")}</td>
@@ -410,7 +411,14 @@ function renderLeague() {
       ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
         ? pct(r.espn_playoff_prob) : "-"}</td>` : ""}</tr>`;
   });
-  $("league").innerHTML = html + "</tbody></table></div>";
+  // Every simulated season fills each slot exactly once, so this is the
+  // number of teams per season: 12 for the playoff, 1 for the title.
+  html += `</tbody><tfoot><tr><td></td>
+    <td colspan="3">Total, ${rows.length} teams
+      <span class="muted">· ${num(total, 2)} per season</span></td>
+    <td class="num"><b>${pct(total)}</b></td>
+    ${showEspn ? "<td></td>" : ""}</tr></tfoot>`;
+  $("league").innerHTML = html + "</table></div>";
 }
 
 function esc(s) {
