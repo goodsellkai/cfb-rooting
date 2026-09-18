@@ -77,16 +77,6 @@ h2 { font-size: 12px; margin: 0; letter-spacing: .06em; text-transform: uppercas
   position: sticky; top: 0; z-index: 20; box-shadow: var(--shadow-sm);
 }
 .group { display: flex; flex-direction: column; gap: 8px; }
-.group.view { padding-left: 34px; border-left: 1px solid var(--line); }
-@media (max-width: 900px) {
-  .group.view { padding-left: 0; border-left: none; }
-}
-.grouplabel {
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
-  font-weight: 700; color: var(--ink-2);
-}
-.grouplabel em { font-style: normal; font-weight: 500; color: var(--muted);
-                 text-transform: none; letter-spacing: .01em; }
 .groupfields { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field > span { font-size: 11px; color: var(--muted); font-weight: 500; }
@@ -145,11 +135,6 @@ main { padding: 26px; max-width: 1240px; margin: 0 auto; width: 100%; flex: 1; }
 .panel > h2 { margin-bottom: 14px; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
-
-.staleness {
-  background: var(--bad-soft); color: var(--bad); font-size: 13.5px;
-  padding: 11px 15px; border-radius: var(--radius); margin: 0 0 18px;
-}
 
 /* cards */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));

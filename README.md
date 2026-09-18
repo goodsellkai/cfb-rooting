@@ -27,6 +27,15 @@ Then open http://127.0.0.1:8000.
 
 It simulates a million seasons as it starts, which takes about a minute. That
 one run answers for every team, so picking a team after that is instant.
+Restart it to pull new scores.
+
+## Hosted version
+
+`cfbroot export` simulates the season and writes the whole app as static files
+to `site/`, so it can be hosted anywhere with no server. The Publish site
+workflow does this on a schedule and puts it on GitHub Pages. It needs a
+repository secret named `CFBD_API_KEY`, and Pages set to deploy from GitHub
+Actions.
 
 From the command line:
 

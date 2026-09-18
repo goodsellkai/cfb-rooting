@@ -1,11 +1,10 @@
-"""Local web app: pick your team, run the sims, read the rooting guide."""
+"""Local web app: pick your team and read the rooting guide."""
 
 from __future__ import annotations
 
 import threading
 import time
 import traceback
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,7 +12,6 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from ..config import (DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig,
                       has_api_key)
@@ -28,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 # rather than per team. A million seasons puts the error on a playoff
 # probability at about four hundredths of a percentage point.
 DEFAULT_SIMS = 1_000_000
+SEED = 12345
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -37,15 +36,10 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 @dataclass
 class Job:
-    id: str
-    team: str
-    n_sims: int
     status: str = "running"       # running | done | error
     done: int = 0
-    total: int = 0
+    total: int = DEFAULT_SIMS
     started: float = field(default_factory=time.time)
-    finished: float | None = None
-    result: dict | None = None
     error: str | None = None
 
 
@@ -53,8 +47,8 @@ class Store:
     """The season, and the one set of simulations that serves every team.
 
     Which team is being asked about never changed how a season played out, so
-    the simulation is run once and each team is a slice of it. It only has to
-    be redone when the data changes or the count does.
+    the simulation is run once at start-up and each team is a slice of it.
+    Restarting the server re-pulls the data and simulates again.
     """
 
     def __init__(self) -> None:
@@ -62,59 +56,54 @@ class Store:
         self.season: SeasonState | None = None
         self.year: int = default_year()
         self.loaded_at: float = 0.0
-        self.jobs: dict[str, Job] = {}
         self.league = None            # LeagueResults, shared by every team
-        self.league_sims: int = 0
-        self.league_seed: int = 0
-        self.league_job: Job | None = None
+        self.job: Job | None = None
+        self.payloads: dict[int, dict] = {}
 
-    def get_season(self, *, force: bool = False, live: bool = False) -> SeasonState:
+    def get_season(self) -> SeasonState:
         with self.lock:
-            if self.season is None or force:
-                self.season = load_season(self.year, force=force, live=live)
+            if self.season is None:
+                self.season = load_season(self.year)
                 self.loaded_at = time.time()
-                self.league = None
-                self.league_job = None
             return self.season
 
-    def usable(self, n_sims: int, seed: int) -> bool:
-        return (self.league is not None and self.league_sims == n_sims
-                and self.league_seed == seed)
-
-    def start_league(self, state: SeasonState, n_sims: int, seed: int) -> Job:
-        """Kick off the shared simulation, or hand back the one already running."""
+    def start_league(self) -> Job:
+        """Kick off the shared simulation, or hand back the one already going."""
+        state = self.get_season()
         with self.lock:
-            job = self.league_job
-            if job is not None and job.status == "running"                     and job.n_sims == n_sims:
-                return job
-            job = Job(id=uuid.uuid4().hex[:12], team="all teams",
-                      n_sims=n_sims, total=n_sims)
-            self.jobs[job.id] = job
-            self.league_job = job
+            if self.job is not None and self.job.status != "error":
+                return self.job
+            job = self.job = Job()
 
         def work() -> None:
             try:
-                cfg = SimConfig(n_sims=n_sims,
-                                batch_size=min(50_000, n_sims), seed=seed)
+                cfg = SimConfig(n_sims=DEFAULT_SIMS, batch_size=50_000,
+                                seed=SEED)
 
                 def progress(done: int, total: int) -> None:
-                    job.done = done
-                    job.total = total
+                    job.done, job.total = done, total
 
                 league = run_league(state, cfg, progress=progress)
                 with self.lock:
                     self.league = league
-                    self.league_sims = n_sims
-                    self.league_seed = seed
                 job.status = "done"
             except Exception as exc:  # noqa: BLE001
                 job.status = "error"
                 job.error = f"{exc}\n{traceback.format_exc()}"
-            finally:
-                job.finished = time.time()
 
-        threading.Thread(target=work, daemon=True, name=f"sim-{job.id}").start()
+        threading.Thread(target=work, daemon=True, name="league").start()
         return job
+
+    def payload(self, team_idx: int) -> dict:
+        """One team's guide, built on first request and kept."""
+        if team_idx not in self.payloads:
+            s = self.season
+            res = self.league.for_team(team_idx)
+            # Score every remaining game for every metric. Week and metric are
+            # filters the client applies without asking again.
+            guide = build_guide(s, res, primary="make_playoff", week=None)
+            self.payloads[team_idx] = _guide_payload(guide, res, s)
+        return self.payloads[team_idx]
 
 
 store = Store()
@@ -229,108 +218,33 @@ def api_state():
     return JSONResponse(_season_payload(s))
 
 
-@app.post("/api/refresh")
-def api_refresh():
-    """Re-pull scores and ratings."""
-    try:
-        s = store.get_season(force=True, live=True)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return JSONResponse(_season_payload(s))
-
-
-class RunRequest(BaseModel):
-    team: str
-    n_sims: int = DEFAULT_SIMS
-    week: int | None = None
-    primary: str = "make_playoff"
-    metrics: list[str] | None = None
-    league_metric: str = "make_playoff"
-    seed: int = 12345
-    all_weeks: bool = False
-
-
-@app.post("/api/run")
-def api_run(req: RunRequest):
+@app.get("/api/team/{name}")
+def api_team(name: str):
+    """A team's rooting guide, or how far along the shared simulation is."""
     try:
         s = store.get_season()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    team = s.team_by_name(name)
+    if team is None or not team.is_fbs:
+        raise HTTPException(status_code=404, detail=f"unknown team: {name}")
 
-    team = s.team_by_name(req.team)
-    if team is None:
-        raise HTTPException(status_code=404, detail=f"unknown team: {req.team}")
-    n_sims = int(np.clip(req.n_sims, 1_000, 5_000_000))
-
-    job = Job(id=uuid.uuid4().hex[:12], team=team.school, n_sims=n_sims,
-              total=n_sims)
-    store.jobs[job.id] = job
-
-    def serve_from(league) -> None:
-        res = league.for_team(team.idx)
-        # Score every remaining game for every metric. Week and metric are
-        # filters the client applies without asking again.
-        guide = build_guide(s, res, primary=req.primary, week=None)
-        job.result = _guide_payload(guide, res, s)
-        job.done = job.total
-        job.status = "done"
-        job.finished = time.time()
-
-    # The simulations do not depend on the team, so if a run of this size is
-    # already in hand this is just a slice of it.
-    if store.usable(n_sims, req.seed):
-        serve_from(store.league)
-        return {"job_id": job.id}
-
-    league_job = store.start_league(s, n_sims, req.seed)
-
-    def wait() -> None:
-        try:
-            while league_job.status == "running":
-                job.done, job.total = league_job.done, league_job.total
-                time.sleep(0.1)
-            if league_job.status == "error":
-                job.status = "error"
-                job.error = league_job.error
-                job.finished = time.time()
-                return
-            serve_from(store.league)
-        except Exception as exc:  # noqa: BLE001
-            job.status = "error"
-            job.error = f"{exc}\n{traceback.format_exc()}"
-            job.finished = time.time()
-
-    threading.Thread(target=wait, daemon=True, name=f"serve-{job.id}").start()
-    return {"job_id": job.id}
-
-
-@app.get("/api/job/{job_id}")
-def api_job(job_id: str):
-    job = store.jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="no such job")
-    payload = {
-        "id": job.id, "status": job.status, "team": job.team,
-        "done": job.done, "total": job.total,
-        "elapsed": (job.finished or time.time()) - job.started,
-    }
-    if job.status == "done":
-        payload["result"] = job.result
+    job = store.start_league()
     if job.status == "error":
-        payload["error"] = job.error
-    return JSONResponse(_clean(payload))
+        raise HTTPException(status_code=500, detail=job.error.split("\n")[0])
+    if store.league is None:
+        return JSONResponse(
+            {"status": "running", "done": job.done, "total": job.total,
+             "elapsed": time.time() - job.started}, status_code=202)
+    return JSONResponse(store.payload(team.idx))
 
 
 @app.on_event("startup")
 def _warm_up() -> None:
-    """Start the shared simulation as the server comes up.
-
-    It serves every team, so doing it now means the first team picked is
-    already waiting rather than starting a run.
-    """
+    """Start the shared simulation as the server comes up."""
     def work() -> None:
         try:
-            store.start_league(store.get_season(), DEFAULT_SIMS, 12345)
+            store.start_league()
         except Exception:  # noqa: BLE001
             pass          # no key, no network: the first request will say so
 

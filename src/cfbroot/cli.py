@@ -22,6 +22,14 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    from pathlib import Path
+
+    from .web.export import export
+    export(Path(args.out), year=args.year, n_sims=args.sims)
+    return 0
+
+
 def cmd_check(args) -> int:
     from .config import has_api_key
     from .data.cfbd_source import CFBDSource
@@ -196,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
     s.set_defaults(func=cmd_serve)
+
+    e = sub.add_parser("export", help="write the app as a static site")
+    e.add_argument("--out", default="site")
+    e.add_argument("--sims", type=int, default=1_000_000)
+    e.set_defaults(func=cmd_export)
 
     g = sub.add_parser("guide", help="print a rooting guide in the terminal")
     g.add_argument("--team", required=True)

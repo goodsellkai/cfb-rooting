@@ -11,9 +11,15 @@ const num = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
   ? "-" : x.toFixed(d);
 
 let STATE = null;      // /api/state
-let RESULT = null;     // last run: every remaining game x every metric
-let POLLING = null;
-let RAN = null;        // the inputs RESULT was produced from
+let RESULT = null;     // the shown team: every remaining game x every metric
+let WANTED = null;     // the team most recently asked for
+
+// The hosted build is plain files written ahead of time; the local app asks
+// its server. Both return the same JSON.
+const STATIC = !!window.CFBROOT_STATIC;
+const URLS = STATIC
+  ? { state: "data/state.json", team: (t) => `data/team/${t.idx}.json` }
+  : { state: "/api/state", team: (t) => "/api/team/" + encodeURIComponent(t.name) };
 
 const CONF_TITLE = {
   clear: "Statistically significant.",
@@ -25,7 +31,7 @@ const CONF_TITLE = {
 
 async function boot() {
   try {
-    STATE = await (await fetch("/api/state")).json();
+    STATE = await (await fetch(URLS.state)).json();
   } catch (err) {
     banner("Could not load season data: " + err, false);
     return;
@@ -34,10 +40,13 @@ async function boot() {
   fillTeams();
   fillMetrics();
   fillWeeks();
-  const saved = localStorage.getItem("cfbroot.team");
-  if (saved) $("team").value = saved;
   showNotes();
-  updateStaleness();
+  let saved = null;
+  try { saved = localStorage.getItem("cfbroot.team"); } catch { /* private mode */ }
+  if (saved && teamNamed(saved)) {
+    $("team").value = saved;
+    loadTeam();
+  }
 }
 
 function banner(text, ok) {
@@ -74,7 +83,10 @@ function renderSeasonLine() {
     `${STATE.year} season · week ${STATE.current_week} · `
     + `${STATE.games_played} played, ${STATE.games_remaining} to simulate`;
   $("topmeta").innerHTML =
-    `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`;
+    `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`
+    + (STATE.loaded_at
+      ? `<span class="chip">Simulated <b>${esc(ago(new Date(1000 * STATE.loaded_at).toISOString()))}</b></span>`
+      : "");
 }
 
 function team(idx) {
@@ -118,113 +130,58 @@ function fillWeeks() {
   sel.value = String(STATE.default_week ?? STATE.current_week);
 }
 
-// Running
+// Loading
 //
-// Only the team, the number of seasons, and the data need a new run.
-// Week, metric, filter and sort only change the view.
+// The server simulates every team once at start-up, so picking a team is a
+// lookup. Until that run finishes the server answers 202 with its progress.
+// The hosted build never does: its files were written after the run.
 
-function currentInputs() {
-  return {
-    team: $("team").value.trim().toLowerCase(),
-    n_sims: parseInt($("nsims").value, 10),
-    data: STATE ? STATE.loaded_at : 0,
-  };
+function teamNamed(name) {
+  const n = name.trim().toLowerCase();
+  return STATE.teams.find(t => t.name.toLowerCase() === n) || null;
 }
 
-function needsRerun() {
-  if (!RESULT || !RAN) return true;
-  const c = currentInputs();
-  return c.team !== RAN.team || c.n_sims !== RAN.n_sims || c.data !== RAN.data;
-}
-
-function updateStaleness() {
-  const el = $("staleness");
-  if (!RESULT) { el.hidden = true; return; }
-  const c = currentInputs();
-  const why = [];
-  if (c.team !== RAN.team) why.push("team");
-  if (c.n_sims !== RAN.n_sims) why.push("simulation count");
-  if (c.data !== RAN.data) why.push("underlying data");
-  el.hidden = why.length === 0;
-  if (why.length) {
-    el.innerHTML = `Showing <b>${esc(RESULT.team)}</b>. Press <b>Run</b> to update.`;
-  }
-}
-
-async function runSim() {
-  const name = $("team").value.trim();
-  if (!name) { banner("Pick a team first.", false); return; }
-  localStorage.setItem("cfbroot.team", name);
-
-  const inputs = currentInputs();
-  setBusy(true);
-  let job;
-  try {
-    const resp = await fetch("/api/run", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team: name, n_sims: inputs.n_sims,
-                             primary: $("primary").value, all_weeks: true }),
-    });
-    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
-    job = await resp.json();
-  } catch (err) {
-    banner("Could not start the run: " + err.message, false);
-    setBusy(false);
-    return;
-  }
-  poll(job.job_id, inputs);
-}
-
-function setBusy(busy) {
-  $("run").disabled = busy;
-  $("refresh").disabled = busy;
-  $("progress").hidden = !busy;
-  if (busy) {
-    $("progressfill").style.width = "0%";
-    $("progresstext").textContent = "compiling and simulating…";
-  }
-}
-
-function poll(jobId, inputs) {
-  clearInterval(POLLING);
-  POLLING = setInterval(async () => {
-    let j;
+async function loadTeam() {
+  const t = teamNamed($("team").value);
+  if (!t || (RESULT && RESULT.team === t.name && WANTED === t.name)) return;
+  WANTED = t.name;
+  try { localStorage.setItem("cfbroot.team", t.name); } catch { /* private mode */ }
+  for (;;) {
+    let resp, body;
     try {
-      j = await (await fetch("/api/job/" + jobId)).json();
-    } catch { return; }
-    if (j.status === "running") {
-      const frac = j.total ? j.done / j.total : 0;
-      $("progressfill").style.width = (100 * frac).toFixed(1) + "%";
-      $("progresstext").textContent =
-        `${j.done.toLocaleString()} / ${j.total.toLocaleString()} seasons simulated`
-        + ` · ${num(j.elapsed, 1)}s`;
+      resp = await fetch(URLS.team(t));
+      body = await resp.json();
+    } catch (err) {
+      showProgress(null);
+      banner("Could not load " + t.name + ": " + err, false);
       return;
     }
-    clearInterval(POLLING);
-    setBusy(false);
-    if (j.status === "error") {
-      banner("Simulation failed: " + String(j.error).split("\n")[0], false);
+    if (WANTED !== t.name) return;             // a different team was picked
+    if (resp.status === 202) {
+      showProgress(body);
+      await new Promise(r => setTimeout(r, 400));
+      continue;
+    }
+    showProgress(null);
+    if (!resp.ok) {
+      banner("Could not load " + t.name + ": " + (body.detail || resp.statusText), false);
       return;
     }
-    RESULT = j.result;
-    RAN = inputs;
+    RESULT = body;
     render();
-  }, 250);
-}
-
-async function refreshData() {
-  setBusy(true);
-  $("progresstext").textContent = "re-pulling scores and ratings…";
-  try {
-    STATE = await (await fetch("/api/refresh", { method: "POST" })).json();
-    renderSeasonLine(); fillTeams(); fillWeeks(); showNotes();
-  } catch (err) {
-    banner("Refresh failed: " + err, false);
-    setBusy(false);
     return;
   }
-  setBusy(false);
-  if ($("team").value.trim()) runSim();
+}
+
+function showProgress(job) {
+  $("progress").hidden = !job;
+  if (!job) return;
+  $("empty").hidden = true;
+  const frac = job.total ? job.done / job.total : 0;
+  $("progressfill").style.width = (100 * frac).toFixed(1) + "%";
+  $("progresstext").textContent =
+    `Simulating the season: ${job.done.toLocaleString()} / `
+    + `${job.total.toLocaleString()} · ${num(job.elapsed, 0)}s`;
 }
 
 // Selection
@@ -293,9 +250,8 @@ function render() {
   $("weeklabel").textContent = selectedWeek() === null
     ? "(all remaining games)" : "(week " + selectedWeek() + ")";
   $("footmeta").textContent =
-    `${RESULT.n_sims.toLocaleString()} seasons · ${num(RESULT.elapsed)}s · `
+    `${RESULT.n_sims.toLocaleString()} seasons · `
     + `${STATE.rating_label} ${ago(STATE.ratings_updated)}`;
-  updateStaleness();
 }
 
 function renderHeadline() {
@@ -464,16 +420,13 @@ function esc(s) {
 
 // Events
 
-$("run").addEventListener("click", runSim);
-$("refresh").addEventListener("click", refreshData);
 for (const id of ["primary", "week", "sigfilter"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });
 }
 $("leaguemetric").addEventListener("change", () => { if (RESULT) renderLeague(); });
-for (const id of ["team", "nsims"]) {
-  $(id).addEventListener("change", updateStaleness);
-  $(id).addEventListener("input", updateStaleness);
-}
-$("team").addEventListener("keydown", (e) => { if (e.key === "Enter") runSim(); });
+// Picking from the list fires input with the full name; typing fires it per
+// key, which loadTeam ignores until the text names a team.
+$("team").addEventListener("input", loadTeam);
+$("team").addEventListener("change", loadTeam);
 
 boot();

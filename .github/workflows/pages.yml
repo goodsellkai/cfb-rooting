@@ -1,0 +1,57 @@
+# Simulates the season and publishes the app to GitHub Pages as static files.
+#
+# Needs a repository secret named CFBD_API_KEY, and Pages set to deploy from
+# GitHub Actions (Settings > Pages > Source).
+
+name: Publish site
+
+on:
+  schedule:
+    # Times are UTC. Every three hours through the weekend, when games finish,
+    # and once a day during the week to pick up rating updates.
+    - cron: "0 */3 * * 0,6"
+    - cron: "0 12 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install .
+
+      - name: Simulate and export
+        env:
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+        run: cfbroot export --out site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

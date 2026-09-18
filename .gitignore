@@ -10,3 +10,4 @@ runs/
 *.egg-info/
 build/
 dist/
+site/
