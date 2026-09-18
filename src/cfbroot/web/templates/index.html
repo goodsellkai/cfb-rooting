@@ -25,12 +25,13 @@
 <section class="controlbar">
   <div class="group">
     <div class="groupfields">
-      <label class="field">
-        <span>Your team</span>
-        <input id="team" list="teamlist" placeholder="Start typing&hellip;"
-               autocomplete="off" spellcheck="false">
-        <datalist id="teamlist"></datalist>
-      </label>
+      <div class="field combo">
+        <label for="team">Your team</label>
+        <input id="team" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="teammenu"
+               placeholder="Search teams&hellip;" autocomplete="off" spellcheck="false">
+        <ul id="teammenu" class="menu" role="listbox" hidden></ul>
+      </div>
       <label class="field">
         <span>Measure success by</span>
         <select id="primary"></select>

@@ -93,15 +93,104 @@ function team(idx) {
   return (STATE.team_index || {})[String(idx)] || {};
 }
 
+// Team picker
+//
+// A list of our own rather than a <datalist>, which browsers draw
+// inconsistently and which only offers the current team once one is picked.
+
+let MENU = [];         // teams in the open menu
+let ACTIVE = -1;       // highlighted row
+
+function matchingTeams(query) {
+  const q = query.trim().toLowerCase();
+  const picked = WANTED && q === WANTED.toLowerCase();
+  if (!q || picked) return STATE.teams;
+  const hits = STATE.teams.filter(t => t.name.toLowerCase().includes(q)
+    || (t.conference || "").toLowerCase().includes(q));
+  const starts = (t) => t.name.toLowerCase().startsWith(q) ? 0 : 1;
+  return hits.sort((a, b) => starts(a) - starts(b) || a.name.localeCompare(b.name));
+}
+
+function openMenu() {
+  MENU = matchingTeams($("team").value);
+  const cur = MENU.findIndex(t => t.name === WANTED);
+  ACTIVE = cur >= 0 ? cur : (MENU.length ? 0 : -1);
+  const ul = $("teammenu");
+  ul.innerHTML = MENU.length
+    ? MENU.map((t, i) => `<li role="option" data-i="${i}" id="teamopt-${i}"
+        aria-selected="${t.name === WANTED}">
+        ${logo(t.idx, 20)}<span class="name">${esc(t.name)}</span>
+        <span class="conf">${esc(t.conference || "Independent")}</span></li>`).join("")
+    : `<li class="none">No team matches</li>`;
+  ul.hidden = false;
+  $("team").setAttribute("aria-expanded", "true");
+  showActive();
+}
+
+function closeMenu() {
+  $("teammenu").hidden = true;
+  $("team").setAttribute("aria-expanded", "false");
+  $("team").removeAttribute("aria-activedescendant");
+  ACTIVE = -1;
+}
+
+function showActive() {
+  const ul = $("teammenu");
+  ul.querySelectorAll("li.active").forEach(li => li.classList.remove("active"));
+  const li = ul.querySelector(`li[data-i="${ACTIVE}"]`);
+  if (!li) { $("team").removeAttribute("aria-activedescendant"); return; }
+  li.classList.add("active");
+  li.scrollIntoView({ block: "nearest" });
+  $("team").setAttribute("aria-activedescendant", li.id);
+}
+
+function chooseTeam(t) {
+  $("team").value = t.name;
+  closeMenu();
+  $("team").blur();
+  loadTeam();
+}
+
 function fillTeams() {
-  const dl = $("teamlist");
-  dl.innerHTML = "";
-  for (const t of STATE.teams) {
-    const o = document.createElement("option");
-    o.value = t.name;
-    o.label = `${t.conference || "Independent"} · ${STATE.rating_label} ${num(t.rating, 1)}`;
-    dl.appendChild(o);
-  }
+  const input = $("team");
+  const ul = $("teammenu");
+  input.addEventListener("focus", () => { input.select(); openMenu(); });
+  input.addEventListener("click", () => { if (ul.hidden) openMenu(); });
+  input.addEventListener("input", openMenu);
+  input.addEventListener("blur", () => {
+    closeMenu();
+    // Leaving half-typed text behind would look like a different team.
+    if (!teamNamed(input.value) && WANTED) input.value = WANTED;
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (ul.hidden) { openMenu(); return; }
+      if (!MENU.length) return;
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      ACTIVE = (ACTIVE + step + MENU.length) % MENU.length;
+      showActive();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const t = MENU[ACTIVE] || teamNamed(input.value);
+      if (t) chooseTeam(t);
+    } else if (e.key === "Escape") {
+      input.blur();
+    }
+  });
+  // mousedown, so the pick lands before the input loses focus and closes it.
+  ul.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const li = e.target.closest("li[data-i]");
+    if (li) chooseTeam(MENU[Number(li.dataset.i)]);
+  });
+  ul.addEventListener("mousemove", (e) => {
+    const li = e.target.closest("li[data-i]");
+    if (li && Number(li.dataset.i) !== ACTIVE) {
+      ACTIVE = Number(li.dataset.i);
+      showActive();
+    }
+  });
 }
 
 function fillMetrics() {
@@ -400,9 +489,7 @@ function renderLeague() {
     <th class="num">${esc(STATE.rating_label)}</th>
     <th class="num">${esc(metricLabel(key))}</th>
     ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
-  let total = 0;
   rows.forEach((r, i) => {
-    total += r.p[key];
     html += `<tr><td class="num">${i + 1}</td>
       <td class="teamcell">${logo(r.idx, 18)}${esc(r.team)}</td>
       <td class="muted">${esc(r.conference || "")}</td>
@@ -411,14 +498,7 @@ function renderLeague() {
       ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
         ? pct(r.espn_playoff_prob) : "-"}</td>` : ""}</tr>`;
   });
-  // Every simulated season fills each slot exactly once, so this is the
-  // number of teams per season: 12 for the playoff, 1 for the title.
-  html += `</tbody><tfoot><tr><td></td>
-    <td colspan="3">Total, ${rows.length} teams
-      <span class="muted">· ${num(total, 2)} per season</span></td>
-    <td class="num"><b>${pct(total)}</b></td>
-    ${showEspn ? "<td></td>" : ""}</tr></tfoot>`;
-  $("league").innerHTML = html + "</table></div>";
+  $("league").innerHTML = html + "</tbody></table></div>";
 }
 
 function esc(s) {
@@ -432,9 +512,5 @@ for (const id of ["primary", "week", "sigfilter"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });
 }
 $("leaguemetric").addEventListener("change", () => { if (RESULT) renderLeague(); });
-// Picking from the list fires input with the full name; typing fires it per
-// key, which loadTeam ignores until the text names a team.
-$("team").addEventListener("input", loadTeam);
-$("team").addEventListener("change", loadTeam);
 
 boot();

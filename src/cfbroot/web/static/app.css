@@ -79,7 +79,32 @@ h2 { font-size: 12px; margin: 0; letter-spacing: .06em; text-transform: uppercas
 .group { display: flex; flex-direction: column; gap: 8px; }
 .groupfields { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; }
-.field > span { font-size: 11px; color: var(--muted); font-weight: 500; }
+.field > span, .field > label { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+/* team picker */
+.combo { position: relative; }
+.combo input { width: 240px; }
+.menu {
+  position: absolute; top: 100%; left: 0; z-index: 30; margin: 4px 0 0;
+  width: 300px; max-height: 360px; overflow-y: auto; padding: 4px;
+  list-style: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.menu[hidden] { display: none; }
+.menu li {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
+  border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.menu li.active { background: var(--accent-soft); }
+.menu li[aria-selected="true"] .name { font-weight: 650; }
+.menu .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu .conf { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.menu li.none { color: var(--muted); cursor: default; }
+@media (max-width: 520px) {
+  .combo { flex: 1 1 100%; }
+  .combo input { width: 100%; }
+  .menu { width: 100%; }
+}
 .field.narrow input, .field.narrow select { width: 132px; }
 
 input, select, button {
@@ -156,9 +181,6 @@ main { padding: 26px; max-width: 1240px; margin: 0 auto; width: 100%; flex: 1; }
 .tablewrap.tall { max-height: 640px; overflow-y: auto; }
 .tablewrap.tall thead th { position: sticky; top: 0; background: var(--panel);
                            padding-top: 4px; z-index: 1; }
-.tablewrap.tall tfoot td { position: sticky; bottom: 0; background: var(--panel);
-                           border-top: 1px solid var(--line); border-bottom: none;
-                           font-weight: 600; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.games { min-width: 820px; }
 th { text-align: left; font-size: 10.5px; text-transform: uppercase;
