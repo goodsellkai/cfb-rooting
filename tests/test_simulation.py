@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from cfbroot.config import METRIC_NAMES, ModelParams, SimConfig
-from cfbroot.sim import build_guide, run
+from cfbroot.data.synthetic import synthetic_season
+from cfbroot.sim import build_guide, run, run_league
 
 from conftest import make_mini_season
 
@@ -224,3 +225,27 @@ def test_past_opponents_later_wins_help_you(midseason):
                 vals.append(sw.delta if e.home_idx == opp else -sw.delta)
     assert vals, "no remaining games involve a past opponent"
     assert float(np.mean(vals)) > 0, "past opponents winning should help"
+
+
+# Each season's own playoff rules
+
+@pytest.mark.parametrize("year", [2024, 2025, 2026])
+def test_every_format_fills_the_bracket(year):
+    st = synthetic_season(seed=7, year=year, played_through=6)
+    res = run_league(st, SimConfig(n_sims=5_000, batch_size=5_000))
+    for metric, expected in (("make_playoff", 12), ("top4_seed", 4),
+                             ("win_national_title", 1)):
+        assert res.team_counts[:, M[metric]].sum() == expected * res.n_sims
+
+
+def test_only_champions_get_byes_under_the_2024_rules():
+    """P(bye) can never beat P(title) when only champions get byes. Under
+    straight seeding a strong team that loses its league still can."""
+    def gap(year):
+        st = synthetic_season(seed=7, year=year, played_through=6)
+        res = run_league(st, SimConfig(n_sims=20_000, batch_size=20_000))
+        c = res.team_counts
+        return (c[:, M["top4_seed"]] - c[:, M["win_conference"]]).max()
+
+    assert gap(2024) <= 0
+    assert gap(2026) > 0

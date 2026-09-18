@@ -48,6 +48,10 @@ M_NATL = 7
 M_UNDEFEATED = 8
 N_METRICS = 9
 
+# Automatic bid rules, passed as bid_rule.
+BIDS_2026 = 0         # power champions plus the best Group of Six team
+BIDS_CHAMPIONS = 1    # the five highest-ranked champions (2024, 2025)
+
 _SQRT2 = 1.4142135623730951
 
 
@@ -164,7 +168,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    total_base, total_slope, total_sd,
                    gof_k, gof_c, gof_q, mov_w, mov_flat, m_iters,
                    corr_sd, corr_passes, committee_sd, jump_margin, h2h_depth,
-                   n_byes,
+                   n_byes, bid_rule, champion_byes,
                    out_hw, out_metrics,
                    h_wins, h_wins_made, h_seed, h_rank):
     n_teams = rating.shape[0]
@@ -216,6 +220,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         members = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
         sortkey = np.zeros(n_fbs, dtype=np.float64)
         seeds = np.zeros(field, dtype=np.int32)
+        reseed = np.zeros(field, dtype=np.int32)
         reached = np.zeros(field, dtype=np.uint8)
         picked = np.zeros(n_teams, dtype=np.uint8)
 
@@ -427,29 +432,41 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 seed_of[t] = 0
             n_sel = 0
 
-            # the four power-conference champions are guaranteed
-            for k in range(n_fbs):
-                t = fbs_idx[ranked[k]]
-                if champ[t] == 1 and conf_id[t] >= 0 and conf_is_power[conf_id[t]]:
-                    if picked[t] == 0 and n_sel < field:
+            if bid_rule == BIDS_2026:
+                # the four power-conference champions are guaranteed
+                for k in range(n_fbs):
+                    t = fbs_idx[ranked[k]]
+                    if (champ[t] == 1 and conf_id[t] >= 0
+                            and conf_is_power[conf_id[t]] and picked[t] == 0):
                         picked[t] = 1
                         seeds[n_sel] = t
                         n_sel += 1
-            # plus the highest-ranked Group of Six team. From 2026 this bid
-            # goes to the best team in those leagues whether or not it won its
-            # conference, which is the rule that changed after Tulane and
-            # James Madison both auto-qualified in 2025. Independents are not
-            # a Group of Six conference and cannot take it, which is what
-            # conf_crowns screens out here.
-            for k in range(n_fbs):
-                t = fbs_idx[ranked[k]]
-                if (picked[t] == 0 and conf_id[t] >= 0
-                        and not conf_is_power[conf_id[t]]
-                        and conf_crowns[conf_id[t]]):
-                    picked[t] = 1
-                    seeds[n_sel] = t
-                    n_sel += 1
-                    break
+                # plus the highest-ranked Group of Six team, whether or not it
+                # won its conference. Independents are not a Group of Six
+                # conference and cannot take it, which is what conf_crowns
+                # screens out here.
+                for k in range(n_fbs):
+                    t = fbs_idx[ranked[k]]
+                    if (picked[t] == 0 and conf_id[t] >= 0
+                            and not conf_is_power[conf_id[t]]
+                            and conf_crowns[conf_id[t]]):
+                        picked[t] = 1
+                        seeds[n_sel] = t
+                        n_sel += 1
+                        break
+            else:
+                # 2024 and 2025: the five highest-ranked conference champions,
+                # from any conference, which is how Tulane and James Madison
+                # both got in in 2025.
+                for k in range(n_fbs):
+                    if n_sel >= 5:
+                        break
+                    t = fbs_idx[ranked[k]]
+                    if (champ[t] == 1 and conf_id[t] >= 0
+                            and conf_crowns[conf_id[t]]):
+                        picked[t] = 1
+                        seeds[n_sel] = t
+                        n_sel += 1
             # at-large bids fill the rest
             for k in range(n_fbs):
                 if n_sel >= field:
@@ -469,6 +486,27 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     seeds[b + 1] = seeds[b]
                     b -= 1
                 seeds[b + 1] = key
+            if champion_byes:
+                # 2024: the four best-ranked champions take seeds 1-4 and the
+                # byes, however far down the ranking they sit. Everyone else
+                # follows in ranking order.
+                n_top = 0
+                for k in range(n_sel):
+                    if champ[seeds[k]] == 1 and n_top < 4:
+                        reseed[n_top] = seeds[k]
+                        n_top += 1
+                n_rest = n_top
+                for k in range(n_sel):
+                    t = seeds[k]
+                    is_top = False
+                    for q in range(n_top):
+                        if reseed[q] == t:
+                            is_top = True
+                    if not is_top:
+                        reseed[n_rest] = t
+                        n_rest += 1
+                for k in range(n_sel):
+                    seeds[k] = reseed[k]
             for k in range(n_sel):
                 seed_of[seeds[k]] = k + 1
                 reached[k] = 1

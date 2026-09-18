@@ -108,6 +108,21 @@ def test_the_old_rule_takes_the_five_highest_ranked_champions():
     assert "E" not in f        # better team, no title, no automatic bid
 
 
+def test_2024_seeding_gives_the_byes_to_champions():
+    """B is ranked second but has no title, so champion D takes its bye."""
+    f = selection.pick_field(ORDER, {"A", "C", "D", "E", "F"}, CONF,
+                             rule="2024", size=6, n_byes=4,
+                             champion_byes=True)
+    assert f.byes == ["A", "E", "C", "D"]
+    assert f.seeds[4:] == ["B", "F"]         # then straight off the ranking
+
+
+def test_each_season_runs_its_own_rules():
+    assert selection.playoff_format(2026) == selection.PlayoffFormat("2026", False)
+    assert selection.playoff_format(2025) == selection.PlayoffFormat("2024", False)
+    assert selection.playoff_format(2024) == selection.PlayoffFormat("2024", True)
+
+
 def test_no_automatic_bids_just_takes_the_top_of_the_ranking():
     f = selection.pick_field(ORDER, {"D"}, CONF, rule="none", size=3)
     assert f.seeds == ORDER[:3]

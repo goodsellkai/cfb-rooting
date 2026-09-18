@@ -21,6 +21,7 @@ import numpy as np
 
 from ..config import METRIC_NAMES, ModelParams, SimConfig
 from ..data.season import SeasonState
+from ..selection import playoff_format
 from . import kernels
 from .kernels import N_METRICS
 
@@ -143,6 +144,8 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
     mp = state.massey
     m = ki.massey
 
+    fmt = playoff_format(state.year)
+    bid_rule = kernels.BIDS_2026 if fmt.bids == "2026" else kernels.BIDS_CHAMPIONS
     fbs_idx = np.flatnonzero(ki.is_fbs).astype(np.int32)
     n_fbs = int(fbs_idx.size)
     n_rem = int(ki.remaining_idx.size)
@@ -188,7 +191,7 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat,
             p.massey_iters, mp.correction_abs, p.correction_passes,
             p.committee_sd, p.title_jump_margin, p.h2h_depth,
-            p.n_byes,
+            p.n_byes, bid_rule, fmt.champion_byes,
             out_hw, out_metrics, h_wins, h_made, h_seed, h_rank)
 
         hw = out_hw[:this]

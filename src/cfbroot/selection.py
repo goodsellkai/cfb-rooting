@@ -13,9 +13,15 @@ The 2026-27 format, which is what pick_field() implements:
   The other seven places are at large. Seeding is straight off the ranking, and
   the top four seeds get the byes.
 
-Earlier seasons ran different rules, so comparisons against them have to say
-which rule they are using. rank_order() and pick_field() take the rule as an
-argument rather than assuming.
+The two twelve-team seasons before that ran different rules, which
+playoff_format() records:
+
+  2024  The five highest ranked conference champions got the automatic bids,
+        and the four highest ranked champions took seeds 1-4 and the byes.
+  2025  The same five champions, but straight seeding.
+
+Seasons before 2024 had a four-team playoff, which the simulator does not
+model; they get the 2024 rules.
 """
 
 from __future__ import annotations
@@ -73,6 +79,21 @@ def head_to_head_swap(order: list[str], beat: set, max_passes: int = 12
     return order, moves
 
 
+@dataclass(frozen=True)
+class PlayoffFormat:
+    bids: str               # a pick_field() rule: "2026" or "2024"
+    champion_byes: bool     # the top four champions take seeds 1-4
+
+
+def playoff_format(year: int) -> PlayoffFormat:
+    """The bid and seeding rules a season ran under."""
+    if year >= 2026:
+        return PlayoffFormat("2026", False)
+    if year == 2025:
+        return PlayoffFormat("2024", False)
+    return PlayoffFormat("2024", True)
+
+
 @dataclass
 class Field:
     """A selected playoff field, seeded."""
@@ -90,13 +111,15 @@ class Field:
 
 def pick_field(order: list[str], champions: set, conference_of: dict,
                rule: str = "2026", size: int = FIELD, n_byes: int = N_BYES,
-               power=POWER) -> Field:
+               power=POWER, champion_byes: bool = False) -> Field:
     """Select and seed the playoff field from a ranking.
 
     ``order`` is best first. ``champions`` is the set of conference champions.
     ``rule`` is "2026" for the current format, "2024" for the five highest
     ranked conference champions, which is what 2024 and 2025 used, or "none"
     for no automatic bids at all, which is what the four team playoff did.
+    ``champion_byes`` gives seeds 1-4 to the four best ranked champions in the
+    field, as 2024 did.
     """
     power = set(power)
     sel: list[str] = []
@@ -133,6 +156,9 @@ def pick_field(order: list[str], champions: set, conference_of: dict,
     # Straight seeding: the field is re-ordered by the ranking itself.
     place = {t: i for i, t in enumerate(order)}
     seeds = sorted(sel, key=lambda t: place.get(t, len(order)))
+    if champion_byes:
+        top = [t for t in seeds if t in champions][:n_byes]
+        seeds = top + [t for t in seeds if t not in top]
     return Field(seeds=seeds, auto={t: why[t] for t in seeds},
                  byes=seeds[:n_byes])
 

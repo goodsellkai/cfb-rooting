@@ -88,12 +88,9 @@ class ModelParams:
     committee_sd: float = COMMITTEE_SD
     title_jump_margin: float = TITLE_JUMP_MARGIN
 
-    # Playoff format, 2026-27: 12 teams, straight seeding, byes to the top four
-    # seeds. Five automatic bids: the four power conference champions plus the
-    # highest ranked Group of Six team, which from this season does not have to
-    # have won its conference.
+    # Playoff size. Which teams get the automatic bids and the byes depends on
+    # the season; see selection.playoff_format().
     playoff_size: int = 12
-    n_auto_bids: int = 5
     n_byes: int = 4
 
     def to_dict(self) -> dict:
