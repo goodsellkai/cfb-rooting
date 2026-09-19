@@ -62,7 +62,7 @@ def simulator_rating(state):
     K._selection_rating(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval,
                         ki.g_hpts, ki.g_apts, m.x_h, m.x_a, m.x_home, m.x_g,
                         m.x_won, cc_h, cc_a, cc_home, cc_g, cc_won, len(cc),
-                        np.full(n, -1, np.int32), loser, m.minv, m.prior,
+                        np.full(n, -1, np.int32), loser, m.minv, m.prior, m.start,
                         m.prec.copy(), np.zeros(n + 1), m.played, n, m.n_fbs,
                         mp.prior_sd, mp.prior_games, 1e-12, 500,
                         mp.correction_abs, mp.correction_passes, m.gh_t,
@@ -82,6 +82,37 @@ def test_the_simulator_rates_a_season_exactly_like_the_standalone(title_game):
     want, _ = massey.rate_selection_day(state)
     got = simulator_rating(state)
     assert max(abs(got[s] - want[s]) for s in want) < 1e-8
+
+
+def test_the_fit_lands_in_the_same_place_from_a_bad_start():
+    """A season starts where the last one ended. However far off that is,
+    the fit must still climb to the same answer, and a start that is not a
+    number must be caught rather than passed on."""
+    from cfbroot.sim import kernels as K
+
+    state = full_season()
+    ki = state.kernel_inputs()
+    m, mp = ki.massey, state.massey
+    n_g, n = ki.g_home.size, m.n_nodes
+    at_home = (~ki.g_neutral).astype(np.float64)
+    gval = np.array([K._outcome(ki.g_hpts[i], ki.g_apts[i], mp.gof_k, mp.gof_c,
+                                mp.gof_q, mp.mov_weight, mp.mov_flat)
+                     for i in range(n_g)])
+    none_i, none_f = np.zeros(1, np.int32), np.zeros(1)
+
+    def fit(start):
+        r = start.copy()
+        vec, wts = K._fit_work(n, n_g, m.x_h.size, 1)
+        K._fit(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval, m.x_h, m.x_a,
+               m.x_home, m.x_g, none_i, none_i, none_f, none_f, 0, m.minv, m.prior,
+               m.prec, n, 1e-10, 500, r, m.start, vec, wts)
+        return r
+
+    want = fit(m.start)
+    rng = np.random.default_rng(0)
+    for start in (m.start + rng.normal(0, 5, n + 1), m.start * 20,
+                  np.full(n + 1, np.nan)):
+        assert np.abs(fit(start) - want).max() < 1e-7
 
 
 def test_a_title_game_win_is_added_and_a_loss_is_not():

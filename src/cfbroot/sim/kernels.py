@@ -292,10 +292,10 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 if m_in_fit[i]:
                     gval[i] = _outcome(hpts[i], apts[i], gof_k, gof_c, gof_q,
                                        mov_w, mov_flat)
-            _fit_power(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
-                       m_xh, m_xa, m_xhome, m_xg, cc_h, cc_a, cc_home, cc_g, 0,
-                       m_minv, m_prior, prec0, n_nodes, fit_tol, fit_max_iter,
-                       r0, fvec, fwts)
+            _fit(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
+                 m_xh, m_xa, m_xhome, m_xg, cc_h, cc_a, cc_home, cc_g, 0,
+                 m_minv, m_prior, prec0, n_nodes, fit_tol, fit_max_iter,
+                 r0, m_start, fvec, fwts)
             for j in range(n_fbs):
                 t = fbs_idx[j]
                 score[t] = r0[m_node[t]]
@@ -391,7 +391,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
             _selection_rating(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
                               hpts, apts, m_xh, m_xa, m_xhome, m_xg, m_xwon,
                               cc_h, cc_a, cc_home, cc_g, cc_won, n_cc, cc_of,
-                              loser, m_minv, m_prior, prec0, prec1, m_played,
+                              loser, m_minv, m_prior, m_start, prec0, prec1, m_played,
                               n_nodes, m_n_fbs, prior_sd, prior_games,
                               fit_tol, fit_max_iter, corr_sd, corr_passes,
                               m_gh_t, m_gh_logw, m_tg_ptr, m_tg_ref, m_tg_home,
@@ -634,6 +634,7 @@ def _play(seeds, i, j, eff, scale, hfa, sigma, home_field):
 # Massey rating, fitted inside each simulated season
 
 _INV_SQRT_2PI = 0.3989422804014327
+_MAX_STEP = 1.0                      # longest step the fit takes, rating units
 _MCLIP = 8.0                         # massey._CLIP
 _INFO_PER_GAME = 0.6366197723675814  # massey.INFO_PER_GAME
 
@@ -762,6 +763,8 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
         gmax = 0.0
         for k in range(n):
             grad[k] -= prec[k] * (r[k] - prior[k])
+            if not abs(grad[k]) < math.inf:
+                return -1                  # the ratings are not numbers
             if abs(grad[k]) > gmax:
                 gmax = abs(grad[k])
 
@@ -778,7 +781,7 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
             pv[k] = acc
             rz += res[k] * acc
         for _cg in range(n):
-            if rz <= 0.0:
+            if not rz > 0.0:
                 break
             for k in range(n):
                 ap[k] = prec[k] * pv[k]
@@ -792,6 +795,8 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
             pap = 0.0
             for k in range(n):
                 pap += pv[k] * ap[k]
+            if not pap > 0.0:
+                break
             alpha = rz / pap
             rmax = 0.0
             for k in range(n):
@@ -815,12 +820,42 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
 
         big = 0.0
         for k in range(n):
-            r[k] += step[k]
             if abs(step[k]) > big:
                 big = abs(step[k])
+        if not big < math.inf:
+            return -1                      # not a number: give up, see _fit
+        # A long step is shortened, so no step can overshoot far enough to
+        # leave the fit somewhere it cannot climb back from. Near the answer
+        # steps are far below the cap, so where it ends up is unchanged.
+        shrink = _MAX_STEP / big if big > _MAX_STEP else 1.0
+        for k in range(n):
+            r[k] += shrink * step[k]
         if big < tol:
             return it + 1
-    return max_iter
+    return -1
+
+
+@njit(cache=True)
+def _fit(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
+         cc_h, cc_a, cc_home, cc_g, n_cc,
+         minv, prior, prec, n_nodes, tol, max_iter, r, start, vec, wts):
+    """_fit_power(), started again from ``start`` if it does not converge.
+
+    Each season starts from the one before, which is close and saves steps.
+    A fit that fails must not hand its answer on, or every season after it
+    starts from somewhere bad; so it is thrown away and redone from the
+    typical season.
+    """
+    it = _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
+                    cc_h, cc_a, cc_home, cc_g, n_cc,
+                    minv, prior, prec, n_nodes, tol, max_iter, r, vec, wts)
+    if it < 0:
+        for k in range(n_nodes + 1):
+            r[k] = start[k]
+        it = _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home,
+                        x_g, cc_h, cc_a, cc_home, cc_g, n_cc,
+                        minv, prior, prec, n_nodes, tol, max_iter, r, vec, wts)
+    return it
 
 
 @njit(cache=True)
@@ -914,7 +949,7 @@ def _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
 def _selection_rating(n_g, in_fit, hn, an, g_at_home, gval, hpts, apts,
                       x_h, x_a, x_home, x_g, x_won,
                       cc_h, cc_a, cc_home, cc_g, cc_won, n_cc, cc_of, loser,
-                      minv, prior, prec0, prec1, played, n_nodes, n_fbs,
+                      minv, prior, start, prec0, prec1, played, n_nodes, n_fbs,
                       prior_sd, prior_games, tol, max_iter,
                       corr_sd, corr_passes, gh_t, gh_logw,
                       tg_ptr, tg_ref, tg_home,
@@ -953,9 +988,9 @@ def _selection_rating(n_g, in_fit, hn, an, g_at_home, gval, hpts, apts,
             prec1[t] = 1.0 / (prior_sd * prior_sd)
             if short > 0.0:
                 prec1[t] += short * _INFO_PER_GAME
-    _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
-               cc_h, cc_a, cc_home, cc_g, n_cc,
-               minv, prior, prec1, n_nodes, tol, max_iter, r1, fvec, fwts)
+    _fit(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
+         cc_h, cc_a, cc_home, cc_g, n_cc,
+         minv, prior, prec1, n_nodes, tol, max_iter, r1, start, fvec, fwts)
 
     for k in range(n_nodes):
         need[k] = 1 if k < n_fbs else 0
