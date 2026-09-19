@@ -40,13 +40,14 @@ async function newSeason() {
   $("s-new").disabled = true;
   while (!STATE) await new Promise(r => setTimeout(r, 100));   // app.js still booting
   try {
-    let url = "/api/sample";
+    const fresh = $("s-fresh").checked;
+    let url = "/api/sample" + (fresh ? "?from_start=true" : "");
     if (STATIC) {
       const pool = await (await fetch("data/samples.json")).json();
       let k = Math.floor(Math.random() * pool.count);
       if (pool.count > 1 && k === LAST_SAMPLE) k = (k + 1) % pool.count;
       LAST_SAMPLE = k;
-      url = `data/samples/${k}.json`;
+      url = `data/${fresh ? "samples_start" : "samples"}/${k}.json`;
     }
     const resp = await fetch(url);
     if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
@@ -79,9 +80,12 @@ function buildStages() {
   S.rounds.forEach((r, i) => STAGES.push({ kind: "round", round: i, label: r.name,
                                            games: r.games }));
   $("s-stage").max = String(STAGES.length - 1);
-  $("s-meta").textContent = `${S.year} · season #${S.seed} · `
-    + `${S.games.filter(g => !g.real).length} games simulated, `
-    + `${S.games.filter(g => g.real).length} already played`;
+  $("s-meta").textContent = S.from_start
+    ? `${S.year} · season #${S.seed} · replayed from week 1, all `
+      + `${S.games.length} games simulated on current ${STATE.rating_label}`
+    : `${S.year} · season #${S.seed} · `
+      + `${S.games.filter(g => !g.real).length} games simulated, `
+      + `${S.games.filter(g => g.real).length} already played`;
 }
 
 // Playback
@@ -411,6 +415,7 @@ function renderStandings(recs) {
 $("tab-guide").addEventListener("click", () => showTab("guide"));
 $("tab-season").addEventListener("click", () => showTab("season"));
 $("s-new").addEventListener("click", newSeason);
+$("s-fresh").addEventListener("change", newSeason);
 $("s-play").addEventListener("click", togglePlay);
 $("s-prev").addEventListener("click", () => { stopPlaying(); setStage(STAGE - 1); });
 $("s-next").addEventListener("click", () => { stopPlaying(); setStage(STAGE + 1); });

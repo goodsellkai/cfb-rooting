@@ -29,3 +29,21 @@ def test_the_same_seed_gives_the_same_season(midseason):
     b = sample_season(midseason, seed=11)
     assert a == b
     assert sample_season(midseason, seed=12)["games"] != a["games"]
+
+
+def test_scores_are_ones_football_produces(midseason):
+    from cfbroot.sim.sample import SCORE_FREQ
+    s = sample_season(midseason, seed=5, from_start=True)
+    for g in s["games"]:
+        for pts in (g["home_points"], g["away_points"]):
+            assert pts >= len(SCORE_FREQ) or SCORE_FREQ[pts] > 0, pts
+
+
+def test_replaying_from_week_one_sets_the_real_results_aside(midseason):
+    s = sample_season(midseason, seed=5, from_start=True)
+    assert s["from_start"] and not any(g["real"] for g in s["games"])
+    played = {(g["home_idx"], g["away_idx"]): (g["home_points"], g["away_points"])
+              for g in midseason.games if g["status"] != 0}
+    changed = sum((g["home_points"], g["away_points"]) != played[(g["home"], g["away"])]
+                  for g in s["games"] if (g["home"], g["away"]) in played)
+    assert changed > 0.9 * len(played)

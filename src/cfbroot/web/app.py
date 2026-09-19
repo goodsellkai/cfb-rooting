@@ -251,7 +251,7 @@ def api_team(name: str):
 
 
 @app.get("/api/sample")
-def api_sample(seed: int | None = None):
+def api_sample(seed: int | None = None, from_start: bool = False):
     """One simulated season, kept in full, for the Sample season view."""
     try:
         s = store.get_season()
@@ -259,7 +259,7 @@ def api_sample(seed: int | None = None):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if seed is None:
         seed = secrets.randbelow(1_000_000_000)
-    return JSONResponse(sample_season(s, seed))
+    return JSONResponse(sample_season(s, seed, from_start=from_start))
 
 
 @app.on_event("startup")

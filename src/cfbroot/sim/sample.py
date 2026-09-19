@@ -7,8 +7,9 @@ kernel, and the same rating, massey.rate_selection_day(), that the kernel
 reproduces, so a sample season is one draw from the distribution the odds come
 from.
 
-Scores are whole points here, since they are for reading. The kernel keeps the
-unrounded margin; rounding changes a rating by a hair and never a result.
+Scores here land on totals football actually produces, since they are for
+reading. The kernel keeps the unrounded margin; the difference moves a rating
+by a hair and never changes who won.
 """
 
 from __future__ import annotations
@@ -25,25 +26,69 @@ from .kernels import _order_conference
 
 HOME_WON, AWAY_WON = 1, 2
 
+# How often one team finished a game on each score, 0 to 79, over every game
+# with an FBS team in 2023-25 (5,258 scores). A drawn score lands on a nearby
+# total in proportion to these, so 1 never comes up and 24, 17 and 31 come up
+# the most, as they do.
+SCORE_FREQ = (
+    112, 0, 0, 121, 0, 2, 80, 212, 4, 43, 198, 21, 26, 166, 227, 37, 85, 238,
+    31, 66, 221, 219, 46, 114, 311, 49, 72, 205, 172, 51, 117, 237, 30, 53, 180,
+    151, 40, 79, 196, 27, 42, 123, 147, 19, 53, 132, 12, 15, 71, 73, 14, 26, 55,
+    7, 7, 31, 56, 3, 8, 32, 2, 5, 9, 19, 1, 1, 17, 1, 2, 7, 8, 3, 3, 7, 0, 0, 1,
+    4, 1, 0)
+SNAP_SD = 2.0      # how far, in points, a drawn score may move to land
+
+
+def _score_weight(v: int) -> float:
+    # Beyond the table, repeat its last two touchdowns' worth of pattern.
+    while v >= len(SCORE_FREQ):
+        v -= 14
+    return float(SCORE_FREQ[v]) + (0.5 if v >= 60 else 0.0)
+
+
+def _land(rng, x: float) -> int:
+    """A score football produces, near the drawn value ``x``."""
+    lo, hi = max(0, math.floor(x) - 5), math.ceil(x) + 5
+    vs = np.arange(lo, hi + 1)
+    w = np.array([_score_weight(v) for v in vs]) * np.exp(-0.5 * ((vs - x) / SNAP_SD) ** 2)
+    if w.sum() <= 0:
+        return max(0, round(x))
+    return int(rng.choice(vs, p=w / w.sum()))
+
 
 def _score(rng, mu, p) -> tuple[int, int]:
-    """A drawn game, as whole points, home side first.
+    """A drawn game, as football scores, home side first.
 
     The margin comes from the same distribution as the kernel's, so the win
-    probability is the same; the total is drawn around it the same way.
+    probability is the same; the total is drawn around it the same way. Each
+    side's points then land on a real football total. The drawn margin still
+    decides the winner: a landing that ties or flips the game is drawn again.
     """
     m = mu + p.sigma * rng.normal()
-    t = p.total_base + p.total_slope * abs(m) + p.total_sd * rng.normal()
-    t = max(t, abs(m))
-    hp, ap = round(0.5 * (t + m)), round(0.5 * (t - m))
-    if (hp > ap) != (m > 0) or hp == ap:
-        # Rounding tied or flipped a close one; the drawn margin decides it.
-        hp, ap = (max(hp, ap) + 1, min(hp, ap)) if m > 0 else (min(hp, ap), max(hp, ap) + 1)
-    return int(hp), int(ap)
+    if m == 0.0:
+        m = 1.0
+    t = max(p.total_base + p.total_slope * abs(m) + p.total_sd * rng.normal(), abs(m))
+    hx, ax = 0.5 * (t + m), 0.5 * (t - m)
+    for _ in range(50):
+        hp, ap = _land(rng, hx), _land(rng, ax)
+        if hp != ap and (hp > ap) == (m > 0):
+            return hp, ap
+    # A near tie that keeps landing level: the winner keeps its score and the
+    # loser takes the closest real total below it.
+    win = max(_land(rng, max(hx, ax)), 3)
+    lose = max((v for v in range(win) if _score_weight(v) > 0),
+               key=lambda v: -abs(v - min(hx, ax)))
+    return (win, lose) if m > 0 else (lose, win)
 
 
-def sample_season(state: SeasonState, seed: int | None = None) -> dict:
-    """Simulate one season from ``state`` and return all of it, JSON ready."""
+def sample_season(state: SeasonState, seed: int | None = None,
+                  from_start: bool = False) -> dict:
+    """Simulate one season from ``state`` and return all of it, JSON ready.
+
+    ``from_start`` replays the whole season from week 1, setting aside the
+    games already played. Teams play on their current ratings, which have
+    seen those games; there is no preseason rating to go back to.
+    """
     rng = np.random.default_rng(seed)
     p = state.params
     ki = state.kernel_inputs()
@@ -60,7 +105,7 @@ def sample_season(state: SeasonState, seed: int | None = None) -> dict:
         if g["is_ccg"]:
             continue
         g = dict(g)
-        g["real"] = g["status"] != TO_SIMULATE
+        g["real"] = g["status"] != TO_SIMULATE and not from_start
         if not g["real"]:
             edge = 0.0 if g["neutral"] else p.hfa
             mu = p.rating_scale * (eff[g["home_idx"]] - eff[g["away_idx"]]) + edge
@@ -115,7 +160,7 @@ def sample_season(state: SeasonState, seed: int | None = None) -> dict:
         conferences.append(entry)
         if not c.crowns_champion:
             continue
-        if c.fixed_ccg is not None:
+        if c.fixed_ccg is not None and not from_start:
             t1, t2, st = c.fixed_ccg
         elif not c.has_ccg or n_m < 2:
             entry["champion"] = order[0]
@@ -126,8 +171,9 @@ def sample_season(state: SeasonState, seed: int | None = None) -> dict:
             if len(c.divisions) >= 2:
                 t2 = next((t for t in order[1:]
                            if teams[t].div_idx != teams[t1].div_idx), order[1])
-        real = next((g for g in state.games if g["is_ccg"] and g["status"] != TO_SIMULATE
-                     and {g["home_idx"], g["away_idx"]} == {t1, t2}), None)
+        real = None if from_start else next(
+            (g for g in state.games if g["is_ccg"] and g["status"] != TO_SIMULATE
+             and {g["home_idx"], g["away_idx"]} == {t1, t2}), None)
         if real is not None:
             hp, ap, t1, t2 = (real["home_points"], real["away_points"],
                               real["home_idx"], real["away_idx"])
@@ -190,6 +236,7 @@ def sample_season(state: SeasonState, seed: int | None = None) -> dict:
 
     return _clean({
         "seed": seed, "year": state.year, "selection_week": cut,
+        "from_start": from_start,
         "games": [{"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
                    "home_points": g["home_points"], "away_points": g["away_points"],
                    "neutral": g["neutral"], "conference": bool(ki.g_conf[g["sim_idx"]]),

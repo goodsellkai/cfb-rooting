@@ -392,3 +392,8 @@ table.standings th { padding: 0 8px 6px; }
 .tiptable .logo { width: 14px; height: 14px; }
 .tipnone, .tipfoot { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 @media (hover: none) { .teamtip { display: none; } }
+.playeropts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
+         color: var(--ink-2); cursor: pointer; }
+.check input { min-width: 0; width: 16px; height: 16px; margin: 0; padding: 0;
+               accent-color: var(--accent); }
