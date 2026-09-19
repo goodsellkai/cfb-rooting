@@ -367,3 +367,28 @@ tr.mine td { background: var(--accent-soft); }
 /* standings */
 table.standings td { padding: 6px 8px; }
 table.standings th { padding: 0 8px 6px; }
+
+/* clickable teams, and the card shown on hover */
+[data-team] { cursor: pointer; }
+.matchup .side[data-team]:hover, .teamcell[data-team]:hover, .gt-row[data-team]:hover .gt-name,
+.bteam[data-team]:hover .bname { text-decoration: underline; text-underline-offset: 3px; }
+.fpi { font-size: 11px; font-weight: 500; color: var(--muted); font-family: var(--mono);
+       font-variant-numeric: tabular-nums; margin-left: 6px; white-space: nowrap; }
+.teamtip {
+  position: fixed; z-index: 50; width: 300px; max-height: 70vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 12px 14px; pointer-events: none; font-size: 13px;
+}
+.teamtip[hidden] { display: none; }
+.tiphead { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.tipname { font-weight: 650; }
+.tipsub { font-size: 12px; color: var(--muted); }
+.tiptable td { padding: 3px 5px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; }
+.tiptable tr:hover td { background: none; }
+.tiptable .wl { font-weight: 700; }
+.tiptable .wl.w { color: var(--good); }
+.tiptable .wl.l { color: var(--bad); }
+.tiptable .teamcell { gap: 6px; }
+.tiptable .logo { width: 14px; height: 14px; }
+.tipnone, .tipfoot { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+@media (hover: none) { .teamtip { display: none; } }

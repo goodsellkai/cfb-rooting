@@ -156,8 +156,31 @@ function myIdx() {
 }
 
 function ratingOf(idx) {
-  const t = STATE.teams.find(x => x.idx === idx);
-  return t ? t.rating : -40;
+  const r = team(idx).rating;
+  return r == null ? -40 : r;
+}
+
+/** The team's FPI, shown next to its name. */
+function fpi(idx) {
+  const r = team(idx).rating;
+  return r == null ? "" : `<span class="fpi" title="${esc(STATE.rating_label)}">${num(r, 1)}</span>`;
+}
+
+const ROUND_SHORT = ["CFP 1st rd", "CFP QF", "CFP SF", "CFP final"];
+
+/** A team's games in this season through the stage shown, for the hover card. */
+function seasonGamesFor(idx) {
+  if (!SEASON) return null;
+  const out = [];
+  for (let i = 0; i <= STAGE; i++) {
+    const s = STAGES[i];
+    const label = (g) => s.kind === "week" ? `Wk ${g.week}`
+      : s.kind === "ccg" ? "Title" : ROUND_SHORT[s.round] || s.label;
+    for (const g of s.games) {
+      if (g.home === idx || g.away === idx) out.push({ ...g, label: label(g) });
+    }
+  }
+  return out;
 }
 
 // Rendering
@@ -232,8 +255,7 @@ function renderMine(games, recs) {
     const where = g.neutral ? "vs" : (g.home === me ? "vs" : "@");
     const mp = g.home === me ? g.home_points : g.away_points;
     const op = g.home === me ? g.away_points : g.home_points;
-    return `<span class="res ${won ? "w" : "l"}${g.real ? "" : " sim"}"
-      title="${g.real ? "Already played" : "Simulated"}">${won ? "W" : "L"} ${mp}-${op}
+    return `<span class="res ${won ? "w" : "l"}${g.real ? "" : " sim"}" data-team="${opp}">${won ? "W" : "L"} ${mp}-${op}
       ${where} ${esc(team(opp).abbr || team(opp).name)}</span>`;
   }).join("");
 
@@ -248,8 +270,8 @@ function renderMine(games, recs) {
     if (out) status += ` · out in the ${roundName(out).toLowerCase()}`;
     else if (SEASON.champion === me && STAGE === STAGES.length - 1) status += " · national champion";
   }
-  el.innerHTML = `<div class="minehead">${logo(me, 22)}
-      <b>${esc(team(me).name)}</b> <span class="muted">${rec(r)}
+  el.innerHTML = `<div class="minehead"><span class="teamcell" data-team="${me}">${logo(me, 22)}
+      <b>${esc(team(me).name)}</b>${fpi(me)}</span> <span class="muted">${rec(r)}
       (${r ? r.cw : 0}-${r ? r.cl : 0} ${esc(team(me).conference || "")})</span>
       <span class="minestatus">${status}</span></div>
     <div class="reslist">${chips || '<span class="muted">No games yet.</span>'}</div>`;
@@ -280,9 +302,9 @@ function tile(g, recs, isTitle) {
   const w = winner(g);
   const p = winP(g);
   const upset = p != null && p < UPSET && team(g.home).fbs && team(g.away).fbs;
-  const row = (t, pts, home) => `<div class="gt-row${t === w ? " win" : ""}">
+  const row = (t, pts, home) => `<div class="gt-row${t === w ? " win" : ""}" data-team="${t}">
       ${logo(t, 18)}<span class="gt-name">${home && !g.neutral ? '<span class="at">@</span>' : ""}${esc(team(t).name)}</span>
-      <span class="gt-rec">${rec(recs[t])}</span><span class="gt-pts">${pts}</span></div>`;
+      ${fpi(t)}<span class="gt-rec">${rec(recs[t])}</span><span class="gt-pts">${pts}</span></div>`;
   const foot = [
     isTitle ? `<span>${esc(g.conference)}</span>` : "",
     g.real ? '<span class="chipmini real">Final</span>' : '<span class="chipmini">Simulated</span>',
@@ -302,14 +324,14 @@ function renderSelection(recs) {
   const top = SEASON.ranking.slice(0, 25).map((r, i) => {
     const f = seedOf[r.team];
     return `<tr class="${r.team === me ? "mine" : ""}"><td class="num">${i + 1}</td>
-      <td class="teamcell">${logo(r.team, 18)}${esc(team(r.team).name)}</td>
+      <td class="teamcell" data-team="${r.team}">${logo(r.team, 18)}${esc(team(r.team).name)}${fpi(r.team)}</td>
       <td class="num">${rec(recs[r.team])}</td>
       <td class="num">${num(r.rating, 3)}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
   const field = SEASON.field.map(f => `<tr class="${f.team === me ? "mine" : ""}">
       <td class="num">${f.seed}</td>
-      <td class="teamcell">${logo(f.team, 18)}${esc(team(f.team).name)}</td>
+      <td class="teamcell" data-team="${f.team}">${logo(f.team, 18)}${esc(team(f.team).name)}${fpi(f.team)}</td>
       <td class="muted">${esc(f.how)}${f.bye ? " · bye" : ""}</td></tr>`).join("");
   $("s-board").innerHTML = `<div class="twocol">
     <div><h3 class="subhead">Top 25</h3><div class="tablewrap"><table>
@@ -325,9 +347,9 @@ function renderBracket() {
   const shown = STAGES[STAGE].round;
   $("s-boardtitle").textContent = STAGES[STAGE].label;
   const seedOf = Object.fromEntries(SEASON.field.map(f => [f.team, f.seed]));
-  const line = (t, pts, g, done) => `<div class="bteam${done && winner(g) === t ? " win" : ""}${t === me ? " mine" : ""}">
+  const line = (t, pts, g, done) => `<div class="bteam${done && winner(g) === t ? " win" : ""}${t === me ? " mine" : ""}" data-team="${t}">
       <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 16)}
-      <span class="bname">${esc(team(t).name)}</span><span class="bpts">${done ? pts : ""}</span></div>`;
+      <span class="bname">${esc(team(t).name)}</span>${fpi(t)}<span class="bpts">${done ? pts : ""}</span></div>`;
   const cols = SEASON.rounds.map((r, i) => {
     const done = i <= shown;
     const body = done
@@ -336,7 +358,7 @@ function renderBracket() {
     return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}</div>`;
   }).join("");
   const champ = shown === SEASON.rounds.length - 1 && SEASON.champion != null
-    ? `<div class="champion">${logo(SEASON.champion, 40)}<div><div class="label">National champion</div>
+    ? `<div class="champion" data-team="${SEASON.champion}">${logo(SEASON.champion, 40)}<div><div class="label">National champion</div>
         <div class="cname">${esc(team(SEASON.champion).name)}</div></div></div>` : "";
   $("s-board").innerHTML = champ + `<div class="bracket">${cols}</div>`;
 }
@@ -373,7 +395,7 @@ function renderStandings(recs) {
     const tag = settled && c.champion === t ? '<span class="seedchip bye">Champion</span>'
       : tg && (tg.home === t || tg.away === t) ? '<span class="seedchip">Title game</span>' : "";
     return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
-      <td class="teamcell">${logo(t, 16)}${esc(team(t).name)} ${tag}</td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)} ${tag}</td>
       <td class="num">${c.crowns ? `${r ? r.cw : 0}-${r ? r.cl : 0}` : "-"}</td>
       <td class="num">${rec(r)}</td>
       <td class="num muted">${r ? r.pf : 0}-${r ? r.pa : 0}</td></tr>`;

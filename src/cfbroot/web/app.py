@@ -160,9 +160,18 @@ def _season_payload(s: SeasonState) -> dict:
         "team_index": {
             str(t.idx): {"name": t.school, "abbr": t.abbreviation,
                          "logo": t.logo, "color": t.color,
-                         "conference": t.conference, "fbs": t.is_fbs}
+                         "conference": t.conference, "fbs": t.is_fbs,
+                         "rating": t.rating}
             for t in s.teams
         },
+        # Results so far, for the game list shown when hovering over a team.
+        "played": [
+            {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
+             "home_points": g["home_points"], "away_points": g["away_points"],
+             "neutral": g["neutral"], "title_game": g["is_ccg"]}
+            for g in sorted(s.games, key=lambda g: g["week"])
+            if g["status"] != 0
+        ],
     })
 
 

@@ -427,9 +427,9 @@ function gameRowsHTML(games) {
 
     html += `<tr>
       <td class="matchup">
-        <span class="${awayCls}">${logo(g.away_idx, 18)}${esc(g.away)}</span>
+        <span class="${awayCls}" data-team="${g.away_idx}">${logo(g.away_idx, 18)}${esc(g.away)}</span>
         <span class="at">${g.neutral ? "vs" : "@"}</span>
-        <span class="${homeCls}">${logo(g.home_idx, 18)}${esc(g.home)}</span>
+        <span class="${homeCls}" data-team="${g.home_idx}">${logo(g.home_idx, 18)}${esc(g.home)}</span>
         ${g.neutral ? '<span class="tag">neutral</span>' : ""}
       </td>
       ${outcomeCell(1 - pHome, s.p_if_away, base, !rootHome)}
@@ -492,7 +492,7 @@ function renderLeague() {
     ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
     html += `<tr><td class="num">${i + 1}</td>
-      <td class="teamcell">${logo(r.idx, 18)}${esc(r.team)}</td>
+      <td class="teamcell" data-team="${r.idx}">${logo(r.idx, 18)}${esc(r.team)}</td>
       <td class="muted">${esc(r.conference || "")}</td>
       <td class="num">${num(r.rating, 1)}</td>
       <td class="num"><b>${pct(r.p[key])}</b></td>
@@ -506,6 +506,99 @@ function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// Any team name on the page: hover for its games so far, click to pick it.
+//
+// Elements carry data-team="<team index>". On the Sample season tab the
+// games are that simulated season's, through the stage being shown; anywhere
+// else they are the real results.
+
+let TIP_TEAM = null;
+
+function teamResults(idx, inSeason) {
+  if (inSeason && typeof seasonGamesFor === "function") {
+    const g = seasonGamesFor(idx);
+    if (g) return g;
+  }
+  return (STATE.played || [])
+    .filter(g => g.home === idx || g.away === idx)
+    .map(g => ({ ...g, label: g.title_game ? "Title" : `Wk ${g.week}` }));
+}
+
+function tipHTML(idx, games) {
+  const t = team(idx);
+  let w = 0, l = 0;
+  const rows = games.map(g => {
+    const home = g.home === idx;
+    const us = home ? g.home_points : g.away_points;
+    const them = home ? g.away_points : g.home_points;
+    const won = us > them;
+    won ? w++ : l++;
+    const opp = home ? g.away : g.home;
+    const where = g.neutral ? "vs" : (home ? "vs" : "@");
+    return `<tr><td class="muted">${esc(g.label)}</td>
+      <td class="${won ? "wl w" : "wl l"}">${won ? "W" : "L"}</td>
+      <td class="num">${us}-${them}</td>
+      <td class="muted">${where}</td>
+      <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td></tr>`;
+  }).join("");
+  const rating = t.rating != null ? ` · ${esc(STATE.rating_label)} ${num(t.rating, 1)}` : "";
+  const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
+  return `<div class="tiphead">${logo(idx, 24)}<div>
+      <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span></div>
+      <div class="tipsub">${esc(t.conference || "Independent")}${rating}</div></div></div>
+    ${rows ? `<table class="tiptable"><tbody>${rows}</tbody></table>`
+           : '<p class="tipnone">No games played yet.</p>'}
+    ${pick ? `<p class="tipfoot">${pick}</p>` : ""}`;
+}
+
+function placeTip(e) {
+  const tip = $("teamtip");
+  const pad = 14;
+  const r = tip.getBoundingClientRect();
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = Math.max(8, e.clientX - r.width - pad);
+  if (y + r.height > innerHeight - 8) y = Math.max(8, innerHeight - r.height - 8);
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+
+function hideTip() {
+  $("teamtip").hidden = true;
+  TIP_TEAM = null;
+}
+
+function pickTeam(idx) {
+  const t = STATE.teams.find(x => x.idx === idx);
+  if (!t) return;                      // FCS opponents cannot be picked
+  $("team").value = t.name;
+  loadTeam();
+}
+
+document.addEventListener("mouseover", (e) => {
+  const el = e.target.closest("[data-team]");
+  if (!el || !STATE) return;
+  const idx = Number(el.dataset.team);
+  if (idx === TIP_TEAM && !$("teamtip").hidden) return;
+  TIP_TEAM = idx;
+  const tip = $("teamtip");
+  tip.innerHTML = tipHTML(idx, teamResults(idx, !!el.closest("#seasonview")));
+  tip.hidden = false;
+  placeTip(e);
+});
+document.addEventListener("mousemove", (e) => {
+  if (!$("teamtip").hidden && e.target.closest("[data-team]")) placeTip(e);
+});
+document.addEventListener("mouseout", (e) => {
+  const el = e.target.closest("[data-team]");
+  if (el && !(e.relatedTarget && el.contains(e.relatedTarget))) hideTip();
+});
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-team]");
+  if (!el || !STATE) return;
+  hideTip();
+  pickTeam(Number(el.dataset.team));
+});
 
 // Events
 
