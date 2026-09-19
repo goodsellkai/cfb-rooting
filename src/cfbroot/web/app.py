@@ -1,7 +1,8 @@
-"""Local web app: pick your team and read the rooting guide."""
+"""Local web app: the rooting guide, and a sample season played out."""
 
 from __future__ import annotations
 
+import secrets
 import threading
 import time
 import traceback
@@ -19,6 +20,7 @@ from ..data.loader import default_year, load_season
 from ..data.season import SeasonState
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
+from ..sim.sample import sample_season
 
 HERE = Path(__file__).resolve().parent
 
@@ -194,7 +196,7 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
 def _asset_token() -> str:
     """Changes when the CSS or JS changes, so browsers don't use a stale copy."""
     stamps = []
-    for name in ("static/app.js", "static/app.css"):
+    for name in ("static/app.js", "static/season.js", "static/app.css"):
         f = HERE / name
         stamps.append(str(int(f.stat().st_mtime)) if f.exists() else "0")
     return "-".join(stamps)
@@ -204,8 +206,8 @@ def _asset_token() -> str:
 def index() -> HTMLResponse:
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
     token = _asset_token()
-    html = (html.replace("/static/app.css", f"/static/app.css?v={token}")
-                .replace("/static/app.js", f"/static/app.js?v={token}"))
+    for name in ("app.css", "app.js", "season.js"):
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
@@ -237,6 +239,18 @@ def api_team(name: str):
             {"status": "running", "done": job.done, "total": job.total,
              "elapsed": time.time() - job.started}, status_code=202)
     return JSONResponse(store.payload(team.idx))
+
+
+@app.get("/api/sample")
+def api_sample(seed: int | None = None):
+    """One simulated season, kept in full, for the Sample season view."""
+    try:
+        s = store.get_season()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if seed is None:
+        seed = secrets.randbelow(1_000_000_000)
+    return JSONResponse(sample_season(s, seed))
 
 
 @app.on_event("startup")

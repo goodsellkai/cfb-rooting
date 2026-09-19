@@ -31,6 +31,11 @@ a while, around a quarter of an hour on a 16-core machine. That one run answers
 for every team, so picking a team after that is instant. Restart it to pull new
 scores.
 
+The Sample season tab plays out one simulated season week by week: every
+score, the standings, the title games, Selection Sunday and the bracket, with
+running stats. Each one takes a few seconds to simulate. The hosted version
+picks from 20 seasons written when the site is built.
+
 ## Hosted version
 
 `cfbroot export` simulates the season and writes the whole app as static files

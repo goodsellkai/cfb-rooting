@@ -261,3 +261,109 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   justify-content: space-between; font-size: 11.5px; color: var(--muted);
   background: var(--panel);
 }
+
+/* tabs */
+.tabs {
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 0 20px; display: flex; gap: 2px;
+}
+.tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  border-radius: 0; padding: 10px 12px 9px; color: var(--muted); font-weight: 600;
+}
+.tab:hover:not(:disabled) { color: var(--ink); }
+.tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+body.season .guideonly { display: none; }
+
+/* sample season: player */
+.player { padding-bottom: 16px; }
+.playerhead { display: flex; justify-content: space-between; align-items: flex-start;
+              gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.playerhead .sub { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); }
+.playerbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.playerbar button:not(.primary) { width: 38px; padding: 7px 0; font-size: 17px; line-height: 1; }
+.playerbar button.primary { min-width: 88px; }
+.playerbar input[type="range"] { flex: 1 1 200px; min-width: 140px; padding: 0;
+                                 border: none; background: none; accent-color: var(--accent); }
+.stagelabel { font-weight: 650; min-width: 190px; font-variant-numeric: tabular-nums; }
+.progress .bar > .indeterminate {
+  width: 30%; animation: slide 1.1s ease-in-out infinite;
+}
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+.cards .detail { font-size: 12px; color: var(--muted); white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; }
+.cards .value .logo { width: 26px; height: 26px; vertical-align: -4px; }
+
+/* your team's season */
+.mine .minehead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                  margin-bottom: 10px; }
+.mine .minestatus { margin-left: auto; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.reslist { display: flex; flex-wrap: wrap; gap: 6px; }
+.res { font-size: 12px; font-variant-numeric: tabular-nums; padding: 3px 9px;
+       border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.res.w { background: var(--good-soft); color: var(--good); border-color: transparent; }
+.res.l { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.res.sim { border-style: dashed; border-color: currentColor; }
+
+.seasongrid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px;
+              align-items: start; }
+@media (max-width: 1000px) { .seasongrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* scoreboard */
+.gamegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 10px; }
+.gt { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 7px;
+      background: var(--bg); }
+.gt.mine { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.gt-row { display: flex; align-items: center; gap: 7px; padding: 2px 0;
+          color: var(--ink-2); font-size: 13.5px; }
+.gt-row.win { color: var(--ink); font-weight: 650; }
+.gt-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-name .at { color: var(--muted); font-weight: 400; margin-right: 4px; font-size: 12px; }
+.gt-rec { font-size: 11px; color: var(--muted); font-weight: 400;
+          font-variant-numeric: tabular-nums; }
+.gt-pts { min-width: 24px; text-align: right; font-variant-numeric: tabular-nums;
+          font-family: var(--mono); font-size: 14px; }
+.gt-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+           margin-top: 5px; font-size: 11px; color: var(--muted); }
+.chipmini { font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 4px;
+            border: 1px dashed var(--line); }
+.chipmini.real { border-style: solid; }
+.chipmini.upset { border: none; background: var(--accent-soft); color: var(--accent); }
+
+/* selection */
+.twocol { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 760px) { .twocol { grid-template-columns: minmax(0, 1fr); } }
+.subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+           color: var(--muted); margin: 0 0 8px; font-weight: 700; }
+tr.mine td { background: var(--accent-soft); }
+.seedchip { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px;
+            border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2);
+            margin-left: 4px; }
+.seedchip.bye { background: var(--good-soft); color: var(--good); border-color: transparent; }
+
+/* bracket */
+.bracket { display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 12px;
+           overflow-x: auto; }
+.bcol { display: flex; flex-direction: column; gap: 10px; }
+.bgame { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
+.bgame.tbd { opacity: .45; border-style: dashed; }
+.bteam { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 13px;
+         color: var(--ink-2); }
+.bteam + .bteam { border-top: 1px solid var(--line-2); }
+.bteam.win { color: var(--ink); font-weight: 650; }
+.bteam.mine { background: var(--accent-soft); }
+.bseed { width: 16px; font-size: 10.5px; color: var(--muted); text-align: right; }
+.bname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bpts { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.champion { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
+            margin-bottom: 16px; border-radius: var(--radius);
+            background: var(--good-soft); color: var(--good); }
+.champion .logo { width: 40px; height: 40px; }
+.champion .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.champion .cname { font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+
+/* standings */
+table.standings td { padding: 6px 8px; }
+table.standings th { padding: 0 8px 6px; }

@@ -94,7 +94,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     age = cache.cache_age("games", {"year": year, "season_type": "regular"})
     if age is not None and age > 3600:
         state.notes.append(f"Scores are from a cache written {age / 3600:.1f} hours "
-                           "ago. Refresh to pull the latest results.")
+                           "ago. Restart the app to pull the latest results.")
     return state
 
 

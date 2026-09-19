@@ -235,6 +235,7 @@ async function loadTeam() {
   if (!t || (RESULT && RESULT.team === t.name && WANTED === t.name)) return;
   WANTED = t.name;
   try { localStorage.setItem("cfbroot.team", t.name); } catch { /* private mode */ }
+  if (typeof onTeamChanged === "function") onTeamChanged();   // season.js
   for (;;) {
     let resp, body;
     try {

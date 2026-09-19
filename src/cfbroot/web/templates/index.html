@@ -22,6 +22,11 @@
 
 <div id="banner" class="banner" hidden></div>
 
+<nav class="tabs" role="tablist">
+  <button id="tab-guide" class="tab active" role="tab" aria-selected="true">Rooting guide</button>
+  <button id="tab-season" class="tab" role="tab" aria-selected="false">Sample season</button>
+</nav>
+
 <section class="controlbar">
   <div class="group">
     <div class="groupfields">
@@ -32,15 +37,15 @@
                placeholder="Search teams&hellip;" autocomplete="off" spellcheck="false">
         <ul id="teammenu" class="menu" role="listbox" hidden></ul>
       </div>
-      <label class="field">
+      <label class="field guideonly">
         <span>Measure success by</span>
         <select id="primary"></select>
       </label>
-      <label class="field narrow">
+      <label class="field narrow guideonly">
         <span>Slate</span>
         <select id="week"></select>
       </label>
-      <label class="field narrow">
+      <label class="field narrow guideonly">
         <span>Show</span>
         <select id="sigfilter">
           <option value="all" selected>All games</option>
@@ -52,6 +57,7 @@
 </section>
 
 <main>
+ <div id="guideview">
   <section id="progress" class="progress" hidden>
     <div class="bar"><div id="progressfill"></div></div>
     <p id="progresstext">simulating&hellip;</p>
@@ -100,6 +106,49 @@
       <div id="league"></div>
     </div>
   </section>
+ </div>
+
+ <div id="seasonview" hidden>
+  <section class="panel player">
+    <div class="playerhead">
+      <div>
+        <h2>One simulated season, played out</h2>
+        <p id="s-meta" class="sub"></p>
+      </div>
+      <button id="s-new">New season</button>
+    </div>
+    <div class="playerbar">
+      <button id="s-prev" aria-label="Previous stage">&#8249;</button>
+      <button id="s-play" class="primary">Play</button>
+      <button id="s-next" aria-label="Next stage">&#8250;</button>
+      <input id="s-stage" type="range" min="0" max="0" value="0" aria-label="Stage">
+      <span id="s-label" class="stagelabel"></span>
+    </div>
+  </section>
+
+  <section id="s-loading" class="progress" hidden>
+    <div class="bar"><div class="indeterminate"></div></div>
+    <p>Simulating a season&hellip;</p>
+  </section>
+
+  <div id="s-body" hidden>
+    <div id="s-stats" class="cards"></div>
+    <div id="s-mine" class="panel mine" hidden></div>
+    <div class="seasongrid">
+      <div class="panel">
+        <div class="panel-head"><h2 id="s-boardtitle"></h2><span id="s-boardnote" class="muted"></span></div>
+        <div id="s-board"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Standings</h2>
+          <select id="s-conf" class="inline" aria-label="Conference"></select>
+        </div>
+        <div id="s-standings"></div>
+      </div>
+    </div>
+  </div>
+ </div>
 </main>
 
 <footer class="sitefoot">
@@ -108,5 +157,6 @@
 </footer>
 
 <script src="/static/app.js"></script>
+<script src="/static/season.js"></script>
 </body>
 </html>
