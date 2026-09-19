@@ -64,11 +64,12 @@ class Diagnostics:
 
 
 def provenance(params: ModelParams) -> str:
-    return (f"slope {params.rating_scale:.2f}, home field {params.hfa:.2f} pts, "
-            f"game noise {params.sigma:.2f} pts, rating error "
-            f"{params.rating_sd:.2f} pts per team ({total_sigma(params):.2f} total), "
+    return (f"slope {params.rating_scale:.2f}, home field {params.hfa:.2f} pts "
             f"from {params.calibration_n:,} closing betting lines "
-            f"({params.calibration_seasons}).")
+            f"({params.calibration_seasons}); game noise {params.sigma:.2f} pts and "
+            f"rating error {params.rating_sd:.2f} pts per team at this point in "
+            f"the season ({total_sigma(params):.2f} total), from how 2023-25 "
+            f"seasons turned out against ESPN's weekly FPI.")
 
 
 def evaluate(rating_home, rating_away, neutral, margin,

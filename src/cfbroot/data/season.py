@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import datetime as dt
 import re
 import unicodedata
@@ -313,6 +315,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
                  params: ModelParams | None = None,
                  recalibrate: bool = True) -> SeasonState:
     # recalibrate only controls whether diagnostics are computed.
+    fixed_params = params is not None
     params = params or ModelParams()
     sp_raw = sp_raw or []
     notes: list[str] = []
@@ -463,6 +466,15 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         ci = teams[g["home_idx"]].conf_idx
         if ci >= 0 and teams[g["away_idx"]].conf_idx == ci:
             conferences[ci].fixed_ccg = (g["home_idx"], g["away_idx"], g["status"])
+
+    # FPI's error about a team shrinks as it sees results, so the rating
+    # error in use depends on how many weeks have been played. Parameters
+    # passed in by the caller are used exactly as given.
+    if not fixed_params:
+        pending = [g["week"] for g in games
+                   if g["status"] == TO_SIMULATE and not g["is_ccg"]]
+        current = min(pending) if pending else max((g["week"] for g in games), default=0) + 1
+        params = dataclasses.replace(params, rating_sd=params.team_error(current - 1))
 
     state = SeasonState(year=year, teams=teams, conferences=conferences, games=games,
                         params=params, rating_label="FPI", notes=notes)

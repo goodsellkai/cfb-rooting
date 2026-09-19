@@ -7,7 +7,7 @@ from cfbroot.config import ModelParams
 from cfbroot.data.loader import default_year
 from cfbroot.data.season import (AWAY_WON, HOME_WON, TO_SIMULATE, build_season,
                                  normalise_name)
-from cfbroot.data.synthetic import build_payloads
+from cfbroot.data.synthetic import build_payloads, synthetic_season
 from cfbroot.model import evaluate, provenance, total_sigma, win_probability
 
 from conftest import make_mini_season
@@ -64,9 +64,15 @@ def test_win_probability_is_symmetric_at_a_neutral_site():
 
 
 def test_a_two_touchdown_favourite_is_priced_like_the_market():
-    """A 14-point home favourite should sit in the low-to-mid 80s."""
+    """A 14-point home favourite should sit in the low-to-mid 80s by midseason,
+    and a little lower before the season, when FPI knows less."""
+    import dataclasses
+
     p = ModelParams()
-    assert 0.80 < float(win_probability(14 - p.hfa, 0, False, p)) < 0.87
+    mid = dataclasses.replace(p, rating_sd=p.team_error(6))
+    pre = dataclasses.replace(p, rating_sd=p.team_error(0))
+    assert 0.80 < float(win_probability(14 - p.hfa, 0, False, mid)) < 0.87
+    assert 0.76 < float(win_probability(14 - p.hfa, 0, False, pre)) < 0.80
 
 
 def test_model_parameters_are_fixed_not_refit():
@@ -82,16 +88,28 @@ def test_model_parameters_are_fixed_not_refit():
 
 
 def test_parameters_match_the_documented_calibration():
-    """The defaults must stay tied to what cfbroot.calibration produces."""
+    """The defaults must stay tied to what cfbroot.calibration and
+    cfbroot.spread produce."""
     p = ModelParams()
-    # From 1,496 closing lines over 2024-25: game noise 15.26, and FPI error of
-    # 5.53 on the gap between two teams, so 5.53/sqrt(2) for one team.
-    assert p.sigma == pytest.approx(15.26, abs=0.15)
-    assert p.rating_sd == pytest.approx(5.53 / np.sqrt(2), abs=0.15)
-    assert total_sigma(p) == pytest.approx(16.23, abs=0.15)
     assert p.hfa == pytest.approx(2.74, abs=0.15)      # market home field
     assert p.rating_scale == 1.0                       # FPI is points-scaled
+    # From 2023-25 results against ESPN's weekly FPI.
+    assert p.sigma == pytest.approx(13.86, abs=0.15)
+    assert p.team_error(0) == pytest.approx(7.18, abs=0.05)
+    assert p.team_error(4) == pytest.approx(5.86, abs=0.05)
+    assert p.team_error(30) == pytest.approx(4.68, abs=0.05)
     assert "closing betting lines" in provenance(p)
+
+
+def test_rating_error_follows_the_week(midseason, preseason):
+    """FPI is less sure of a team before any games than after six weeks."""
+    p = ModelParams()
+    assert preseason.params.rating_sd == pytest.approx(p.team_error(0))
+    assert midseason.params.rating_sd == pytest.approx(p.team_error(6))
+    assert midseason.params.rating_sd < preseason.params.rating_sd
+    # Parameters given explicitly are left alone.
+    s = synthetic_season(seed=7, played_through=6, params=ModelParams(rating_sd=3.0))
+    assert s.params.rating_sd == 3.0
 
 
 def test_diagnostics_report_without_changing_anything():

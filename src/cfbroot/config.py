@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -40,21 +42,29 @@ def has_api_key() -> bool:
 class ModelParams:
     """Game outcome and committee ranking parameters.
 
-    The game outcome values are fixed. They come from
+    The game outcome values are fixed. Home field comes from
     ``python -m cfbroot.calibration``, which compares FPI to closing betting
-    lines. They are not re-fit during the season because FPI is updated after
-    each week's games.
+    lines. Game noise and FPI's rating error come from
+    ``python -m cfbroot.spread``, which compares ESPN's weekly FPI to how the
+    rest of each season turned out. None are re-fit during a season.
     """
 
     # Game outcome model
     hfa: float = 2.75              # home field advantage, points
-    sigma: float = 15.26           # game noise: SD of results around a closing line
-    # FPI's error against the market is 5.53 points on the gap between two
-    # teams, so one team's own error is 5.53/sqrt(2). It is drawn once per
-    # simulated season, since a misjudged rating is wrong all year.
-    # sqrt(sigma^2 + 2*rating_sd^2) = 16.23, the calibrated total.
-    rating_sd: float = 3.91
-    rating_scale: float = 1.0      # FPI is already in points
+    # Game noise: what one game does beyond both teams' true strength. Holds
+    # at 13.5 to 14 points all season in 2023-25.
+    sigma: float = 13.86
+    # A team's rating error: how far FPI is off about it, for the rest of the
+    # season. Drawn once per simulated season, since a misjudged team is
+    # misjudged every week. It shrinks as FPI sees results, from 7.2 points
+    # before the season toward 4.7, closing 63% of the gap every 4.6 weeks:
+    # about 6 after week 4 and 5 by mid-October. rating_sd is the value in use;
+    # build_season() sets it from team_error() for the current week.
+    rating_sd_start: float = 7.18
+    rating_sd_floor: float = 4.68
+    rating_sd_weeks: float = 4.60
+    rating_sd: float = 7.18
+    rating_scale: float = 1.0      # FPI is already in points; 0.97-1.07 measured
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
 
     # Simulated scores. The margin is drawn first, from the same distribution
@@ -89,6 +99,13 @@ class ModelParams:
     # the season; see selection.playoff_format().
     playoff_size: int = 12
     n_byes: int = 4
+
+    def team_error(self, weeks_played: int) -> float:
+        """FPI's error about one team, after ``weeks_played`` weeks of games."""
+        w = max(0, weeks_played)
+        start2, floor2 = self.rating_sd_start ** 2, self.rating_sd_floor ** 2
+        return float(math.sqrt(floor2 + (start2 - floor2)
+                               * math.exp(-w / self.rating_sd_weeks)))
 
     def to_dict(self) -> dict:
         return asdict(self)
