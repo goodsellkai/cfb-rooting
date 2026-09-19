@@ -13,7 +13,7 @@ M = {name: i for i, name in enumerate(METRIC_NAMES)}
 
 @pytest.fixture(scope="module")
 def result(midseason):
-    return run(midseason, "SEC Team 08", SimConfig(n_sims=200_000, batch_size=25_000))
+    return run(midseason, "SEC Team 08", SimConfig(n_sims=40_000, batch_size=20_000))
 
 
 @pytest.fixture(scope="module")
@@ -183,8 +183,8 @@ def test_all_weeks_covers_every_remaining_game(midseason, result):
 
 
 def test_more_simulations_shrink_the_intervals(midseason):
-    small = run(midseason, "SEC Team 08", SimConfig(n_sims=20_000, batch_size=20_000))
-    big = run(midseason, "SEC Team 08", SimConfig(n_sims=320_000, batch_size=25_000))
+    small = run(midseason, "SEC Team 08", SimConfig(n_sims=3_000, batch_size=3_000))
+    big = run(midseason, "SEC Team 08", SimConfig(n_sims=48_000, batch_size=24_000))
     gs = build_guide(midseason, small, primary="win_conference", week=None)
     gb = build_guide(midseason, big, primary="win_conference", week=None)
     ws = np.median([e.swings["win_conference"].hi - e.swings["win_conference"].lo

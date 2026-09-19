@@ -75,13 +75,10 @@ class ModelParams:
     # settings live in cfbroot.massey; these are the parts the Monte Carlo
     # needs to know about.
     #
-    # massey_iters is how many passes the per-season fit takes. The Hessian is
-    # built at the curvature bound so every step is an under-step, which makes
-    # the fit converge from anywhere, and each season starts from the last
-    # one's answer. Eight passes and one correction match twelve and two to
-    # within a hundredth of a place of rank and run a fifth faster.
-    massey_iters: int = 8
-    correction_passes: int = 1     # a second pass moves nothing measurable
+    # Each simulated season solves the power rating until no rating moves by
+    # more than fit_tol, which is far below anything that could change a rank.
+    fit_tol: float = 1e-8
+    fit_max_iter: int = 500
     # How far down the table the head-to-head pass looks. Only the top matters
     # to the field, and scanning all of it every season is wasted work.
     h2h_depth: int = 30

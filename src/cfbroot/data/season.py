@@ -11,7 +11,7 @@ import numpy as np
 
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
-from ..massey import MasseyParams, kernel_system
+from ..massey import MasseyParams, sim_system
 from ..model import evaluate, win_probability
 
 # status codes on the unified game table
@@ -96,8 +96,10 @@ class KernelInputs:
     conf_n_div: np.ndarray
     conf_is_power: np.ndarray
     conf_fixed_ccg: np.ndarray         # (n_conf, 3): home, away, status; -1 if none
+    conf_ccg_pts: np.ndarray           # (n_conf, 2): its score, if played
+    conf_ccg_home: np.ndarray          # (n_conf,): 1.0 unless neutral site
 
-    massey: object                  # cfbroot.massey.KernelSystem for this schedule
+    massey: object                  # cfbroot.massey.SimSystem for this schedule
 
     n_teams: int
     n_conf: int
@@ -111,10 +113,9 @@ class SeasonState:
     games: list[dict]
     params: ModelParams
     massey: MasseyParams = field(default_factory=MasseyParams)
-    # Known ratings for opponents outside FBS, by team index, worked out once
-    # from their own schedules. Without them they all share one average.
-    non_fbs_rating: dict = field(default_factory=dict)
-    non_fbs_centre: float = 0.0
+    # CFBD's FCS games. The rating covers all of Division I, the way Massey's
+    # does, so the FCS teams' schedules come along.
+    fcs_games: list = field(default_factory=list)
     diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
@@ -232,13 +233,9 @@ class SeasonState:
 
         remaining_idx = np.flatnonzero(g_status == TO_SIMULATE).astype(np.int32)
 
-        # The reusable half of the Massey fit. The schedule never changes
-        # between simulated seasons, so the curvature does not either; it is
-        # built and inverted once here and every season reuses it.
-        msys = kernel_system(is_fbs, g_home, g_away, g_neutral, rating,
-                             p.sigma, p.hfa, self.massey,
-                             fixed=self.non_fbs_rating,
-                             fixed_centre=self.non_fbs_centre)
+        # Everything about the rating that is the same in every simulated
+        # season, laid out once.
+        msys = sim_system(self, sim_games, self.fcs_games, g_pwin, self.massey)
 
         # CSR: teams per conference, and conference games per conference
         conf_teams_list = [c.team_idxs for c in self.conferences]
@@ -272,6 +269,14 @@ class SeasonState:
         for c in self.conferences:
             if c.fixed_ccg is not None:
                 conf_fixed[c.idx] = c.fixed_ccg
+        conf_ccg_pts = np.zeros((n_conf, 2), dtype=np.float64)
+        conf_ccg_home = np.zeros(n_conf, dtype=np.float64)
+        for g in self.games:
+            ci = self.teams[g["home_idx"]].conf_idx
+            if (g["is_ccg"] and g["status"] != TO_SIMULATE and ci >= 0
+                    and tuple(conf_fixed[ci, :2]) == (g["home_idx"], g["away_idx"])):
+                conf_ccg_pts[ci] = (g["home_points"], g["away_points"])
+                conf_ccg_home[ci] = 0.0 if g["neutral"] else 1.0
 
         return KernelInputs(
             rating=rating, conf_id=conf_id, div_id=div_id, is_fbs=is_fbs,
@@ -282,6 +287,7 @@ class SeasonState:
             conf_games_ptr=conf_games_ptr, conf_games=conf_games,
             conf_has_ccg=conf_has_ccg, conf_crowns=conf_crowns, conf_n_div=conf_n_div,
             conf_is_power=conf_is_power, conf_fixed_ccg=conf_fixed,
+            conf_ccg_pts=conf_ccg_pts, conf_ccg_home=conf_ccg_home,
             massey=msys,
             n_teams=n_teams, n_conf=n_conf,
         )

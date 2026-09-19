@@ -38,9 +38,12 @@ what Massey actually submitted to the BCS, and it needs no scores. It is a
 blunt switch, though, and it ranked 11-1 Boise State second in 2024. Turning
 mov_weight down instead keeps the scoreboard and only flattens it.
 
-Teams outside FBS share one combined rating. Massey rates them individually
-because he has their full schedules; the data here only has their games against
-FBS teams, one or two each, which cannot support a rating of its own.
+Like Massey's, the rating covers all of Division I: FCS teams are rated from
+their own schedules when those are passed in as extra games. Anyone with fewer
+than four games shares one combined rating.
+
+The simulator rates every simulated season with this same model; sim_system()
+lays out the parts that do not change from one season to the next.
 """
 
 from __future__ import annotations
@@ -127,7 +130,11 @@ class MasseyParams:
     # rating and floats 11-1 Boise State into the top 2.
     correction_abs: float = 0.20
     correction_passes: int = 3
-    correction_nodes: int = 81
+    # Gauss-Hermite points used to average over the prior. Eight already agree
+    # with any larger number to within rounding; an 81-point grid over four
+    # standard deviations, used before, sat 0.00025 off because it cut the
+    # tails, without changing any team's rank.
+    correction_nodes: int = 10
 
     max_iter: int = 60
     tol: float = 1e-10
@@ -269,11 +276,8 @@ def win_loss_correction(power, hfa, h_node, a_node, at_home, outcome, weight,
     hv = np.asarray(at_home, dtype=bool).astype(np.float64)
     weight = np.asarray(weight, dtype=np.float64)
 
-    spread = np.full(n, p.correction_abs)
-    offs = np.linspace(-4.0, 4.0, p.correction_nodes)
-    # log of the prior, one row per team, shared grid in units of its own spread
-    log_prior = -0.5 * offs ** 2
-    grid = power[:, None] + spread[:, None] * offs[None, :]
+    offs, log_prior = gauss_hermite(p.correction_nodes)
+    grid = power[:, None] + p.correction_abs * offs[None, :]
     loglik = np.zeros_like(grid)
 
     for side, (own, opp) in enumerate(((h_node, a_node), (a_node, h_node))):
@@ -294,6 +298,12 @@ def win_loss_correction(power, hfa, h_node, a_node, at_home, outcome, weight,
     post = np.exp(total)
     post /= post.sum(axis=1, keepdims=True)
     return (post * grid).sum(axis=1)
+
+
+def gauss_hermite(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Points and log weights for averaging over a standard normal."""
+    t, w = np.polynomial.hermite_e.hermegauss(n)
+    return t, np.log(w)
 
 
 def _corrected(power, hfa, h, a, at_home, outcome, weight, params):
@@ -372,8 +382,14 @@ def _extra_arrays(state, extra_games, through_week):
 
     by_key = {normalise_name(t.school): t.idx for t in state.teams}
     names = [t.school for t in state.teams]
+    # CFBD's FCS list also carries every FBS-vs-FCS game, which the season's
+    # own schedule already has. Counting those twice doubled the weight of
+    # every FBS team's FCS game.
+    known = {g["game_id"] for g in state.games}
     rows = []
     for g in extra_games or []:
+        if g.get("id") in known:
+            continue
         hp, ap = g.get("home_points"), g.get("away_points")
         if not g.get("completed") or hp is None or ap is None or hp == ap:
             continue
@@ -499,8 +515,7 @@ def rate_selection_day(state, extra_games=None, params: MasseyParams | None = No
     actually are for the teams that played no title game, which is the check
     that mixing them is safe.
     """
-    ccg_week = title_game_week(state)
-    through = None if ccg_week is None else ccg_week
+    through = selection_week(state)
     with_ccg = fit_season(state, include_ccg=True, through_week=through,
                           extra_games=extra_games, params=params, **kwargs)
     without = fit_season(state, include_ccg=False, through_week=through,
@@ -533,215 +548,186 @@ def rate_selection_day(state, extra_games=None, params: MasseyParams | None = No
     }
 
 
-# Everything the Monte Carlo needs to fit a rating per simulated season
-
-def non_fbs_ratings(state, extra_games, params: MasseyParams | None = None):
-    """Rate every non-FBS opponent from its own schedule, once.
-
-    Their ratings barely move between simulated seasons: an FCS team plays at
-    most one game against FBS opposition and the rest of its schedule is
-    already in the books. So the Monte Carlo can treat them as known rather
-    than fitting them, which keeps them out of the matrix entirely and costs
-    nothing per season.
-
-    Returns the ratings by team index, and the mean of the FBS ratings from the
-    same fit. The caller needs that second number: this fit is centred on all of
-    Division I while the simulator's is centred on FBS alone, and a constant
-    offset between the two would change how much beating an FCS team is worth.
-    """
-    f = fit_season(state, include_ccg=False, extra_games=extra_games,
-                   params=params)
-    if f is None:
-        return {}, 0.0
-    n_state = len(state.teams)
-    out: dict[int, float] = {}
-    fbs_vals: list[float] = []
-    for j in range(f.n_fbs):
-        t = int(f.fbs_idx[j])
-        if t >= n_state:
-            continue
-        if state.teams[t].is_fbs:
-            fbs_vals.append(float(f.power[j]))
-        else:
-            out[t] = float(f.power[j])
-    return out, float(np.mean(fbs_vals)) if fbs_vals else 0.0
-
+# Everything the Monte Carlo needs to run the same fit in every simulated season
 
 @dataclass
-class KernelSystem:
-    """A Massey fit reduced to what a simulated season can afford.
+class SimSystem:
+    """The parts of rate_selection_day() that do not change between seasons.
 
-    The schedule is the same in every simulated season, so the curvature of the
-    fit barely changes from one to the next. Building the Hessian once at a
-    reference rating and keeping its inverse turns each season's fit from a
-    sequence of matrix solves into a sequence of matrix-vector products. Each
-    season also starts from the previous one's answer, which are close
-    together, so a handful of steps is enough.
+    Every simulated season is fitted the way rate_selection_day() fits a real
+    one: the same teams get a rating, the same games count, and the FCS
+    schedules come along. What changes from one season to the next is only the
+    scores of the unplayed games and who meets whom in the title games, so
+    everything else is laid out here once.
 
-    ``team_games`` is the same idea for the win-loss correction: which games a
-    team played never changes either, so the lookup is built once.
+    Nodes are FBS teams first, then every other team with enough games to rate,
+    then one shared node for everyone else.
     """
 
-    node: np.ndarray            # team index -> node, or -1 if held fixed
-    n_nodes: int                # FBS teams; nobody else gets a node
-    hinv: np.ndarray            # (n_nodes+1, n_nodes+1) inverse reference Hessian
-    prior: np.ndarray           # (n_nodes+1,) prior mean, last entry the home edge
-    prec: np.ndarray            # (n_nodes+1,) prior precision
-    g_hnode: np.ndarray         # per game: home node, or -1 if fixed
+    n_nodes: int
+    n_fbs: int
+    node: np.ndarray            # team index -> node
+    g_in_fit: np.ndarray        # (n_g,) 1 if the sim game counts toward the rating
+    g_hnode: np.ndarray         # (n_g,) node of each side of a sim game
     g_anode: np.ndarray
-    g_hfix: np.ndarray          # per game: the fixed rating, 0 when it has a node
-    g_afix: np.ndarray
-    team_games_ptr: np.ndarray  # CSR over nodes -> game indices
-    team_games: np.ndarray
-    team_at_home: np.ndarray    # was this node the home side in that game
-    n_fixed: int = 0            # how many opponents are held at a known rating
+    x_h: np.ndarray             # games outside the season's schedule, all
+    x_a: np.ndarray             # finished: FCS against FCS, mostly
+    x_home: np.ndarray          # 1.0 unless neutral
+    x_g: np.ndarray             # game outcome value, margin already damped
+    x_won: np.ndarray           # 1 if the home side won
+    played: np.ndarray          # (n_nodes,) games each node has in the fit
+    minv: np.ndarray            # inverse curvature of a typical season
+    start: np.ndarray           # (n_nodes+1,) that season's fit, a place to start
+    prior: np.ndarray           # (n_nodes+1,) prior mean, home edge last
+    prec: np.ndarray            # (n_nodes+1,) prior precision, no title game
+    tg_ptr: np.ndarray          # CSR over nodes -> games. A ref below n_g is a
+    tg_ref: np.ndarray          # sim game; n_g + k is extra game k.
+    tg_home: np.ndarray
+    gh_t: np.ndarray            # Gauss-Hermite points and log weights
+    gh_logw: np.ndarray
 
 
-def kernel_system(is_fbs, g_home, g_away, g_neutral, rating, sigma, hfa,
-                  params: MasseyParams | None = None, fixed=None,
-                  fixed_centre: float = 0.0) -> KernelSystem:
-    """Build the reusable half of the fit for one schedule.
+def _typical_outcome(g, p_home, params):
+    """A game's outcome value if played, else its home win probability."""
+    if g["status"] != 0 and g["home_points"] is not None:
+        return float(_damped(g["home_points"], g["away_points"], params))
+    return float(p_home)
 
-    Only FBS teams get a node. Anyone else is held at a known rating from
-    ``fixed``, which non_fbs_ratings() works out once from their own schedules.
-    Without it they all share one averaged rating, which costs about four
-    places of rank per FBS team.
 
-    The reference point is a full fit of an average season: every game is fed
-    its own win probability instead of a result, which is the middle of the
-    distribution of seasons the simulator will draw. Curvature taken at the
-    prior instead was far enough off that the reused Hessian overshot and the
-    iteration diverged, so it is taken at the bound where a game is flattest.
+def _damped(hp, ap, p):
+    g = gof(hp, ap, p)
+    if p.mov_weight < 1.0:
+        g = p.mov_weight * g + (1.0 - p.mov_weight) * np.where(
+            np.asarray(hp) > np.asarray(ap), p.mov_flat, 1.0 - p.mov_flat)
+    return g
+
+
+def selection_week(state) -> int | None:
+    """The last week the committee sees, which is the title games' week.
+
+    Before the title games are on the schedule, it is the week after the last
+    full week of games. Either way a game played after selection, Army-Navy,
+    is not counted.
+    """
+    wk = title_game_week(state)
+    if wk is not None:
+        return wk
+    counts: dict[int, int] = {}
+    for g in state.games:
+        if not g["is_ccg"]:
+            counts[g["week"]] = counts.get(g["week"], 0) + 1
+    full = [w for w, n in counts.items() if n >= 5]
+    return max(full) + 1 if full else None
+
+
+def sim_system(state, sim_games, extra_games=None, expected=None,
+               params: MasseyParams | None = None,
+               min_games: int = 4) -> SimSystem:
+    """Lay out rate_selection_day() for a simulator that has every result.
+
+    sim_games is the simulator's game list, in its order. The simulator only
+    changes the scores of the unplayed ones, so which teams get a node and
+    which games count are settled here from the full schedule.
+
+    ``expected`` is each sim game's home win probability. Feeding those in for
+    the unplayed games gives a typical finished season; its fit is where every
+    simulated season starts, and its curvature steers the solver. Seasons
+    differ from it by a little, so the solver needs only a few steps.
     """
     p = params or MasseyParams()
-    is_fbs = np.asarray(is_fbs, dtype=bool)
-    fbs_idx = np.flatnonzero(is_fbs).astype(np.int64)
-    n_nodes = int(fbs_idx.size)
-    node = np.full(is_fbs.size, -1, dtype=np.int64)
-    node[fbs_idx] = np.arange(n_nodes)
-    n = n_nodes + 1
+    cut = selection_week(state)
+    names, extra = _extra_arrays(state, extra_games, cut)
+    n_state = len(state.teams)
+    n_g = len(sim_games)
 
-    gh = np.asarray(g_home, dtype=np.int64)
-    ga = np.asarray(g_away, dtype=np.int64)
-    at_home_b = ~np.asarray(g_neutral, dtype=bool)
-    at_home = at_home_b.astype(np.float64)
+    in_fit = np.array([cut is None or g["week"] <= cut for g in sim_games],
+                      dtype=np.uint8)
+    played_by_team = np.zeros(len(names), dtype=np.int64)
+    for i, g in enumerate(sim_games):
+        if in_fit[i]:
+            played_by_team[g["home_idx"]] += 1
+            played_by_team[g["away_idx"]] += 1
+    for r in extra:
+        played_by_team[r[0]] += 1
+        played_by_team[r[1]] += 1
 
-    # Published ratings on the fit's scale, where one unit is one standard
-    # deviation of a game's outcome. These seed the prior.
-    rating = np.asarray(rating, dtype=np.float64)
-    centre = float(rating[fbs_idx].mean()) if n_nodes else 0.0
-    seed = (rating[fbs_idx] - centre) / sigma
+    fbs = [t.idx for t in state.teams if t.is_fbs]
+    others = [i for i in range(len(names))
+              if not (i < n_state and state.teams[i].is_fbs)
+              and played_by_team[i] >= min_games]
+    rated = fbs + others
+    n_nodes = len(rated) + 1
+    node_all = np.full(len(names), n_nodes - 1, dtype=np.int32)
+    node_all[rated] = np.arange(len(rated), dtype=np.int32)
 
-    # Known ratings for everyone without a node, moved onto the same scale.
-    default = (float(rating[~is_fbs].mean()) - centre) / sigma if (~is_fbs).any() else -1.0
-    shift = float(seed.mean()) - fixed_centre
-    held = np.full(is_fbs.size, default, dtype=np.float64)
-    n_fixed = 0
-    for t, v in (fixed or {}).items():
-        if 0 <= t < held.size and not is_fbs[t]:
-            held[t] = v + shift
-            n_fixed += 1
+    g_hnode = np.array([node_all[g["home_idx"]] for g in sim_games], dtype=np.int32)
+    g_anode = np.array([node_all[g["away_idx"]] for g in sim_games], dtype=np.int32)
+    g_home = np.array([0.0 if g["neutral"] else 1.0 for g in sim_games])
 
-    g_hnode = node[gh]
-    g_anode = node[ga]
-    g_hfix = np.where(g_hnode < 0, held[gh], 0.0)
-    g_afix = np.where(g_anode < 0, held[ga], 0.0)
+    x_h = np.array([node_all[r[0]] for r in extra], dtype=np.int32)
+    x_a = np.array([node_all[r[1]] for r in extra], dtype=np.int32)
+    x_home = np.array([0.0 if r[2] else 1.0 for r in extra])
+    hp = np.array([r[3] for r in extra], dtype=np.float64)
+    ap = np.array([r[4] for r in extra], dtype=np.float64)
+    x_won = (hp > ap).astype(np.uint8)
+    x_g = _damped(hp, ap, p)
 
-    # An average season: each game carries its own win probability.
-    mu = rating[gh] - rating[ga] + hfa * at_home
-    g_ref = ndtr(mu / sigma)
-    free_h = g_hnode >= 0
-    free_a = g_anode >= 0
-
-    ref, ref_hfa = _reference_fit(g_hnode, g_anode, g_hfix, g_afix, at_home,
-                                  g_ref, n_nodes, seed, p)
-    prior = np.concatenate([ref, [ref_hfa]])
-
+    fit_g = np.flatnonzero(in_fit)
     played = np.zeros(n_nodes)
-    np.add.at(played, g_hnode[free_h], 1.0)
-    np.add.at(played, g_anode[free_a], 1.0)
+    for arr in (g_hnode[fit_g], g_anode[fit_g], x_h, x_a):
+        np.add.at(played, arr, 1.0)
+
+    n = n_nodes + 1
     prec = np.zeros(n)
     prec[:n_nodes] = (1.0 / p.prior_sd ** 2
                       + np.maximum(0.0, p.prior_games - played) * INFO_PER_GAME)
     prec[n_nodes] = 1.0 / p.hfa_sd ** 2
 
-    # Curvature is bounded above by its value at an even matchup, and a game
-    # can only be flatter than that. Building the Hessian at the bound rather
-    # than at the reference makes every reused step an under-step, so the
-    # iteration cannot overshoot and converges from any start.
-    w = INFO_PER_GAME
+    # A typical finished season: real results where there are some, win
+    # probabilities where there are not.
+    g_typ = np.array([
+        _typical_outcome(g, expected[i] if expected is not None else 0.5, p)
+        for i, g in enumerate(sim_games)])
+    th = np.concatenate([g_hnode[fit_g], x_h])
+    ta = np.concatenate([g_anode[fit_g], x_a])
+    thome = np.concatenate([g_home[fit_g], x_home])
+    tg = np.concatenate([g_typ[fit_g], x_g])
+    start, start_hfa, *_ = fit_power(th, ta, thome > 0, tg, np.ones(th.size),
+                                     n_nodes, None, p)
+    x = np.concatenate([start, [start_hfa]])
+    d = np.clip(x[th] - x[ta] + x[n_nodes] * thome, -_CLIP, _CLIP)
+    cdf = ndtr(d)
+    w = norm.pdf(d) ** 2 / np.maximum(cdf * (1.0 - cdf), 1e-12)
     hess = np.zeros((n, n))
-    h_free = g_hnode[free_h]
-    a_free = g_anode[free_a]
-    np.add.at(hess, (h_free, h_free), w)
-    np.add.at(hess, (a_free, a_free), w)
-    both = free_h & free_a
-    np.add.at(hess, (g_hnode[both], g_anode[both]), -w)
-    np.add.at(hess, (g_anode[both], g_hnode[both]), -w)
-    np.add.at(hess, (h_free, n_nodes), w * at_home[free_h])
-    np.add.at(hess, (n_nodes, h_free), w * at_home[free_h])
-    np.add.at(hess, (a_free, n_nodes), -w * at_home[free_a])
-    np.add.at(hess, (n_nodes, a_free), -w * at_home[free_a])
-    hess[n_nodes, n_nodes] = w * float(at_home.sum())
+    np.add.at(hess, (th, th), w)
+    np.add.at(hess, (ta, ta), w)
+    np.add.at(hess, (th, ta), -w)
+    np.add.at(hess, (ta, th), -w)
+    np.add.at(hess, (th, n_nodes), w * thome)
+    np.add.at(hess, (n_nodes, th), w * thome)
+    np.add.at(hess, (ta, n_nodes), -w * thome)
+    np.add.at(hess, (n_nodes, ta), -w * thome)
+    hess[n_nodes, n_nodes] += float((w * thome).sum())
     hess[np.diag_indices(n)] += prec
 
-    owner = np.concatenate([np.where(free_h, g_hnode, -1),
-                            np.where(free_a, g_anode, -1)])
-    game = np.concatenate([np.arange(gh.size), np.arange(ga.size)])
-    home = np.concatenate([np.ones(gh.size), np.zeros(ga.size)])
-    keep = owner >= 0
-    owner, game, home = owner[keep], game[keep], home[keep]
+    n_x = len(extra)
+    owner = np.concatenate([g_hnode[fit_g], g_anode[fit_g], x_h, x_a])
+    ref = np.concatenate([fit_g, fit_g, n_g + np.arange(n_x), n_g + np.arange(n_x)])
+    home = np.concatenate([np.ones(fit_g.size), np.zeros(fit_g.size),
+                           np.ones(n_x), np.zeros(n_x)])
     order = np.argsort(owner, kind="stable")
     ptr = np.zeros(n_nodes + 1, dtype=np.int32)
     ptr[1:] = np.cumsum(np.bincount(owner, minlength=n_nodes))
+    gh_t, gh_logw = gauss_hermite(p.correction_nodes)
 
-    return KernelSystem(
-        node=node.astype(np.int32), n_nodes=n_nodes,
-        hinv=np.ascontiguousarray(np.linalg.inv(hess)),
-        prior=prior, prec=prec,
-        g_hnode=g_hnode.astype(np.int32), g_anode=g_anode.astype(np.int32),
-        g_hfix=g_hfix, g_afix=g_afix,
-        team_games_ptr=ptr, team_games=game[order].astype(np.int32),
-        team_at_home=home[order].astype(np.uint8), n_fixed=n_fixed)
-
-
-def _reference_fit(hn, an, hfix, afix, at_home, g, n_nodes, seed,
-                   p: MasseyParams):
-    """A full Newton fit of the average season, used only as a reference."""
-    n = n_nodes + 1
-    x = np.concatenate([seed, [p.hfa_mean]])
-    centre = x.copy()
-    prec = np.zeros(n)
-    prec[:n_nodes] = 1.0 / p.prior_sd ** 2
-    prec[n_nodes] = 1.0 / p.hfa_sd ** 2
-    fh, fa = hn >= 0, an >= 0
-    for _ in range(p.max_iter):
-        vh = np.where(fh, x[np.maximum(hn, 0)], hfix)
-        va = np.where(fa, x[np.maximum(an, 0)], afix)
-        d = np.clip(vh - va + x[n_nodes] * at_home, -_CLIP, _CLIP)
-        cdf = np.clip(ndtr(d), 1e-12, 1 - 1e-12)
-        pdf = norm.pdf(d)
-        s = pdf * (g / cdf - (1.0 - g) / (1.0 - cdf))
-        w = pdf ** 2 / (cdf * (1.0 - cdf))
-        grad = np.zeros(n)
-        np.add.at(grad, hn[fh], s[fh])
-        np.add.at(grad, an[fa], -s[fa])
-        grad[n_nodes] = float((s * at_home).sum())
-        grad -= prec * (x - centre)
-        hess = np.zeros((n, n))
-        np.add.at(hess, (hn[fh], hn[fh]), w[fh])
-        np.add.at(hess, (an[fa], an[fa]), w[fa])
-        both = fh & fa
-        np.add.at(hess, (hn[both], an[both]), -w[both])
-        np.add.at(hess, (an[both], hn[both]), -w[both])
-        np.add.at(hess, (hn[fh], n_nodes), (w * at_home)[fh])
-        np.add.at(hess, (n_nodes, hn[fh]), (w * at_home)[fh])
-        np.add.at(hess, (an[fa], n_nodes), -(w * at_home)[fa])
-        np.add.at(hess, (n_nodes, an[fa]), -(w * at_home)[fa])
-        hess[n_nodes, n_nodes] = float((w * at_home).sum())
-        hess[np.diag_indices(n)] += prec
-        step = np.linalg.solve(hess, grad)
-        x = x + step
-        if np.abs(step).max() < p.tol:
-            break
-    return x[:n_nodes], float(x[n_nodes])
+    return SimSystem(
+        n_nodes=n_nodes, n_fbs=len(fbs),
+        node=np.ascontiguousarray(node_all[:n_state]),
+        g_in_fit=in_fit, g_hnode=g_hnode, g_anode=g_anode,
+        x_h=x_h, x_a=x_a, x_home=x_home, x_g=np.ascontiguousarray(x_g),
+        x_won=x_won, played=played,
+        minv=np.ascontiguousarray(np.linalg.inv(hess)), start=x,
+        prior=np.concatenate([np.zeros(n_nodes), [p.hfa_mean]]), prec=prec,
+        tg_ptr=ptr, tg_ref=ref[order].astype(np.int32),
+        tg_home=home[order].astype(np.uint8),
+        gh_t=gh_t, gh_logw=gh_logw)

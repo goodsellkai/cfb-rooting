@@ -1,4 +1,4 @@
-"""Checks on the Massey rating and on the kernel's linear stand-in."""
+"""Checks on the Massey rating, and that the simulator runs the same one."""
 
 import dataclasses
 
@@ -18,101 +18,80 @@ def full_season():
     return synthetic_season(seed=7, played_through=20)
 
 
-def test_the_kernel_fit_reproduces_the_standalone_one():
-    """The Monte Carlo's cheap fit has to agree with the one that was validated.
+def with_title_game(state):
+    """The same season with one played title game added: SEC Team 16 beats
+    SEC Team 01, so the fit has a winner to credit and a loser to spare."""
+    st = dataclasses.replace(state, games=list(state.games))
+    t1, t2 = st.team_by_name("SEC Team 01"), st.team_by_name("SEC Team 16")
+    week = max(g["week"] for g in st.games) + 1
+    st.games.append(dict(st.games[0], game_id=999999, week=week,
+                         home_idx=t1.idx, away_idx=t2.idx, home=t1.school,
+                         away=t2.school, neutral=True, home_points=17,
+                         away_points=24, status=2, is_ccg=True,
+                         notes="SEC Championship"))
+    st.conferences[t1.conf_idx].fixed_ccg = (t1.idx, t2.idx, 2)
+    return st
 
-    The kernel reuses a Hessian and takes the correction at its mode instead of
-    integrating it, so the two are not identical by construction. The power
-    stage should land on top of the standalone; the correction is allowed to
-    differ by a couple of places.
-    """
-    from scipy.stats import spearmanr
 
-    from cfbroot.config import ModelParams
-    from cfbroot.sim.kernels import _massey_correct, _massey_power
+def simulator_rating(state):
+    """Run the simulator's rating functions on a finished season."""
+    from cfbroot.sim import kernels as K
 
-    state = full_season()
-    mp = massey.MasseyParams()
-    p = ModelParams()
     ki = state.kernel_inputs()
-    ks = massey.kernel_system(ki.is_fbs, ki.g_home, ki.g_away, ki.g_neutral,
-                              ki.rating, p.sigma, p.hfa, mp)
-    n_g = ki.g_home.size
+    m, mp = ki.massey, state.massey
+    n_g, n = ki.g_home.size, m.n_nodes
     at_home = (~ki.g_neutral).astype(np.float64)
-    r = ks.prior.copy()
-    gval = np.zeros(n_g)
-    grad = np.zeros(ks.n_nodes + 1)
-    step = np.zeros(ks.n_nodes + 1)
-    power = np.zeros(ks.n_nodes)
-    _massey_power(n_g, ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
-                  ki.g_hpts, ki.g_apts, ks.hinv, ks.prior, ks.prec, ks.n_nodes,
-                  mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat,
-                  40, r, gval, grad, step)
-    assert np.abs(step).max() < 1e-6, "the reused Hessian has to converge"
+    gval = np.array([K._outcome(ki.g_hpts[i], ki.g_apts[i], mp.gof_k, mp.gof_c,
+                                mp.gof_q, mp.mov_weight, mp.mov_flat)
+                     for i in range(n_g)])
+    cc = [(m.node[h], m.node[a], ki.conf_ccg_home[cf], *ki.conf_ccg_pts[cf])
+          for cf, (h, a, st) in enumerate(ki.conf_fixed_ccg) if h >= 0 and st]
+    k = max(len(cc), 1)
+    cc_h = np.array([c[0] for c in cc] or [0], np.int32)[:k]
+    cc_a = np.array([c[1] for c in cc] or [0], np.int32)[:k]
+    cc_home = np.array([c[2] for c in cc] or [0.0])[:k]
+    cc_g = np.array([K._outcome(c[3], c[4], mp.gof_k, mp.gof_c, mp.gof_q,
+                                mp.mov_weight, mp.mov_flat) for c in cc] or [0.0])
+    cc_won = np.array([1 if c[3] > c[4] else 0 for c in cc] or [0], np.uint8)
+    vec, wts = K._fit_work(n, n_g, m.x_h.size, ki.n_conf)
+    r0, r1 = m.start.copy(), m.start.copy()
+    K._fit_power(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval,
+                 m.x_h, m.x_a, m.x_home, m.x_g, cc_h, cc_a, cc_home, cc_g, 0,
+                 m.minv, m.prior, m.prec, n, 1e-12, 500, r0, vec, wts)
+    c0, c1, loser = np.zeros(n), np.zeros(n), np.zeros(n, np.uint8)
+    K._selection_rating(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval,
+                        ki.g_hpts, ki.g_apts, m.x_h, m.x_a, m.x_home, m.x_g,
+                        m.x_won, cc_h, cc_a, cc_home, cc_g, cc_won, len(cc),
+                        np.full(n, -1, np.int32), loser, m.minv, m.prior,
+                        m.prec.copy(), np.zeros(n + 1), m.played, n, m.n_fbs,
+                        mp.prior_sd, mp.prior_games, 1e-12, 500,
+                        mp.correction_abs, mp.correction_passes, m.gh_t,
+                        m.gh_logw, m.tg_ptr, m.tg_ref, m.tg_home, r0, r1, c0, c1,
+                        np.zeros(n), np.zeros(m.gh_t.size), np.zeros(n, np.uint8),
+                        vec, wts)
+    return {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
+                            else c1[m.node[t.idx]]) for t in state.fbs_teams}
 
-    # min_games high enough that every non-FBS team shares one node, which is
-    # what the kernel does; otherwise the two are rating different things.
-    want = massey.rate_season(state, include_ccg=False, which="power",
-                              min_games=999)
-    got = {t.school: r[ks.node[t.idx]] for t in state.fbs_teams}
-    rank = lambda d: {s: i + 1 for i, s in enumerate(sorted(d, key=lambda x: -d[x]))}
-    ra, rb = rank(want), rank(got)
-    arr = np.array([(ra[s], rb[s]) for s in want], float)
-    assert spearmanr(arr[:, 0], arr[:, 1]).statistic > 0.99
-    assert np.abs(arr[:, 0] - arr[:, 1]).mean() < 2.0
 
-    _massey_correct(ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
-                    ki.g_hpts, ki.g_apts, ks.n_nodes, r, mp.correction_abs, 2,
-                    ks.team_games_ptr, ks.team_games, ks.team_at_home,
-                    np.full(ks.n_nodes, -1, dtype=np.int32), power)
-    full = {t.school: power[ks.node[t.idx]] for t in state.fbs_teams}
-    ref_rating = massey.rate_season(state, include_ccg=False, min_games=999)
-    rc, rd = rank(ref_rating), rank(full)
-    arr = np.array([(rc[s], rd[s]) for s in ref_rating], float)
-    assert spearmanr(arr[:, 0], arr[:, 1]).statistic > 0.99
-    assert np.abs(arr[:, 0] - arr[:, 1]).mean() < 4.0
+@pytest.mark.parametrize("title_game", [False, True])
+def test_the_simulator_rates_a_season_exactly_like_the_standalone(title_game):
+    """Every simulated season is rated by rate_selection_day(), not a stand-in."""
+    state = full_season()
+    if title_game:
+        state = with_title_game(state)
+    want, _ = massey.rate_selection_day(state)
+    got = simulator_rating(state)
+    assert max(abs(got[s] - want[s]) for s in want) < 1e-8
 
 
 def test_a_title_game_win_is_added_and_a_loss_is_not():
-    """ccg_beat carries a win only, which is what makes a title game one-way."""
-    from cfbroot.config import ModelParams
-    from cfbroot.sim.kernels import _massey_correct, _massey_power
-
-    state = full_season()
-    mp, p = massey.MasseyParams(), ModelParams()
-    ki = state.kernel_inputs()
-    ks = massey.kernel_system(ki.is_fbs, ki.g_home, ki.g_away, ki.g_neutral,
-                              ki.rating, p.sigma, p.hfa, mp)
-    n_g = ki.g_home.size
-    at_home = (~ki.g_neutral).astype(np.float64)
-    r = ks.prior.copy()
-    args = (n_g, ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
-            ki.g_hpts, ki.g_apts, ks.hinv, ks.prior, ks.prec, ks.n_nodes,
-            mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight, mp.mov_flat, 30)
-    _massey_power(*args, r, np.zeros(n_g), np.zeros(ks.n_nodes + 1),
-                  np.zeros(ks.n_nodes + 1))
-
-    def correct(ccg):
-        out = np.zeros(ks.n_nodes)
-        _massey_correct(ks.g_hnode, ks.g_anode, ks.g_hfix, ks.g_afix, at_home,
-                        ki.g_hpts, ki.g_apts, ks.n_nodes, r, mp.correction_abs,
-                        2, ks.team_games_ptr, ks.team_games, ks.team_at_home,
-                        ccg, out)
-        return out
-
-    none = correct(np.full(ks.n_nodes, -1, dtype=np.int32))
-    won = np.full(ks.n_nodes, -1, dtype=np.int32)
-    winner, loser = 0, int(np.argmin(none))       # beat the worst team there is
-    won[winner] = loser
-    after = correct(won)
-    gain = after[winner] - none[winner]
-    assert gain > 0, "a title game win has to help"
-    # The loser has no entry, so nothing pushes it down. It still drifts a
-    # hair, because the winner moved and the two are linked through the rest
-    # of the schedule, but the drift is orders of magnitude smaller and is not
-    # a penalty.
-    assert abs(after[loser] - none[loser]) < gain / 100.0
-    assert after[loser] >= none[loser] - 1e-6, "losing it must not cost anything"
+    """The winner is rated with the game and the loser without it."""
+    base = massey.rate_selection_day(full_season())[0]
+    after = simulator_rating(with_title_game(full_season()))
+    # SEC Team 16 won it and gains. SEC Team 01 lost it and keeps the rating
+    # it had without it, give or take the winner's move through the network.
+    assert after["SEC Team 16"] > base["SEC Team 16"] + 0.01
+    assert abs(after["SEC Team 01"] - base["SEC Team 01"]) < 0.005
 
 
 # The Massey rating itself

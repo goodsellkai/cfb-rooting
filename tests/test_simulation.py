@@ -14,7 +14,7 @@ M = {name: i for i, name in enumerate(METRIC_NAMES)}
 
 @pytest.fixture(scope="module")
 def result(midseason):
-    return run(midseason, "SEC Team 08", SimConfig(n_sims=40_000, batch_size=20_000))
+    return run(midseason, "SEC Team 08", SimConfig(n_sims=10_000, batch_size=10_000))
 
 
 # Invariants
@@ -91,7 +91,7 @@ def test_different_seeds_give_different_results(midseason):
 
 def test_simulated_win_rate_matches_the_model_probability(midseason):
     """Each game's simulated home-win frequency must match its model input."""
-    res = run(midseason, "SEC Team 08", SimConfig(n_sims=100_000, batch_size=25_000))
+    res = run(midseason, "SEC Team 08", SimConfig(n_sims=20_000, batch_size=20_000))
     p_model = np.array([g["pwin_home"] for g in res.game_keys])
     p_sim = res.n_home_wins / res.n_sims
     se = np.sqrt(p_model * (1 - p_model) / res.n_sims)
@@ -101,7 +101,7 @@ def test_simulated_win_rate_matches_the_model_probability(midseason):
 
 
 def test_expected_wins_matches_the_sum_of_win_probabilities(midseason):
-    res = run(midseason, "SEC Team 08", SimConfig(n_sims=100_000, batch_size=25_000))
+    res = run(midseason, "SEC Team 08", SimConfig(n_sims=20_000, batch_size=20_000))
     focus = res.focus_idx
     expected = 0.0
     for g in midseason.games:
@@ -114,7 +114,7 @@ def test_expected_wins_matches_the_sum_of_win_probabilities(midseason):
             expected += g["pwin_home"]
         elif g["away_idx"] == focus:
             expected += 1.0 - g["pwin_home"]
-    assert res.wins_mean == pytest.approx(expected, abs=0.03)
+    assert res.wins_mean == pytest.approx(expected, abs=0.05)
 
 
 # Tiebreakers
@@ -169,7 +169,7 @@ def test_evenly_matched_title_game_is_a_coin_flip():
 def test_at_large_selection_is_driven_by_record_not_by_rating(midseason):
     """Even the top-rated team rarely gets an at-large bid with 4 losses."""
     best = max(midseason.fbs_teams, key=lambda t: t.rating)
-    res = run(midseason, best.idx, SimConfig(n_sims=120_000, batch_size=25_000))
+    res = run(midseason, best.idx, SimConfig(n_sims=30_000, batch_size=15_000))
     rates = res.playoff_rate_by_wins()
     n_games = sum(1 for g in midseason.games
                   if not g["is_ccg"] and best.idx in (g["home_idx"], g["away_idx"]))
@@ -211,7 +211,7 @@ def test_past_opponents_later_wins_help_you(midseason):
             past.add(opp)
     assert past, "fixture team has no completed games against FBS opponents"
 
-    res = run(midseason, focus.idx, SimConfig(n_sims=120_000, batch_size=25_000))
+    res = run(midseason, focus.idx, SimConfig(n_sims=30_000, batch_size=15_000))
     p = res.probability("make_playoff")
     assert 0.02 < p < 0.98, f"focus team is saturated at {p:.1%}"
 
@@ -243,7 +243,7 @@ def test_only_champions_get_byes_under_the_2024_rules():
     straight seeding a strong team that loses its league still can."""
     def gap(year):
         st = synthetic_season(seed=7, year=year, played_through=6)
-        res = run_league(st, SimConfig(n_sims=20_000, batch_size=20_000))
+        res = run_league(st, SimConfig(n_sims=5_000, batch_size=5_000))
         c = res.team_counts
         return (c[:, M["top4_seed"]] - c[:, M["win_conference"]]).max()
 

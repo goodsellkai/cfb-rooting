@@ -25,9 +25,11 @@ Double-click `Start cfbroot.bat`, or run:
 
 Then open http://127.0.0.1:8000.
 
-It simulates a million seasons as it starts, which takes about a minute. That
-one run answers for every team, so picking a team after that is instant.
-Restart it to pull new scores.
+It simulates a million seasons as it starts. Every simulated season is rated
+with the full Massey model and put through the committee rules, so this takes
+a while, around a quarter of an hour on a 16-core machine. That one run answers
+for every team, so picking a team after that is instant. Restart it to pull new
+scores.
 
 ## Hosted version
 

@@ -40,7 +40,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     src = CFBDSource(year)
     teams = src.teams(force=force)
     conferences = src.conferences(force=force)
-    games = src.games(live=live, force=force)
+    games = drop_cancelled(src.games(live=live, force=force))
 
     notes: list[str] = []
     ratings_updated = None
@@ -85,11 +85,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     # instead of averaging them all into one rating, which is worth about four
     # places of rank per FBS team.
     try:
-        from .. import massey
-        fcs = src.fcs_games(force=force)
-        if fcs:
-            state.non_fbs_rating, state.non_fbs_centre = massey.non_fbs_ratings(
-                state, fcs)
+        state.fcs_games = src.fcs_games(force=force)
     except Exception as exc:  # noqa: BLE001
         state.notes.append(
             f"FCS schedules were unavailable ({exc}), so every non-FBS "
@@ -100,6 +96,27 @@ def load_season(year: int | None = None, *, live: bool = False,
         state.notes.append(f"Scores are from a cache written {age / 3600:.1f} hours "
                            "ago. Refresh to pull the latest results.")
     return state
+
+
+def drop_cancelled(games: list[dict], now: dt.datetime | None = None,
+                   grace: dt.timedelta = dt.timedelta(days=2)) -> list[dict]:
+    """Leave out games that were due more than ``grace`` ago and never played.
+
+    Those were cancelled, like Liberty at App State after Hurricane Helene in
+    2024. Kept, the simulator would keep playing them every season.
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    out = []
+    for g in games:
+        start = g.get("start_date")
+        if not g.get("completed") and start:
+            when = dt.datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=dt.timezone.utc)
+            if when < now - grace:
+                continue
+        out.append(g)
+    return out
 
 
 def _synthetic_allowed() -> bool:

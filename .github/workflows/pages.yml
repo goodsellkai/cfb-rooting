@@ -28,7 +28,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A million seasons, each rated with the full Massey model, is about an
+    # hour on GitHub's four-core runners.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
