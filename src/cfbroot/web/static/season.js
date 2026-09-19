@@ -3,15 +3,14 @@
 /* Sample season: one simulated season, played back stage by stage.
  *
  * Uses app.js's globals: $, esc, num, team, logo, STATE, STATIC, WANTED.
- * The local server simulates a new season on request; the hosted build has a
- * pool of seasons written at export time and picks one at random.
+ * Every season is simulated fresh by the local server when asked for, so the
+ * tab only exists in the local app; the hosted site has nothing to run it.
  */
 
 let SEASON = null;      // the sample: games, title games, ranking, field, bracket
 let STAGES = [];        // what the player steps through
 let STAGE = 0;
 let PLAYER = null;      // playback timer
-let LAST_SAMPLE = -1;   // hosted build: the pool entry last shown
 
 const PLAY_MS = 1300;
 const UPSET = 0.35;     // a win the model gave less than this is an upset
@@ -41,15 +40,8 @@ async function newSeason() {
   while (!STATE) await new Promise(r => setTimeout(r, 100));   // app.js still booting
   try {
     const fresh = $("s-fresh").checked;
-    let url = "/api/sample" + (fresh ? "?from_start=true" : "");
-    if (STATIC) {
-      const pool = await (await fetch("data/samples.json")).json();
-      let k = Math.floor(Math.random() * pool.count);
-      if (pool.count > 1 && k === LAST_SAMPLE) k = (k + 1) % pool.count;
-      LAST_SAMPLE = k;
-      url = `data/${fresh ? "samples_start" : "samples"}/${k}.json`;
-    }
-    const resp = await fetch(url);
+    const resp = await fetch("/api/sample" + (fresh ? "?from_start=true" : ""),
+                             { cache: "no-store" });
     if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
     SEASON = await resp.json();
   } catch (err) {
@@ -435,6 +427,10 @@ function onTeamChanged() {
   renderSeason();
 }
 
-try {
-  if (localStorage.getItem("cfbroot.tab") === "season") showTab("season");
-} catch { /* private mode */ }
+if (STATIC) {
+  $("tab-season").hidden = true;
+} else {
+  try {
+    if (localStorage.getItem("cfbroot.tab") === "season") showTab("season");
+  } catch { /* private mode */ }
+}

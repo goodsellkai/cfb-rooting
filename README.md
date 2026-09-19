@@ -33,8 +33,8 @@ scores.
 
 The Sample season tab plays out one simulated season week by week: every
 score, the standings, the title games, Selection Sunday and the bracket, with
-running stats. Each one takes a few seconds to simulate. The hosted version
-picks from 20 seasons written when the site is built.
+running stats. Each click simulates a brand new season. It is only in the
+local app; the hosted version has the rooting guide alone.
 
 ## Hosted version
 

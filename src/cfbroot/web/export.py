@@ -9,9 +9,6 @@ asking the server, and any static host can serve it.
       static/app.css, static/app.js, static/season.js
       data/state.json            the season, as /api/state returns it
       data/team/<idx>.json       one team's guide, as /api/team/<name> does
-      data/samples/<k>.json      played-out seasons for the Sample season view,
-                                 since a static host cannot simulate one on click
-      data/samples_start/<k>.json  the same, replayed from week 1
 """
 
 from __future__ import annotations
@@ -23,7 +20,6 @@ from pathlib import Path
 
 from ..config import SimConfig, api_key
 from ..sim import run_league
-from ..sim.sample import sample_season
 from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
 
 
@@ -33,11 +29,8 @@ def _write(path: Path, obj) -> int:
     return len(data)
 
 
-N_SAMPLES = 20
-
-
 def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
-           n_samples: int = N_SAMPLES, log=print) -> None:
+           log=print) -> None:
     api_key()                 # a public site must not fall back to fake data
     if year:
         store.year = year
@@ -58,8 +51,6 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     if out.exists():
         shutil.rmtree(out)
     (out / "data" / "team").mkdir(parents=True)
-    (out / "data" / "samples").mkdir()
-    (out / "data" / "samples_start").mkdir()
     shutil.copytree(HERE / "static", out / "static")
 
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
@@ -68,6 +59,11 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
                          '<script>window.CFBROOT_STATIC = true;</script>\n'
                          '<script src="/static/app.js">')
                 .replace('src="/static/', 'src="static/'))
+    # Tag the assets with the build, so a browser holding last build's copy
+    # of the script or stylesheet fetches the new one.
+    build = str(int(time.time()))
+    for name in ("app.css", "app.js", "season.js"):
+        html = html.replace(f'"static/{name}"', f'"static/{name}?v={build}"')
     (out / "index.html").write_text(html, encoding="utf-8")
 
     size = _write(out / "data" / "state.json", _season_payload(state))
@@ -78,11 +74,4 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
-    for k in range(n_samples):
-        size += _write(out / "data" / "samples" / f"{k}.json",
-                       sample_season(state, seed=k + 1))
-        size += _write(out / "data" / "samples_start" / f"{k}.json",
-                       sample_season(state, seed=k + 1, from_start=True))
-    size += _write(out / "data" / "samples.json", {"count": n_samples})
-    log(f"  wrote {n_samples} sample seasons")
     log(f"{out}: {size / 1e6:.0f} MB in {time.perf_counter() - t0:.0f}s")

@@ -61,6 +61,7 @@ class Store:
         self.league = None            # LeagueResults, shared by every team
         self.job: Job | None = None
         self.payloads: dict[int, dict] = {}
+        self.inputs = None            # kernel inputs, reused by sample seasons
 
     def get_season(self) -> SeasonState:
         with self.lock:
@@ -259,7 +260,10 @@ def api_sample(seed: int | None = None, from_start: bool = False):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if seed is None:
         seed = secrets.randbelow(1_000_000_000)
-    return JSONResponse(sample_season(s, seed, from_start=from_start))
+    if store.inputs is None:
+        store.inputs = s.kernel_inputs()
+    return JSONResponse(sample_season(s, seed, from_start=from_start,
+                                      ki=store.inputs))
 
 
 @app.on_event("startup")

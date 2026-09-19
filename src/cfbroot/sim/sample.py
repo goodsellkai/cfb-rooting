@@ -3,9 +3,9 @@
 The Monte Carlo keeps only tallies. This runs a single season through the same
 steps and keeps everything: every score, the standings, the title games, the
 committee's ranking, the field and the bracket. It uses the same rules as the
-kernel, and the same rating, massey.rate_selection_day(), that the kernel
-reproduces, so a sample season is one draw from the distribution the odds come
-from.
+kernel and the kernel's own rating code, which reproduces
+massey.rate_selection_day() exactly, so a sample season is one draw from the
+distribution the odds come from.
 
 Scores here land on totals football actually produces, since they are for
 reading. The kernel keeps the unrounded margin; the difference moves a rating
@@ -22,6 +22,7 @@ import numpy as np
 from .. import massey, selection
 from ..config import MAX_CONF_SIZE
 from ..data.season import TO_SIMULATE, SeasonState
+from . import kernels as K
 from .kernels import _order_conference
 
 HOME_WON, AWAY_WON = 1, 2
@@ -82,16 +83,20 @@ def _score(rng, mu, p) -> tuple[int, int]:
 
 
 def sample_season(state: SeasonState, seed: int | None = None,
-                  from_start: bool = False) -> dict:
+                  from_start: bool = False, ki=None) -> dict:
     """Simulate one season from ``state`` and return all of it, JSON ready.
 
     ``from_start`` replays the whole season from week 1, setting aside the
     games already played. Teams play on their current ratings, which have
     seen those games; there is no preseason rating to go back to.
+
+    ``ki`` is state.kernel_inputs(), which can be passed in to save building
+    it again.
     """
     rng = np.random.default_rng(seed)
     p = state.params
-    ki = state.kernel_inputs()
+    ki = ki if ki is not None else state.kernel_inputs()
+    m, mp = ki.massey, state.massey
     teams = state.teams
     fbs = [t for t in teams if t.is_fbs]
 
@@ -119,15 +124,30 @@ def sample_season(state: SeasonState, seed: int | None = None,
     sim = dataclasses.replace(state, games=list(games),
                               conferences=[dataclasses.replace(c) for c in state.conferences])
 
+    # The power rating before the title games, with the kernel's own code.
+    n_g, n = ki.g_home.size, m.n_nodes
+    hpts, apts = np.zeros(n_g), np.zeros(n_g)
+    for g in games:
+        hpts[g["sim_idx"]], apts[g["sim_idx"]] = g["home_points"], g["away_points"]
+    at_home = (~ki.g_neutral).astype(np.float64)
+    gval = np.array([K._outcome(hpts[i], apts[i], mp.gof_k, mp.gof_c, mp.gof_q,
+                                mp.mov_weight, mp.mov_flat) if m.g_in_fit[i] else 0.0
+                     for i in range(n_g)])
+    n_conf = len(state.conferences)
+    cc_h, cc_a = np.zeros(n_conf, np.int32), np.zeros(n_conf, np.int32)
+    cc_home, cc_g = np.zeros(n_conf), np.zeros(n_conf)
+    cc_won = np.zeros(n_conf, np.uint8)
+    vec, wts = K._fit_work(n, n_g, m.x_h.size, n_conf)
+    r0 = m.start.copy()
+    K._fit(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval, m.x_h, m.x_a,
+           m.x_home, m.x_g, cc_h, cc_a, cc_home, cc_g, 0, m.minv, m.prior, m.prec,
+           n, p.fit_tol, p.fit_max_iter, r0, m.start, vec, wts)
+
     # Standings, ordered with the kernel's own tiebreak code. The last
-    # tiebreak is the power rating before the title games, as in the kernel.
-    before = massey.fit_season(sim, include_ccg=False, through_week=cut,
-                               extra_games=state.fcs_games, params=state.massey)
+    # tiebreak is that power rating, as in the kernel.
     score = np.zeros(len(teams))
-    for j in range(before.n_fbs):
-        t = int(before.fbs_idx[j])
-        if t < len(teams):
-            score[t] = before.power[j]
+    for t in fbs:
+        score[t.idx] = r0[m.node[t.idx]]
     winner = np.zeros(ki.g_home.size, dtype=np.uint8)
     for g in games:
         winner[g["sim_idx"]] = g["status"]
@@ -189,6 +209,12 @@ def sample_season(state: SeasonState, seed: int | None = None,
               "real": real is not None}
         entry["title_game"] = tg
         title_games.append(tg)
+        k = len(title_games) - 1
+        cc_h[k], cc_a[k] = m.node[t1], m.node[t2]
+        cc_home[k] = 0.0 if neutral else 1.0
+        cc_g[k] = K._outcome(hp, ap, mp.gof_k, mp.gof_c, mp.gof_q, mp.mov_weight,
+                             mp.mov_flat)
+        cc_won[k] = 1 if hp > ap else 0
         sim.games.append({
             "game_id": -1000 - c.idx, "week": ccg_week, "season_type": "regular",
             "home_idx": t1, "away_idx": t2, "home": teams[t1].school,
@@ -198,8 +224,19 @@ def sample_season(state: SeasonState, seed: int | None = None,
             "is_ccg": True, "notes": f"{c.name} Championship"})
 
     # Selection Sunday: the rating, the committee's noise and rules, the field.
-    ratings, _ = massey.rate_selection_day(sim, extra_games=state.fcs_games,
-                                           params=state.massey)
+    c0, c1, loser = np.zeros(n), np.zeros(n), np.zeros(n, np.uint8)
+    K._selection_rating(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval,
+                        hpts, apts, m.x_h, m.x_a, m.x_home, m.x_g, m.x_won,
+                        cc_h, cc_a, cc_home, cc_g, cc_won, len(title_games),
+                        np.full(n, -1, np.int32), loser, m.minv, m.prior, m.start,
+                        m.prec.copy(), np.zeros(n + 1), m.played, n, m.n_fbs,
+                        mp.prior_sd, mp.prior_games, p.fit_tol, p.fit_max_iter,
+                        mp.correction_abs, mp.correction_passes, m.gh_t, m.gh_logw,
+                        m.tg_ptr, m.tg_ref, m.tg_home, r0, r0.copy(), c0, c1,
+                        np.zeros(n), np.zeros(m.gh_t.size), np.zeros(n, np.uint8),
+                        vec, wts)
+    ratings = {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
+                               else c1[m.node[t.idx]]) for t in fbs}
     ranking = selection.rank_teams(sim, ratings, rng=rng,
                                    committee_sd=p.committee_sd,
                                    through_week=massey.selection_week(sim))
@@ -234,14 +271,9 @@ def sample_season(state: SeasonState, seed: int | None = None,
                   {"name": "National championship", "games": final}]
     champion = rounds[-1]["games"][0]["winner"] if rounds else None
 
-    return _clean({
+    out = {
         "seed": seed, "year": state.year, "selection_week": cut,
         "from_start": from_start,
-        "games": [{"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
-                   "home_points": g["home_points"], "away_points": g["away_points"],
-                   "neutral": g["neutral"], "conference": bool(ki.g_conf[g["sim_idx"]]),
-                   "real": g["real"], "p_home": g.get("pwin_home")}
-                  for g in games],
         "conferences": conferences,
         "title_games": title_games,
         "ranking": [{"team": by_name[s], "rating": ranking.ratings[s]}
@@ -251,7 +283,14 @@ def sample_season(state: SeasonState, seed: int | None = None,
                   for i, (t, s) in enumerate(zip(seeds, field.seeds))],
         "rounds": rounds,
         "champion": champion,
-    })
+    }
+    out["games"] = [
+        {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
+         "home_points": g["home_points"], "away_points": g["away_points"],
+         "neutral": g["neutral"], "conference": bool(ki.g_conf[g["sim_idx"]]),
+         "real": g["real"], "p_home": g.get("pwin_home")}
+        for g in games]
+    return _clean(out)
 
 
 def _clean(obj):
