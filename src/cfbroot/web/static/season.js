@@ -8,8 +8,9 @@
  */
 
 let SEASON = null;      // the sample: games, title games, ranking, field, bracket
-let POLL = null;        // the committee ranking at the stage being shown
+let POLL = null;        // the ranking after the stage being shown
 let POLL_RANK = new Map();
+let PRE_RANK = new Map();   // and the one teams carried into that week
 let STAGES = [];        // what the player steps through
 let STAGE = 0;
 let PLAYER = null;      // playback timer
@@ -181,10 +182,14 @@ function seasonGamesFor(idx) {
   return out;
 }
 
-/** The committee ranking as it stood at the stage being shown: the latest
- * weekly poll during the season, the final one from Selection Sunday on.
- * ``prev`` is the poll before it, for the change in rank. */
-function currentPoll() {
+/** The committee ranking at the stage being shown.
+ *
+ * ``after`` counts that week's games, which is what the top 25 shows once the
+ * week is played. ``before`` is what the teams carried into the week, which is
+ * the number worth seeing beside a score: 3 beat 12, not what they became
+ * afterwards. ``prev`` is the poll before ``after``, for the change in rank.
+ */
+function currentPoll(before = false) {
   const stage = STAGES[STAGE];
   const polls = SEASON.polls || {};
   const weeks = Object.keys(polls).map(Number).sort((a, b) => a - b);
@@ -193,10 +198,11 @@ function currentPoll() {
     prev: i > 0 ? polls[weeks[i - 1]] : null,
   });
   if (stage.kind === "week" && STAGE < stageIndex("selection")) {
-    const i = weeks.findLastIndex(x => x <= stage.week);
+    const i = weeks.findLastIndex(x => (before ? x < stage.week : x <= stage.week));
     return i >= 0 ? at(i, `week ${weeks[i]}`) : null;
   }
   if (stage.kind === "ccg" && weeks.length) {
+    // Nothing is ranked between the last week and the title games.
     return at(weeks.length - 1, `week ${weeks[weeks.length - 1]}`);
   }
   return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team),
@@ -206,6 +212,12 @@ function currentPoll() {
 function rankTag(idx) {
   const r = POLL_RANK.get(idx);
   return r ? `<span class="rk">${r}</span>` : "";
+}
+
+/** The rank a team took into the week, for the scoreboard. */
+function rankTagPre(idx) {
+  const r = PRE_RANK.get(idx);
+  return r ? `<span class="rk" title="ranked ${r} going into this week">${r}</span>` : "";
 }
 
 // Rendering
@@ -220,6 +232,8 @@ function renderSeason() {
   const recs = records(games);
   POLL = currentPoll();
   POLL_RANK = new Map((POLL ? POLL.teams : []).map((t, i) => [t, i + 1]));
+  const pre = currentPoll(true);
+  PRE_RANK = new Map((pre ? pre.teams : []).map((t, i) => [t, i + 1]));
   renderStats(games, recs);
   renderMine(games, recs);
   renderBoard(stage, recs);
@@ -330,7 +344,7 @@ function tile(g, recs, isTitle) {
   const p = winP(g);
   const upset = p != null && p < UPSET && team(g.home).fbs && team(g.away).fbs;
   const row = (t, pts, home) => `<div class="gt-row${t === w ? " win" : ""}" data-team="${t}">
-      ${logo(t, 18)}<span class="gt-name">${home && !g.neutral ? '<span class="at">@</span>' : ""}${rankTag(t)}${esc(team(t).name)}</span>
+      ${logo(t, 18)}<span class="gt-name">${home && !g.neutral ? '<span class="at">@</span>' : ""}${rankTagPre(t)}${esc(team(t).name)}</span>
       ${fpi(t)}<span class="gt-rec">${rec(recs[t])}</span><span class="gt-pts">${pts}</span></div>`;
   const foot = [
     isTitle ? `<span>${esc(g.conference)}</span>` : "",

@@ -84,6 +84,23 @@ def load_season(year: int | None = None, *, live: bool = False,
     # between simulated seasons, so the simulator can treat them as known
     # instead of averaging them all into one rating, which is worth about four
     # places of rank per FBS team.
+    # The AP and committee polls, when they exist. The committee's first is
+    # in November, so early in the season there is only the AP's.
+    from .espn_source import AP_POLL, CFP_POLL, latest_poll
+
+    by_espn = {int(t.team_id): t.idx for t in state.teams if t.team_id is not None}
+    for name, poll in (("ap", AP_POLL), ("cfp", CFP_POLL)):
+        try:
+            week, ranks = latest_poll(year, poll, state.current_week(),
+                                       force=force)
+        except Exception:  # noqa: BLE001
+            continue      # a poll nobody published yet, or ESPN is down
+        ranked = {by_espn[int(tid)]: rank for tid, rank in ranks.items()
+                  if int(tid) in by_espn}
+        if ranked:
+            state.polls[name] = ranked
+            state.poll_weeks[name] = week
+
     try:
         state.fcs_games = src.fcs_games(force=force)
     except Exception as exc:  # noqa: BLE001

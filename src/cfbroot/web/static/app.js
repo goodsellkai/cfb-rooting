@@ -82,8 +82,11 @@ function renderSeasonLine() {
   $("seasonline").textContent =
     `${STATE.year} season · week ${STATE.current_week} · `
     + `${STATE.games_played} played, ${STATE.games_remaining} to simulate`;
-  $("topmeta").innerHTML =
-    `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`
+  const pw = STATE.poll_weeks || {};
+  const pollChip = pw.cfp ? `<span class="chip">CFP poll <b>week ${pw.cfp}</b></span>`
+    : pw.ap ? `<span class="chip">AP poll <b>week ${pw.ap}</b></span>` : "";
+  $("topmeta").innerHTML = pollChip
+    + `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`
     + (STATE.loaded_at
       ? `<span class="chip">Simulated <b>${esc(ago(new Date(1000 * STATE.loaded_at).toISOString()))}</b></span>`
       : "");
@@ -91,6 +94,23 @@ function renderSeasonLine() {
 
 function team(idx) {
   return (STATE.team_index || {})[String(idx)] || {};
+}
+
+/** A team's place in the published polls: the committee's once it starts, the
+ * AP's before that. These are the real polls, not the model's ranking. */
+function pollRank(idx) {
+  const p = STATE.polls || {};
+  const cfp = (p.cfp || {})[String(idx)];
+  const ap = (p.ap || {})[String(idx)];
+  return { cfp, ap, best: cfp || ap, kind: cfp ? "CFP" : "AP" };
+}
+
+function pollTag(idx) {
+  const r = pollRank(idx);
+  if (!r.best) return "";
+  const wk = (STATE.poll_weeks || {})[r.cfp ? "cfp" : "ap"];
+  return `<span class="rk" title="${r.kind} #${r.best}${wk ? `, week ${wk}` : ""}"
+      >${r.best}</span>`;
 }
 
 // Team picker
@@ -427,9 +447,9 @@ function gameRowsHTML(games) {
 
     html += `<tr>
       <td class="matchup">
-        <span class="${awayCls}" data-team="${g.away_idx}">${logo(g.away_idx, 18)}${esc(g.away)}</span>
+        <span class="${awayCls}" data-team="${g.away_idx}">${logo(g.away_idx, 18)}${pollTag(g.away_idx)}${esc(g.away)}</span>
         <span class="at">${g.neutral ? "vs" : "@"}</span>
-        <span class="${homeCls}" data-team="${g.home_idx}">${logo(g.home_idx, 18)}${esc(g.home)}</span>
+        <span class="${homeCls}" data-team="${g.home_idx}">${logo(g.home_idx, 18)}${pollTag(g.home_idx)}${esc(g.home)}</span>
         ${g.neutral ? '<span class="tag">neutral</span>' : ""}
       </td>
       ${outcomeCell(1 - pHome, s.p_if_away, base, !rootHome)}
@@ -485,16 +505,24 @@ function renderLeague() {
   const rows = RESULT.league.slice().sort((a, b) => b.p[key] - a.p[key]);
   const showEspn = key === "make_playoff"
     && rows.some(r => r.espn_playoff_prob !== null && r.espn_playoff_prob !== undefined);
+  const polls = STATE.polls || {};
+  const weeks = STATE.poll_weeks || {};
+  const showAp = !!polls.ap, showCfp = !!polls.cfp;
+  const head = (k, label) => `<th class="num" title="${label} poll, week ${weeks[k]}">${label}</th>`;
   let html = `<div class="tablewrap tall"><table><thead><tr>
     <th class="num">#</th><th>Team</th><th>Conference</th>
     <th class="num">${esc(STATE.rating_label)}</th>
+    ${showCfp ? head("cfp", "CFP") : ""}${showAp ? head("ap", "AP") : ""}
     <th class="num">${esc(metricLabel(key))}</th>
     ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
+    const pr = pollRank(r.idx);
     html += `<tr><td class="num">${i + 1}</td>
       <td class="teamcell" data-team="${r.idx}">${logo(r.idx, 18)}${esc(r.team)}</td>
       <td class="muted">${esc(r.conference || "")}</td>
       <td class="num">${num(r.rating, 1)}</td>
+      ${showCfp ? `<td class="num muted">${pr.cfp || ""}</td>` : ""}
+      ${showAp ? `<td class="num muted">${pr.ap || ""}</td>` : ""}
       <td class="num"><b>${pct(r.p[key])}</b></td>
       ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
         ? pct(r.espn_playoff_prob) : "-"}</td>` : ""}</tr>`;
@@ -543,9 +571,13 @@ function tipHTML(idx, games) {
       <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td></tr>`;
   }).join("");
   const rating = t.rating != null ? ` · ${esc(STATE.rating_label)} ${num(t.rating, 1)}` : "";
+  const pr = pollRank(idx);
+  const ranked = [pr.cfp ? `CFP #${pr.cfp}` : "", pr.ap ? `AP #${pr.ap}` : ""]
+    .filter(Boolean).join(" · ");
   const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
   return `<div class="tiphead">${logo(idx, 24)}<div>
-      <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span></div>
+      <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span>
+        ${ranked ? `<span class="tiprank">${ranked}</span>` : ""}</div>
       <div class="tipsub">${esc(t.conference || "Independent")}${rating}</div></div></div>
     ${rows ? `<table class="tiptable"><tbody>${rows}</tbody></table>`
            : '<p class="tipnone">No games played yet.</p>'}

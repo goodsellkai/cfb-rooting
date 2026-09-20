@@ -118,6 +118,10 @@ class SeasonState:
     # CFBD's FCS games. The rating covers all of Division I, the way Massey's
     # does, so the FCS teams' schedules come along.
     fcs_games: list = field(default_factory=list)
+    # The published polls, for showing next to the model's own numbers:
+    # {"ap": {team index: rank}, "cfp": ...}, and which week each is from.
+    polls: dict = field(default_factory=dict)
+    poll_weeks: dict = field(default_factory=dict)
     diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"

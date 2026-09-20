@@ -166,6 +166,9 @@ def _season_payload(s: SeasonState) -> dict:
                          "rating": t.rating}
             for t in s.teams
         },
+        # The published polls, to show next to the model's own ranking.
+        "polls": {k: {str(i): r for i, r in v.items()} for k, v in s.polls.items()},
+        "poll_weeks": s.poll_weeks,
         # Results so far, for the game list shown when hovering over a team.
         "played": [
             {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],

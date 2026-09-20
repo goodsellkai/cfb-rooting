@@ -108,24 +108,27 @@ def fetch_fpi(year: int, *, force: bool = False) -> dict:
 
 # The playoff committee's weekly rankings
 
-CFP_URL = ("https://sports.core.api.espn.com/v2/sports/football/leagues/"
-           "college-football/seasons/{year}/types/2/weeks/{week}/rankings/21"
-           "?lang=en&region=us")
+POLL_URL = ("https://sports.core.api.espn.com/v2/sports/football/leagues/"
+            "college-football/seasons/{year}/types/2/weeks/{week}/rankings/{poll}"
+            "?lang=en&region=us")
 TTL_POLLS = 6 * 3600
+AP_POLL = 1              # ESPN's id for the AP Top 25
+CFP_POLL = 21            # and for the Playoff Committee Rankings
 
 
-def fetch_committee_polls(year: int, *, force: bool = False) -> dict:
-    """Every Playoff Committee Rankings poll of a season, by week.
+def fetch_polls(year: int, poll: int = CFP_POLL, *, force: bool = False) -> dict:
+    """Every poll of one kind published that season, by week.
 
     ``{week: {espn team id: rank}}``. ESPN publishes the same polls CFBD does
-    and does not meter the calls, so the backtest can run without spending the
-    season's API quota.
+    and does not meter the calls, so this costs none of the season's API
+    quota. A poll that has not started yet, the committee's before November,
+    simply has no weeks.
     """
     def go() -> dict:
         out: dict[str, dict[str, int]] = {}
         for week in range(1, 21):
             try:
-                d = _get(CFP_URL.format(year=year, week=week))
+                d = _get(POLL_URL.format(year=year, week=week, poll=poll))
             except ESPNError:
                 continue
             ranks = {}
@@ -136,9 +139,43 @@ def fetch_committee_polls(year: int, *, force: bool = False) -> dict:
                     ranks[tid] = int(r["current"])
             if ranks:
                 out[str(week)] = ranks
-        if not out:
-            raise ESPNError(f"ESPN has no committee polls for {year}")
         return out
 
-    return cache.get_or_fetch("espn_cfp", {"year": year}, TTL_POLLS, go,
-                              force=force)
+    return cache.get_or_fetch("espn_poll", {"year": year, "poll": poll},
+                              TTL_POLLS, go, force=force)
+
+
+def fetch_committee_polls(year: int, *, force: bool = False) -> dict:
+    """Every Playoff Committee Rankings poll of a season, by week."""
+    out = fetch_polls(year, CFP_POLL, force=force)
+    if not out:
+        raise ESPNError(f"ESPN has no committee polls for {year}")
+    return out
+
+
+def latest_poll(year: int, poll: int, from_week: int = 20, *,
+                force: bool = False) -> tuple[int, dict]:
+    """The newest poll of that kind: (week, {espn team id: rank}).
+
+    Searches back from ``from_week`` and stops at the first week that has one,
+    so it costs a request or two rather than a sweep of the season.
+    """
+    def go() -> dict:
+        for week in range(max(from_week, 1), 0, -1):
+            try:
+                d = _get(POLL_URL.format(year=year, week=week, poll=poll))
+            except ESPNError:
+                continue
+            ranks = {}
+            for r in d.get("ranks") or []:
+                ref = (r.get("team") or {}).get("$ref", "")
+                tid = ref.split("teams/")[-1].split("?")[0]
+                if tid.isdigit() and r.get("current"):
+                    ranks[tid] = int(r["current"])
+            if ranks:
+                return {"week": week, "ranks": ranks}
+        return {"week": 0, "ranks": {}}
+
+    blob = cache.get_or_fetch("espn_latest_poll", {"year": year, "poll": poll},
+                              TTL_POLLS, go, force=force)
+    return int(blob["week"]), blob["ranks"]
