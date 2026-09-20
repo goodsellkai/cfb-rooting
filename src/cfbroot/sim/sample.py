@@ -89,10 +89,16 @@ FIRST_POLL_WEEK = 1
 POLL_DEPTH = 25             # it publishes a top 25
 
 # How much the preseason AP poll counts in the early rankings, and for how
-# many weeks. At week one it is a little over half of what a team is judged
-# on, and it is gone by week seven. It stands in for everything known about a
-# team that a game or two cannot show.
-AP_PRIOR_WEIGHT = 0.55
+# many weeks. It stands in for everything known about a team that a game or
+# two cannot show, so it starts as most of what a team is judged on and is
+# gone by week seven.
+#
+# Swept against the AP's own polls for 2023-26, scoring each week's ranking by
+# the mean place it differs by over the teams the AP ranked: with no prior the
+# gap is 16.6 places, at 0.55 it is 11.7, and at 0.85 it is 10.8 (14.9 in week
+# one, 10.1 by week three). Going the whole way to 1.00 is worse, 11.3, so
+# even one week of results is worth something.
+AP_PRIOR_WEIGHT = 0.85
 AP_PRIOR_WEEKS = 6
 
 

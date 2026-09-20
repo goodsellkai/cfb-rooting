@@ -167,12 +167,26 @@ function fpi(idx) {
 
 const ROUND_SHORT = ["CFP 1st rd", "CFP QF", "CFP SF", "CFP final"];
 
-/** A team's games still to come in this season, from the stage shown. */
+/** A team's games still to come in this season, from the stage shown.
+ *
+ * Only games that would be known at the time. The regular season is on the
+ * schedule from the start, but nobody knows in week eleven who is playing in
+ * a title game, or who a team would meet in the semifinal. Those show up one
+ * stage ahead, once the teams in them are settled.
+ */
 function seasonUpcomingFor(idx) {
   if (!SEASON) return null;
   const out = [];
+  const firstRound = STAGES.findIndex(x => x.kind === "round");
+  const known = (i, s) => {
+    if (s.kind === "week") return true;           // on the schedule all along
+    if (s.kind === "ccg") return STAGE >= i - 1;  // once the last week is in
+    if (i === firstRound) return STAGE >= stageIndex("selection");
+    return STAGE >= i - 1;                        // once the round before is in
+  };
   for (let i = STAGE + 1; i < STAGES.length; i++) {
     const s = STAGES[i];
+    if (!known(i, s)) continue;
     const label = (g) => s.kind === "week" ? `Wk ${g.week}`
       : s.kind === "ccg" ? "Title" : ROUND_SHORT[s.round] || s.label;
     for (const g of s.games) {
@@ -214,11 +228,11 @@ function currentPoll(before = false) {
   });
   if (stage.kind === "week" && STAGE < stageIndex("selection")) {
     const i = weeks.findLastIndex(x => (before ? x < stage.week : x <= stage.week));
-    return i >= 0 ? at(i, `week ${weeks[i]}`) : null;
+    return i >= 0 ? at(i, `through week ${weeks[i]}`) : null;
   }
   if (stage.kind === "ccg" && weeks.length) {
     // Nothing is ranked between the last week and the title games.
-    return at(weeks.length - 1, `week ${weeks[weeks.length - 1]}`);
+    return at(weeks.length - 1, `through week ${weeks[weeks.length - 1]}`);
   }
   return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team),
            prev: weeks.length ? polls[weeks[weeks.length - 1]] : null };
@@ -459,18 +473,18 @@ function renderTop25(recs) {
       <td class="num">${rec(recs[t])}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
-  // Whoever was ranked last time and is not now, so a team's fall is not
-  // just a name vanishing from the list.
+  // Whoever was ranked last time and is not now, as a line of text under
+  // the table rather than rows competing with it.
   const inNow = new Set(POLL.teams);
   const gone = (POLL.prev || []).filter(t => !inNow.has(t));
-  const goneRows = gone.map(t => `<tr class="out${t === me ? " mine" : ""}">
-      <td class="num muted">${was.get(t)}</td><td class="num"><span class="mv down">out</span></td>
-      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)}</td>
-      <td class="num">${rec(recs[t])}</td><td></td></tr>`).join("");
+  const out = gone.length
+    ? `<p class="dropped">Dropped out: ${gone.map(t =>
+        `<span data-team="${t}">${was.get(t)} ${esc(team(t).name)}</span>`).join(", ")}</p>`
+    : "";
   $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
     <thead><tr><th class="num">#</th><th class="num">+/-</th><th>Team</th>
     <th class="num">Record</th>
-    <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}${goneRows}</tbody></table></div>`;
+    <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}</tbody></table></div>${out}`;
 }
 
 /** How far a team moved since the poll before, as the committee shows it. */

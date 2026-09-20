@@ -545,6 +545,20 @@ let TIP_TEAM = null;
 
 /** The games a team has left: the rest of the real season, or the rest of a
  * simulated one from the week being shown. */
+/** Where a team is ranked, for the card: the published poll in the guide,
+ * this week's ranking in a sample season. */
+function cardRank(idx, inSeason) {
+  if (inSeason) {
+    return (typeof POLL_RANK !== "undefined" && POLL_RANK.get(idx)) || null;
+  }
+  return pollRank(idx).best || null;
+}
+
+function rankCell(idx, inSeason) {
+  const r = cardRank(idx, inSeason);
+  return r ? `<span class="rk">${r}</span>` : "";
+}
+
 function teamUpcoming(idx, inSeason) {
   if (inSeason && typeof seasonUpcomingFor === "function") {
     return seasonUpcomingFor(idx) || [];
@@ -576,7 +590,7 @@ function tipHTML(idx, games, inSeason) {
     const p = (inSeason || g.p_home == null) ? null
       : (home ? g.p_home : 1 - g.p_home);
     return `<tr><td class="muted">${esc(g.label)}</td><td class="muted">${where}</td>
-      <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td>
+      <td class="teamcell">${logo(opp, 14)}${rankCell(opp, inSeason)}${esc(team(opp).name)}</td>
       <td class="num muted">${p == null ? "" : pct(p, 0)}</td></tr>`;
   }).join("");
   const rows = games.map(g => {
@@ -591,20 +605,13 @@ function tipHTML(idx, games, inSeason) {
       <td class="${won ? "wl w" : "wl l"}">${won ? "W" : "L"}</td>
       <td class="num">${us}-${them}</td>
       <td class="muted">${where}</td>
-      <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td></tr>`;
+      <td class="teamcell">${logo(opp, 14)}${rankCell(opp, inSeason)}${esc(team(opp).name)}</td></tr>`;
   }).join("");
   const rating = t.rating != null ? ` · ${esc(STATE.rating_label)} ${num(t.rating, 1)}` : "";
   // In the guide, where a team sits in the published polls. In a sample
   // season, where this week's ranking puts it.
-  let ranked = "";
-  if (inSeason) {
-    const r = typeof POLL_RANK !== "undefined" ? POLL_RANK.get(idx) : null;
-    ranked = r ? `Ranked ${r}` : "";
-  } else {
-    const pr = pollRank(idx);
-    ranked = [pr.cfp ? `CFP #${pr.cfp}` : "", pr.ap ? `AP #${pr.ap}` : ""]
-      .filter(Boolean).join(" · ");
-  }
+  const r = cardRank(idx, inSeason);
+  const ranked = r ? `#${r}` : "";
   const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
   return `<div class="tiphead">${logo(idx, 24)}<div>
       <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span>
