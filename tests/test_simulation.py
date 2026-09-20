@@ -249,3 +249,26 @@ def test_only_champions_get_byes_under_the_2024_rules():
 
     assert gap(2024) <= 0
     assert gap(2026) > 0
+
+
+def test_the_kernel_ranks_a_season_the_way_selection_does():
+    """The kernel applies the committee rules itself, in compiled code. On a
+    finished season with the noise switched off it must land on exactly the
+    ranking selection.rank_teams() gives, boost and swaps included."""
+    import dataclasses
+
+    from cfbroot import massey, selection
+
+    st = synthetic_season(seed=7, played_through=20)
+    # No title games to invent, so both sides see the same schedule.
+    for c in st.conferences:
+        c.has_ccg = False
+    st = dataclasses.replace(st, params=dataclasses.replace(
+        st.params, committee_sd=0.0, rating_sd=0.0))
+
+    rat, _ = massey.rate_selection_day(st)
+    want = selection.rank_teams(st, rat, committee_sd=0.0).order
+    lg = run_league(st, SimConfig(n_sims=8, batch_size=8, seed=1))
+    got = [n for _, n in sorted((int(np.argmax(lg.rank_hist[j])), lg.names[j])
+                                for j in range(len(lg.names)))]
+    assert got[:25] == want[:25]

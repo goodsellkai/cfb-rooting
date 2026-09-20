@@ -214,7 +214,10 @@ def test_no_generator_means_a_repeatable_ranking(midseason):
     a = selection.rank_teams(midseason, rat)
     b = selection.rank_teams(midseason, rat)
     assert a.order == b.order
-    assert a.ratings == rat
+    assert a.ratings == b.ratings
+    # Only the worst-loss boost separates them from the ratings given.
+    for t, v in a.ratings.items():
+        assert 0 <= v - rat[t] <= selection.WORST_LOSS_BOOST + 1e-12
 
 
 def test_a_generator_shuffles_the_order_but_not_much(midseason):
@@ -243,3 +246,57 @@ def test_the_noise_can_be_switched_off(midseason):
 
 def test_the_calibrated_spread_is_a_small_share_of_the_rating():
     assert 0.02 <= selection.COMMITTEE_SD <= 0.15
+
+
+# Worst loss
+
+def loss_season():
+    """A beats everyone. B and C lose only to A; D also loses to B and C.
+
+    So B and C have the best possible worst loss, to the top team, and D's is
+    to a middling one.
+    """
+    games = [("A", "B", True), ("A", "C", True), ("A", "D", True),
+             ("B", "D", True), ("C", "D", True)]
+    return make_mini_season(games)
+
+
+ORDER4 = ["A", "B", "C", "D"]
+
+
+def test_losing_only_to_the_best_team_beats_losing_to_a_worse_one():
+    st = loss_season()
+    flat = {t: 1.0 for t in ORDER4}
+    boosted = selection.worst_loss_boost(st, ORDER4, flat)
+    assert boosted["B"] == pytest.approx(boosted["C"])       # both lost to 1st
+    assert boosted["C"] > boosted["D"]                       # D lost to 3rd too
+    assert 0 < boosted["D"] - 1.0 < selection.WORST_LOSS_BOOST
+
+
+def test_an_unbeaten_team_gets_the_whole_boost():
+    st = loss_season()
+    b = selection.worst_loss_boost(st, ORDER4, {t: 0.0 for t in ORDER4})
+    assert b["A"] == pytest.approx(selection.WORST_LOSS_BOOST)
+
+
+def test_a_loss_to_an_unranked_team_is_worth_nothing():
+    st = loss_season()
+    b = selection.worst_loss_boost(st, ["A", "B", "C"], {t: 0.0 for t in "ABC"})
+    assert b["C"] > 0                      # C only lost to A
+    order = selection.worst_loss_place(st, ["A", "B", "C"])
+    assert order["C"] == 1                 # its worst loss is the top team
+
+
+def test_the_boost_can_reorder_two_close_teams():
+    """D is rated a hair above C, but C's only loss is to the best team."""
+    st = loss_season()
+    r = selection.rank_teams(st, {"A": 3.0, "B": 2.0, "C": 1.000, "D": 1.003})
+    assert r.order.index("C") < r.order.index("D")
+
+
+def test_the_boost_is_small_enough_not_to_overturn_a_real_gap():
+    """A tenth of a rating point is far more than the boost can make up."""
+    st = loss_season()
+    rat = {"A": 3.0, "B": 2.0, "C": 1.00, "D": 1.10}
+    b = selection.worst_loss_boost(st, ["A", "B", "D", "C"], rat)
+    assert b["D"] > b["C"]

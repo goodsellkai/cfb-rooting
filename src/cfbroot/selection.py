@@ -26,6 +26,7 @@ model; they get the 2024 rules.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 FIELD = 12
@@ -230,6 +231,59 @@ def title_game_jump(order: list[str], ratings: dict, results: list,
 # places, so the smaller figure is used.
 COMMITTEE_SD = 0.050
 
+# Worst loss. A team whose worst defeat came against a team near the top of
+# the ranking is treated better than one that lost to nobody in particular,
+# which is how the committee talks about "bad losses". The boost is
+#
+#     boost = WORST_LOSS_BOOST * exp(-(place of the weakest team it lost to - 1)
+#                                    / WORST_LOSS_SCALE)
+#
+# so a team whose only loss is to the top team gets the full amount, one whose
+# worst loss is to 13th gets about a third of it, and a loss to anyone outside
+# the top 50 or so is worth nothing. A team that has not lost gets the full
+# amount. Title game losses do not count, since a title game only helps.
+#
+# The size is deliberately small: swept against the committee's polls over
+# 2023-25, 0.02 leaves the mean rank error where it was (2.95 places before
+# the title games, 2.89 on selection day), while 0.06 and above cost a tenth
+# of a place or more. It reorders the bubble without paying for it.
+WORST_LOSS_BOOST = 0.02
+WORST_LOSS_SCALE = 12.0
+
+
+def worst_loss_place(state, order: list[str], through_week: int | None = None
+                     ) -> dict[str, int]:
+    """Where the weakest team each team lost to sits in ``order``.
+
+    0 means it has not lost. A loss to a team that is not in the ranking at
+    all, an FCS team, counts as the worst loss there is.
+    """
+    place = {t: i + 1 for i, t in enumerate(order)}
+    worst = {t: 0 for t in order}
+    for g in state.games:
+        if g["status"] == 0 or g["is_ccg"]:
+            continue
+        if through_week is not None and g["week"] > through_week:
+            continue
+        w, l = ((g["home"], g["away"]) if g["status"] == 1
+                else (g["away"], g["home"]))
+        if l in worst:
+            worst[l] = max(worst[l], place.get(w, len(order) + 1))
+    return worst
+
+
+def worst_loss_boost(state, order: list[str], ratings: dict,
+                     through_week: int | None = None,
+                     size: float = WORST_LOSS_BOOST,
+                     scale: float = WORST_LOSS_SCALE) -> dict[str, float]:
+    """``ratings`` with the worst-loss boost added."""
+    if size <= 0:
+        return dict(ratings)
+    worst = worst_loss_place(state, order, through_week)
+    return {t: v + size * (1.0 if not worst.get(t)
+                           else math.exp(-(worst[t] - 1) / scale))
+            for t, v in ratings.items()}
+
 
 @dataclass
 class Ranking:
@@ -248,14 +302,19 @@ def rank_teams(state, ratings: dict, rng=None, committee_sd: float = COMMITTEE_S
                through_week: int | None = None) -> Ranking:
     """Order teams the way the committee is modelled to.
 
-    The rating comes in, and three things happen to it: a nudge standing in for
-    the committee's own variability, the head to head pass, then the conference
-    title game jump. Pass an ``rng`` to draw the nudge; leave it out and the
-    ordering is deterministic, which is what a single published ranking wants.
+    The rating comes in, and four things happen to it: a nudge standing in for
+    the committee's own variability, the worst-loss boost, the head to head
+    pass, then the conference title game jump. Pass an ``rng`` to draw the
+    nudge; leave it out and the ordering is deterministic, which is what a
+    single published ranking wants.
     """
     vals = dict(ratings)
     if rng is not None and committee_sd > 0:
         vals = {t: v + rng.normal(0.0, committee_sd) for t, v in vals.items()}
+    # The boost reads the order the ratings alone give, so it is worked out
+    # once rather than chasing its own tail.
+    vals = worst_loss_boost(state, sorted(vals, key=lambda t: -vals[t]), vals,
+                            through_week)
     order = sorted(vals, key=lambda t: -vals[t])
     order, swaps = head_to_head_swap(
         order, head_to_head_pairs(state, through_week=through_week))

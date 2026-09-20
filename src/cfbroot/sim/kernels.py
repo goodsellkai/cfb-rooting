@@ -166,7 +166,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    total_base, total_slope, total_sd,
                    gof_k, gof_c, gof_q, mov_w, mov_flat,
                    prior_sd, prior_games, fit_tol, fit_max_iter,
-                   corr_sd, corr_passes, committee_sd, jump_margin, h2h_depth,
+                   corr_sd, corr_passes, committee_sd, jump_margin,
+                   worst_loss, worst_loss_scale, h2h_depth,
                    n_byes, bid_rule, champion_byes,
                    out_hw, out_metrics,
                    h_wins, h_wins_made, h_seed, h_rank):
@@ -223,6 +224,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         champ = np.zeros(n_teams, dtype=np.uint8)
         in_ccg = np.zeros(n_teams, dtype=np.uint8)
         rank_of = np.full(n_teams, 9999, dtype=np.int32)
+        place = np.zeros(n_nodes, dtype=np.int32)
         seed_of = np.zeros(n_teams, dtype=np.int32)
         order = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
         pct = np.zeros(MAX_CONF_SIZE, dtype=np.float64)
@@ -406,6 +408,37 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 sortkey[j] = -v
 
             ranked = np.argsort(sortkey)
+
+            # Worst loss: a team whose weakest defeat came to a team near the
+            # top is treated better than one that lost to nobody in
+            # particular. Read off the order the ratings alone give.
+            if worst_loss > 0.0:
+                for k in range(n_nodes):
+                    place[k] = n_fbs + 1
+                for k in range(n_fbs):
+                    place[m_node[fbs_idx[ranked[k]]]] = k + 1
+                for j in range(n_fbs):
+                    t = fbs_idx[j]
+                    node = m_node[t]
+                    low = 0
+                    for gi in range(m_tg_ptr[node], m_tg_ptr[node + 1]):
+                        i = m_tg_ref[gi]
+                        if i >= n_g:
+                            continue          # a game outside the schedule
+                        if m_tg_home[gi] == 1:
+                            lost = apts[i] > hpts[i]
+                            opp = m_an[i]
+                        else:
+                            lost = hpts[i] > apts[i]
+                            opp = m_hn[i]
+                        if lost and place[opp] > low:
+                            low = place[opp]
+                    if low == 0:
+                        final[t] += worst_loss
+                    else:
+                        final[t] += worst_loss * math.exp(-(low - 1) / worst_loss_scale)
+                    sortkey[j] = -final[t]
+                ranked = np.argsort(sortkey)
 
             # Head to head: a team directly below one it beat in the regular
             # season swaps with it. Only the top of the table can matter to the
