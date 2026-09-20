@@ -153,6 +153,32 @@ def fetch_committee_polls(year: int, *, force: bool = False) -> dict:
     return out
 
 
+def preseason_poll(year: int, poll: int = AP_POLL, *,
+                   force: bool = False) -> dict:
+    """The poll published before the season: {espn team id: rank}.
+
+    A season's first real evidence is thin, so this is worth something as a
+    starting point: it is what people thought before anyone played.
+    """
+    def go() -> dict:
+        url = POLL_URL.format(year=year, week=1, poll=poll).replace(
+            "/types/2/", "/types/1/")
+        try:
+            d = _get(url)
+        except ESPNError:
+            return {}
+        ranks = {}
+        for r in d.get("ranks") or []:
+            ref = (r.get("team") or {}).get("$ref", "")
+            tid = ref.split("teams/")[-1].split("?")[0]
+            if tid.isdigit() and r.get("current"):
+                ranks[tid] = int(r["current"])
+        return ranks
+
+    return cache.get_or_fetch("espn_preseason_poll", {"year": year, "poll": poll},
+                              30 * 86400, go, force=force)
+
+
 def latest_poll(year: int, poll: int, from_week: int = 20, *,
                 force: bool = False) -> tuple[int, dict]:
     """The newest poll of that kind: (week, {espn team id: rank}).

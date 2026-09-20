@@ -543,6 +543,17 @@ function esc(s) {
 
 let TIP_TEAM = null;
 
+/** The games a team has left: the rest of the real season, or the rest of a
+ * simulated one from the week being shown. */
+function teamUpcoming(idx, inSeason) {
+  if (inSeason && typeof seasonUpcomingFor === "function") {
+    return seasonUpcomingFor(idx) || [];
+  }
+  return (STATE.upcoming || [])
+    .filter(g => g.home === idx || g.away === idx)
+    .map(g => ({ ...g, label: `Wk ${g.week}` }));
+}
+
 function teamResults(idx, inSeason) {
   if (inSeason && typeof seasonGamesFor === "function") {
     const g = seasonGamesFor(idx);
@@ -556,6 +567,18 @@ function teamResults(idx, inSeason) {
 function tipHTML(idx, games, inSeason) {
   const t = team(idx);
   let w = 0, l = 0;
+  const next = teamUpcoming(idx, inSeason).slice(0, 6).map(g => {
+    const home = g.home === idx;
+    const opp = home ? g.away : g.home;
+    const where = g.neutral ? "vs" : (home ? "vs" : "@");
+    // No odds inside a sample season: they would be the real season's,
+    // not this simulated one's.
+    const p = (inSeason || g.p_home == null) ? null
+      : (home ? g.p_home : 1 - g.p_home);
+    return `<tr><td class="muted">${esc(g.label)}</td><td class="muted">${where}</td>
+      <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td>
+      <td class="num muted">${p == null ? "" : pct(p, 0)}</td></tr>`;
+  }).join("");
   const rows = games.map(g => {
     const home = g.home === idx;
     const us = home ? g.home_points : g.away_points;
@@ -571,10 +594,17 @@ function tipHTML(idx, games, inSeason) {
       <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td></tr>`;
   }).join("");
   const rating = t.rating != null ? ` · ${esc(STATE.rating_label)} ${num(t.rating, 1)}` : "";
-  // The published polls belong to the real season, not a simulated one.
-  const pr = inSeason ? {} : pollRank(idx);
-  const ranked = [pr.cfp ? `CFP #${pr.cfp}` : "", pr.ap ? `AP #${pr.ap}` : ""]
-    .filter(Boolean).join(" · ");
+  // In the guide, where a team sits in the published polls. In a sample
+  // season, where this week's ranking puts it.
+  let ranked = "";
+  if (inSeason) {
+    const r = typeof POLL_RANK !== "undefined" ? POLL_RANK.get(idx) : null;
+    ranked = r ? `Ranked ${r}` : "";
+  } else {
+    const pr = pollRank(idx);
+    ranked = [pr.cfp ? `CFP #${pr.cfp}` : "", pr.ap ? `AP #${pr.ap}` : ""]
+      .filter(Boolean).join(" · ");
+  }
   const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
   return `<div class="tiphead">${logo(idx, 24)}<div>
       <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span>
@@ -582,6 +612,8 @@ function tipHTML(idx, games, inSeason) {
       <div class="tipsub">${esc(t.conference || "Independent")}${rating}</div></div></div>
     ${rows ? `<table class="tiptable"><tbody>${rows}</tbody></table>`
            : '<p class="tipnone">No games played yet.</p>'}
+    ${next ? `<p class="tiphead2">Still to play</p>
+      <table class="tiptable next"><tbody>${next}</tbody></table>` : ""}
     ${pick ? `<p class="tipfoot">${pick}</p>` : ""}`;
 }
 

@@ -82,11 +82,44 @@ def _score(rng, mu, p) -> tuple[int, int]:
     return (win, lose) if m > 0 else (lose, win)
 
 
-# The real committee's first poll comes in November, but a ranking from week
-# three on is more use to watch, and the rating already has something to say
-# by then.
-FIRST_POLL_WEEK = 3
+# The real committee's first poll comes in November. A ranking from week one
+# is more use to watch, as long as the early ones are not built on two games
+# alone: see AP_PRIOR_WEIGHT.
+FIRST_POLL_WEEK = 1
 POLL_DEPTH = 25             # it publishes a top 25
+
+# How much the preseason AP poll counts in the early rankings, and for how
+# many weeks. At week one it is a little over half of what a team is judged
+# on, and it is gone by week seven. It stands in for everything known about a
+# team that a game or two cannot show.
+AP_PRIOR_WEIGHT = 0.55
+AP_PRIOR_WEEKS = 6
+
+
+def _preseason_prior(state, spread: float) -> dict:
+    """The preseason AP poll as a rating, by school.
+
+    A rank becomes the rating a team at that place in the order would have:
+    first place sits about two and a half standard deviations above the mean,
+    25th about one. A team nobody ranked starts at the middle, which is what
+    not being ranked says about it.
+    """
+    from scipy.stats import norm
+
+    ranked = state.polls.get("ap_preseason") or {}
+    n = max(len(state.fbs_teams), 2)
+    out = {t.school: 0.0 for t in state.fbs_teams}
+    for idx, rank in ranked.items():
+        if 0 <= idx < len(state.teams):
+            out[state.teams[idx].school] = spread * float(
+                norm.ppf(1.0 - (rank - 0.5) / n))
+    return out
+
+
+def _ap_weight(week: int) -> float:
+    """How much the preseason poll counts in a given week's ranking."""
+    left = AP_PRIOR_WEEKS - (week - 1)
+    return AP_PRIOR_WEIGHT * max(0.0, left) / AP_PRIOR_WEEKS
 
 
 def poll_weeks(state: SeasonState) -> list[int]:
@@ -286,11 +319,20 @@ def sample_season(state: SeasonState, seed: int | None = None,
             "is_ccg": True, "notes": f"{c.name} Championship"})
 
     # The committee's weekly rankings, each from the games up to that week.
+    # Early on there is little to go on, so the preseason poll carries part of
+    # the weight and fades out by week seven.
     polls = {}
     for w, sysw in (weekly or {}).items():
         vals = _rate(sysw, ki, hpts, apts, mp, p)
-        by_school = {t.school: float(vals[sysw.node[t.idx]]) + lean[t.school]
-                     for t in fbs}
+        by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
+        a = _ap_weight(w)
+        if a > 0:
+            spread = float(np.std(list(by_school.values()))) or 1.0
+            prior = _preseason_prior(state, spread)
+            mean = float(np.mean(list(by_school.values())))
+            by_school = {t: (1 - a) * v + a * (mean + prior[t])
+                         for t, v in by_school.items()}
+        by_school = {t: v + lean[t] for t, v in by_school.items()}
         rank = selection.rank_teams(sim, by_school, through_week=w)
         polls[str(w)] = [by_name_idx[t] for t in rank.order[:POLL_DEPTH]]
 

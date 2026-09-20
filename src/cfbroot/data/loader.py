@@ -86,7 +86,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     # places of rank per FBS team.
     # The AP and committee polls, when they exist. The committee's first is
     # in November, so early in the season there is only the AP's.
-    from .espn_source import AP_POLL, CFP_POLL, latest_poll
+    from .espn_source import AP_POLL, CFP_POLL, latest_poll, preseason_poll
 
     by_espn = {int(t.team_id): t.idx for t in state.teams if t.team_id is not None}
     for name, poll in (("ap", AP_POLL), ("cfp", CFP_POLL)):
@@ -100,6 +100,17 @@ def load_season(year: int | None = None, *, live: bool = False,
         if ranked:
             state.polls[name] = ranked
             state.poll_weeks[name] = week
+
+    try:
+        # What people thought before the season, which steadies the first few
+        # weeks of a simulated season's own rankings.
+        pre = {by_espn[int(tid)]: rank
+               for tid, rank in preseason_poll(year, force=force).items()
+               if int(tid) in by_espn}
+        if pre:
+            state.polls["ap_preseason"] = pre
+    except Exception:  # noqa: BLE001
+        pass
 
     try:
         state.fcs_games = src.fcs_games(force=force)

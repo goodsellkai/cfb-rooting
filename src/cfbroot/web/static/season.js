@@ -167,6 +167,21 @@ function fpi(idx) {
 
 const ROUND_SHORT = ["CFP 1st rd", "CFP QF", "CFP SF", "CFP final"];
 
+/** A team's games still to come in this season, from the stage shown. */
+function seasonUpcomingFor(idx) {
+  if (!SEASON) return null;
+  const out = [];
+  for (let i = STAGE + 1; i < STAGES.length; i++) {
+    const s = STAGES[i];
+    const label = (g) => s.kind === "week" ? `Wk ${g.week}`
+      : s.kind === "ccg" ? "Title" : ROUND_SHORT[s.round] || s.label;
+    for (const g of s.games) {
+      if (g.home === idx || g.away === idx) out.push({ ...g, label: label(g) });
+    }
+  }
+  return out;
+}
+
 /** A team's games in this season through the stage shown, for the hover card. */
 function seasonGamesFor(idx) {
   if (!SEASON) return null;
@@ -444,10 +459,18 @@ function renderTop25(recs) {
       <td class="num">${rec(recs[t])}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
+  // Whoever was ranked last time and is not now, so a team's fall is not
+  // just a name vanishing from the list.
+  const inNow = new Set(POLL.teams);
+  const gone = (POLL.prev || []).filter(t => !inNow.has(t));
+  const goneRows = gone.map(t => `<tr class="out${t === me ? " mine" : ""}">
+      <td class="num muted">${was.get(t)}</td><td class="num"><span class="mv down">out</span></td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)}</td>
+      <td class="num">${rec(recs[t])}</td><td></td></tr>`).join("");
   $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
     <thead><tr><th class="num">#</th><th class="num">+/-</th><th>Team</th>
     <th class="num">Record</th>
-    <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}${goneRows}</tbody></table></div>`;
 }
 
 /** How far a team moved since the poll before, as the committee shows it. */
