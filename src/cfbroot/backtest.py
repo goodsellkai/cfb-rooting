@@ -35,26 +35,55 @@ def _client():
     return cfbd, cfbd.Configuration(access_token=api_key())
 
 
-def actual_field(year: int) -> dict:
-    """The teams the committee actually selected, by school."""
-    cfbd, cfg = _client()
-    with cfbd.ApiClient(cfg) as c:
-        return {p.team.school: p for p in cfbd.PlayoffsApi(c).get_cfp_participants(year=year)}
-
-
 def committee_polls(year: int) -> dict[int, dict[str, int]]:
-    """Every Playoff Committee Rankings poll of the regular season, by week."""
-    cfbd, cfg = _client()
-    out: dict[int, dict[str, int]] = {}
-    with cfbd.ApiClient(cfg) as c:
-        api = cfbd.RankingsApi(c)
-        weeks = api.get_rankings(year=year,
-                                 season_type=cfbd.SeasonType("regular"))
-        for w in weeks:
-            for poll in w.polls:
-                if "Playoff Committee" in poll.poll:
-                    out[int(w.week)] = {r.school: int(r.rank) for r in poll.ranks}
-    return out
+    """Every Playoff Committee Rankings poll of the regular season, by week.
+
+    From ESPN, which publishes the same polls and does not meter its calls.
+    """
+    from .data.espn_source import fetch_committee_polls
+
+    by_id = {str(t.team_id): t.school for t in load_season(year).teams
+             if t.team_id is not None}
+    polls = fetch_committee_polls(year)
+    return {int(week): {by_id[tid]: rank for tid, rank in ranks.items()
+                        if tid in by_id}
+            for week, ranks in polls.items()}
+
+
+def actual_field(year: int) -> dict:
+    """The teams the committee actually selected.
+
+    Worked out from its final poll and that season's bid rules, which is how
+    the real field was picked: in 2024 and 2025 the five highest ranked
+    conference champions and seven at large, and in 2023 the top four.
+    """
+    state = load_season(year)
+    order = sorted(committee_ranking(year).items(), key=lambda kv: kv[1])
+    names = [t for t, _ in order]
+    champs, _ = massey_champions(state)
+    conf = {t.school: t.conference for t in state.fbs_teams}
+    if year < 2024:
+        field = selection.pick_field(names, champs, conf, rule="none", size=4)
+    else:
+        fmt = selection.playoff_format(year)
+        field = selection.pick_field(names, champs, conf, rule=fmt.bids,
+                                     champion_byes=fmt.champion_byes)
+    return {t: i + 1 for i, t in enumerate(field.seeds)}
+
+
+def massey_champions(state) -> tuple[set, set]:
+    """Conference champions: title game winners, plus leagues without one."""
+    from . import massey
+
+    won, lost = massey.title_game_results(state, massey.selection_week(state))
+    champs = set(won)
+    crowned = {state.teams[g["home_idx"]].conf_idx for g in state.games
+               if g["is_ccg"]}
+    for c in state.conferences:
+        if c.crowns_champion and c.idx not in crowned and c.team_idxs:
+            members = [state.teams[i].school for i in c.team_idxs]
+            champs.add(members[0])          # nobody to play for it
+    return champs, set(lost)
 
 
 def committee_ranking(year: int) -> dict[str, int]:

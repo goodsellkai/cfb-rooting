@@ -19,15 +19,24 @@ def _path(namespace: str, key: dict) -> Path:
 def get_or_fetch(namespace: str, key: dict, ttl_seconds: float,
                  fetch: Callable[[], Any], *, force: bool = False) -> Any:
     path = _path(namespace, key)
-    if not force and path.exists():
+    stale = None
+    if path.exists():
         try:
             blob = json.loads(path.read_text(encoding="utf-8"))
-            if time.time() - blob["fetched_at"] <= ttl_seconds:
+            if not force and time.time() - blob["fetched_at"] <= ttl_seconds:
                 return blob["data"]
+            stale = blob["data"]
         except (json.JSONDecodeError, KeyError, OSError):
             pass  # bad cache file, fetch again
 
-    data = fetch()
+    try:
+        data = fetch()
+    except Exception:
+        # Out of API calls, or offline. An old copy beats nothing, and for a
+        # finished season it is the same data anyway.
+        if stale is not None:
+            return stale
+        raise
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"fetched_at": time.time(), "key": key, "data": data}),

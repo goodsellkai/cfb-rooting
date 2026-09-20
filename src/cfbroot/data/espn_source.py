@@ -104,3 +104,41 @@ def fetch_fpi(year: int, *, force: bool = False) -> dict:
         return {"last_updated": last_updated, "rows": rows}
 
     return cache.get_or_fetch("espn_fpi", {"year": year}, TTL, go, force=force)
+
+
+# The playoff committee's weekly rankings
+
+CFP_URL = ("https://sports.core.api.espn.com/v2/sports/football/leagues/"
+           "college-football/seasons/{year}/types/2/weeks/{week}/rankings/21"
+           "?lang=en&region=us")
+TTL_POLLS = 6 * 3600
+
+
+def fetch_committee_polls(year: int, *, force: bool = False) -> dict:
+    """Every Playoff Committee Rankings poll of a season, by week.
+
+    ``{week: {espn team id: rank}}``. ESPN publishes the same polls CFBD does
+    and does not meter the calls, so the backtest can run without spending the
+    season's API quota.
+    """
+    def go() -> dict:
+        out: dict[str, dict[str, int]] = {}
+        for week in range(1, 21):
+            try:
+                d = _get(CFP_URL.format(year=year, week=week))
+            except ESPNError:
+                continue
+            ranks = {}
+            for r in d.get("ranks") or []:
+                ref = (r.get("team") or {}).get("$ref", "")
+                tid = ref.split("teams/")[-1].split("?")[0]
+                if tid.isdigit() and r.get("current"):
+                    ranks[tid] = int(r["current"])
+            if ranks:
+                out[str(week)] = ranks
+        if not out:
+            raise ESPNError(f"ESPN has no committee polls for {year}")
+        return out
+
+    return cache.get_or_fetch("espn_cfp", {"year": year}, TTL_POLLS, go,
+                              force=force)
