@@ -397,3 +397,10 @@ table.standings th { padding: 0 8px 6px; }
          color: var(--ink-2); cursor: pointer; }
 .check input { min-width: 0; width: 16px; height: 16px; margin: 0; padding: 0;
                accent-color: var(--accent); }
+
+/* committee rank next to a team's name */
+.rk { font-size: 11px; font-weight: 700; color: var(--muted); margin-right: 5px;
+      font-variant-numeric: tabular-nums; }
+.gt-row.win .rk, .bteam.win .rk { color: var(--ink-2); }
+.headfields { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.headfields select[hidden] { display: none; }

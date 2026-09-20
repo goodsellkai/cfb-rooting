@@ -8,6 +8,8 @@
  */
 
 let SEASON = null;      // the sample: games, title games, ranking, field, bracket
+let POLL = null;        // the committee ranking at the stage being shown
+let POLL_RANK = new Map();
 let STAGES = [];        // what the player steps through
 let STAGE = 0;
 let PLAYER = null;      // playback timer
@@ -61,7 +63,7 @@ function buildStages() {
   const S = SEASON;
   const cut = S.selection_week ?? Infinity;
   const weeks = [...new Set(S.games.map(g => g.week))].sort((a, b) => a - b);
-  const week = (w) => ({ kind: "week", label: `Week ${w}`,
+  const week = (w) => ({ kind: "week", week: w, label: `Week ${w}`,
                          games: S.games.filter(g => g.week === w) });
   STAGES = weeks.filter(w => w <= cut).map(week);
   if (S.title_games.length) {
@@ -179,6 +181,28 @@ function seasonGamesFor(idx) {
   return out;
 }
 
+/** The committee ranking as it stood at the stage being shown: the latest
+ * weekly poll during the season, the final one from Selection Sunday on. */
+function currentPoll() {
+  const stage = STAGES[STAGE];
+  const polls = SEASON.polls || {};
+  const weeks = Object.keys(polls).map(Number).sort((a, b) => a - b);
+  if (stage.kind === "week" && STAGE < stageIndex("selection")) {
+    const w = weeks.filter(x => x <= stage.week).pop();
+    return w ? { label: `week ${w}`, teams: polls[w] } : null;
+  }
+  if (stage.kind === "ccg" && weeks.length) {
+    const w = weeks[weeks.length - 1];
+    return { label: `week ${w}`, teams: polls[w] };
+  }
+  return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team) };
+}
+
+function rankTag(idx) {
+  const r = POLL_RANK.get(idx);
+  return r ? `<span class="rk">${r}</span>` : "";
+}
+
 // Rendering
 
 function renderSeason() {
@@ -189,10 +213,12 @@ function renderSeason() {
   $("s-next").disabled = STAGE === STAGES.length - 1;
   const games = resultsSoFar();
   const recs = records(games);
+  POLL = currentPoll();
+  POLL_RANK = new Map((POLL ? POLL.teams : []).map((t, i) => [t, i + 1]));
   renderStats(games, recs);
   renderMine(games, recs);
   renderBoard(stage, recs);
-  renderStandings(recs);
+  renderRight(recs);
   $("footmeta").textContent = `sample season #${SEASON.seed}`;
 }
 
@@ -267,7 +293,7 @@ function renderMine(games, recs) {
     else if (SEASON.champion === me && STAGE === STAGES.length - 1) status += " · national champion";
   }
   el.innerHTML = `<div class="minehead"><span class="teamcell" data-team="${me}">${logo(me, 22)}
-      <b>${esc(team(me).name)}</b>${fpi(me)}</span> <span class="muted">${rec(r)}
+      ${rankTag(me)}<b>${esc(team(me).name)}</b>${fpi(me)}</span> <span class="muted">${rec(r)}
       (${r ? r.cw : 0}-${r ? r.cl : 0} ${esc(team(me).conference || "")})</span>
       <span class="minestatus">${status}</span></div>
     <div class="reslist">${chips || '<span class="muted">No games yet.</span>'}</div>`;
@@ -299,7 +325,7 @@ function tile(g, recs, isTitle) {
   const p = winP(g);
   const upset = p != null && p < UPSET && team(g.home).fbs && team(g.away).fbs;
   const row = (t, pts, home) => `<div class="gt-row${t === w ? " win" : ""}" data-team="${t}">
-      ${logo(t, 18)}<span class="gt-name">${home && !g.neutral ? '<span class="at">@</span>' : ""}${esc(team(t).name)}</span>
+      ${logo(t, 18)}<span class="gt-name">${home && !g.neutral ? '<span class="at">@</span>' : ""}${rankTag(t)}${esc(team(t).name)}</span>
       ${fpi(t)}<span class="gt-rec">${rec(recs[t])}</span><span class="gt-pts">${pts}</span></div>`;
   const foot = [
     isTitle ? `<span>${esc(g.conference)}</span>` : "",
@@ -371,6 +397,37 @@ function fillConferences() {
     : String(mineAt >= 0 ? mineAt : Math.max(sec, 0));
 }
 
+function renderRight(recs) {
+  const top25 = $("s-right").value === "top25";
+  $("s-conf").hidden = top25;
+  $("s-righttitle").textContent = top25
+    ? `Committee top 25 ${POLL ? "(" + POLL.label + ")" : ""}` : "Standings";
+  return top25 ? renderTop25(recs) : renderStandings(recs);
+}
+
+function renderTop25(recs) {
+  if (!POLL || !POLL.teams.length) {
+    $("s-standings").innerHTML =
+      '<p class="foot">The committee has not published a ranking yet. Its first'
+      + ' poll comes in week ' + (SEASON.polls ? Object.keys(SEASON.polls)[0] : 10)
+      + '.</p>';
+    return;
+  }
+  const me = myIdx();
+  const seedOf = Object.fromEntries((SEASON.field || []).map(f => [f.team, f]));
+  const final = POLL.label === "final";
+  const rows = POLL.teams.map((t, i) => {
+    const f = final ? seedOf[t] : null;
+    return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)}</td>
+      <td class="num">${rec(recs[t])}</td>
+      <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
+  }).join("");
+  $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
+    <thead><tr><th class="num">#</th><th>Team</th><th class="num">Record</th>
+    <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function renderStandings(recs) {
   const c = SEASON.conferences[Number($("s-conf").value) || 0];
   if (!c) { $("s-standings").innerHTML = ""; return; }
@@ -391,7 +448,7 @@ function renderStandings(recs) {
     const tag = settled && c.champion === t ? '<span class="seedchip bye">Champion</span>'
       : tg && (tg.home === t || tg.away === t) ? '<span class="seedchip">Title game</span>' : "";
     return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
-      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)} ${tag}</td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}${rankTag(t)}${esc(team(t).name)}${fpi(t)} ${tag}</td>
       <td class="num">${c.crowns ? `${r ? r.cw : 0}-${r ? r.cl : 0}` : "-"}</td>
       <td class="num">${rec(r)}</td>
       <td class="num muted">${r ? r.pf : 0}-${r ? r.pa : 0}</td></tr>`;
@@ -413,6 +470,7 @@ $("s-prev").addEventListener("click", () => { stopPlaying(); setStage(STAGE - 1)
 $("s-next").addEventListener("click", () => { stopPlaying(); setStage(STAGE + 1); });
 $("s-stage").addEventListener("input", (e) => { stopPlaying(); setStage(Number(e.target.value)); });
 $("s-conf").addEventListener("change", () => renderSeason());
+$("s-right").addEventListener("change", () => renderSeason());
 document.addEventListener("keydown", (e) => {
   if ($("seasonview").hidden || !SEASON || e.target.matches("input, select, textarea")) return;
   if (e.key === "ArrowRight") { stopPlaying(); setStage(STAGE + 1); }

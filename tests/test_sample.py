@@ -47,3 +47,28 @@ def test_replaying_from_week_one_sets_the_real_results_aside(midseason):
     changed = sum((g["home_points"], g["away_points"]) != played[(g["home"], g["away"])]
                   for g in s["games"] if (g["home"], g["away"]) in played)
     assert changed > 0.9 * len(played)
+
+
+def test_a_sample_season_carries_a_ranking_for_each_week(midseason):
+    """The committee ranks every week, not only at the end."""
+    from cfbroot.sim.sample import poll_weeks, weekly_systems
+
+    weeks = poll_weeks(midseason)
+    assert weeks, "the fixture season is too short to have any polls"
+    s = sample_season(midseason, seed=4, weekly=weekly_systems(midseason))
+    assert sorted(s["polls"], key=int) == [str(w) for w in weeks]
+
+    fbs = {t.idx for t in midseason.fbs_teams}
+    for order in s["polls"].values():
+        assert len(order) == 25 and len(set(order)) == 25
+        assert set(order) <= fbs
+
+    # The last poll is close to the final ranking, but the title games and a
+    # fresh draw of the committee's noise sit between them.
+    last = s["polls"][str(weeks[-1])]
+    final = [r["team"] for r in s["ranking"][:25]]
+    assert len(set(last) & set(final)) >= 15
+
+
+def test_polls_are_left_out_when_no_weekly_systems_are_given(midseason):
+    assert sample_season(midseason, seed=4)["polls"] == {}

@@ -167,7 +167,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    gof_k, gof_c, gof_q, mov_w, mov_flat,
                    prior_sd, prior_games, fit_tol, fit_max_iter,
                    corr_sd, corr_passes, committee_sd, jump_margin,
-                   worst_loss, worst_loss_scale, h2h_depth,
+                   worst_loss, worst_loss_scale, best_win, best_win_scale,
+                   h2h_depth,
                    n_byes, bid_rule, champion_byes,
                    out_hw, out_metrics,
                    h_wins, h_wins_made, h_seed, h_rank):
@@ -409,10 +410,11 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
             ranked = np.argsort(sortkey)
 
-            # Worst loss: a team whose weakest defeat came to a team near the
-            # top is treated better than one that lost to nobody in
-            # particular. Read off the order the ratings alone give.
-            if worst_loss > 0.0:
+            # Worst loss and best win: a team whose weakest defeat came to a
+            # team near the top, or that has beaten one, is treated better
+            # than one whose results are against nobody in particular. Read
+            # off the order the ratings alone give.
+            if worst_loss > 0.0 or best_win > 0.0:
                 for k in range(n_nodes):
                     place[k] = n_fbs + 1
                 for k in range(n_fbs):
@@ -421,6 +423,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     t = fbs_idx[j]
                     node = m_node[t]
                     low = 0
+                    high = 0
                     for gi in range(m_tg_ptr[node], m_tg_ptr[node + 1]):
                         i = m_tg_ref[gi]
                         if i >= n_g:
@@ -431,12 +434,19 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                         else:
                             lost = hpts[i] > apts[i]
                             opp = m_hn[i]
-                        if lost and place[opp] > low:
-                            low = place[opp]
-                    if low == 0:
-                        final[t] += worst_loss
-                    else:
-                        final[t] += worst_loss * math.exp(-(low - 1) / worst_loss_scale)
+                        if lost:
+                            if place[opp] > low:
+                                low = place[opp]
+                        elif place[opp] <= n_fbs and (high == 0 or place[opp] < high):
+                            high = place[opp]
+                    if worst_loss > 0.0:
+                        if low == 0:
+                            final[t] += worst_loss
+                        else:
+                            final[t] += worst_loss * math.exp(
+                                -(low - 1) / worst_loss_scale)
+                    if best_win > 0.0 and high > 0:
+                        final[t] += best_win * math.exp(-(high - 1) / best_win_scale)
                     sortkey[j] = -final[t]
                 ranked = np.argsort(sortkey)
 

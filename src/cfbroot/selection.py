@@ -250,16 +250,28 @@ COMMITTEE_SD = 0.050
 WORST_LOSS_BOOST = 0.02
 WORST_LOSS_SCALE = 12.0
 
+# Best win, the other way round: a team that has beaten someone near the top
+# is treated better than one whose best win is over nobody in particular.
+# Same shape, and smaller. Swept the same way, 0.01 takes the mean rank error
+# before the title games from 2.95 places to 2.91 and leaves selection day at
+# 2.89; larger values start trading one against the other. A team that has not
+# won gets nothing.
+BEST_WIN_BOOST = 0.01
+BEST_WIN_SCALE = 12.0
 
-def worst_loss_place(state, order: list[str], through_week: int | None = None
-                     ) -> dict[str, int]:
-    """Where the weakest team each team lost to sits in ``order``.
 
-    0 means it has not lost. A loss to a team that is not in the ranking at
-    all, an FCS team, counts as the worst loss there is.
+def result_places(state, order: list[str], through_week: int | None = None
+                  ) -> tuple[dict[str, int], dict[str, int]]:
+    """Each team's worst loss and best win, as places in ``order``.
+
+    The worst loss is the weakest team it lost to, the best win the strongest
+    team it beat. 0 means it has not lost, or has not won. A loss to a team
+    that is not in the ranking at all, an FCS team, is the worst there is.
+    Title games are left out, since a title game only helps.
     """
     place = {t: i + 1 for i, t in enumerate(order)}
     worst = {t: 0 for t in order}
+    best = {t: 0 for t in order}
     for g in state.games:
         if g["status"] == 0 or g["is_ccg"]:
             continue
@@ -269,20 +281,30 @@ def worst_loss_place(state, order: list[str], through_week: int | None = None
                 else (g["away"], g["home"]))
         if l in worst:
             worst[l] = max(worst[l], place.get(w, len(order) + 1))
-    return worst
+        if w in best and l in place:
+            best[w] = place[l] if best[w] == 0 else min(best[w], place[l])
+    return worst, best
 
 
-def worst_loss_boost(state, order: list[str], ratings: dict,
-                     through_week: int | None = None,
-                     size: float = WORST_LOSS_BOOST,
-                     scale: float = WORST_LOSS_SCALE) -> dict[str, float]:
-    """``ratings`` with the worst-loss boost added."""
-    if size <= 0:
+def record_boost(state, order: list[str], ratings: dict,
+                 through_week: int | None = None,
+                 worst_loss: float = WORST_LOSS_BOOST,
+                 worst_loss_scale: float = WORST_LOSS_SCALE,
+                 best_win: float = BEST_WIN_BOOST,
+                 best_win_scale: float = BEST_WIN_SCALE) -> dict[str, float]:
+    """``ratings`` with the worst-loss and best-win boosts added."""
+    if worst_loss <= 0 and best_win <= 0:
         return dict(ratings)
-    worst = worst_loss_place(state, order, through_week)
-    return {t: v + size * (1.0 if not worst.get(t)
-                           else math.exp(-(worst[t] - 1) / scale))
-            for t, v in ratings.items()}
+    worst, best = result_places(state, order, through_week)
+    out = {}
+    for t, v in ratings.items():
+        if worst_loss > 0:
+            p = worst.get(t, 0)
+            v += worst_loss * (1.0 if not p else math.exp(-(p - 1) / worst_loss_scale))
+        if best_win > 0 and best.get(t):
+            v += best_win * math.exp(-(best[t] - 1) / best_win_scale)
+        out[t] = v
+    return out
 
 
 @dataclass
@@ -303,18 +325,18 @@ def rank_teams(state, ratings: dict, rng=None, committee_sd: float = COMMITTEE_S
     """Order teams the way the committee is modelled to.
 
     The rating comes in, and four things happen to it: a nudge standing in for
-    the committee's own variability, the worst-loss boost, the head to head
-    pass, then the conference title game jump. Pass an ``rng`` to draw the
+    the committee's own variability, the worst-loss and best-win boosts, the
+    head to head pass, then the conference title game jump. Pass an ``rng`` to draw the
     nudge; leave it out and the ordering is deterministic, which is what a
     single published ranking wants.
     """
     vals = dict(ratings)
     if rng is not None and committee_sd > 0:
         vals = {t: v + rng.normal(0.0, committee_sd) for t, v in vals.items()}
-    # The boost reads the order the ratings alone give, so it is worked out
-    # once rather than chasing its own tail.
-    vals = worst_loss_boost(state, sorted(vals, key=lambda t: -vals[t]), vals,
-                            through_week)
+    # The boosts read the order the ratings alone give, so they are worked
+    # out once rather than chasing their own tail.
+    vals = record_boost(state, sorted(vals, key=lambda t: -vals[t]), vals,
+                        through_week)
     order = sorted(vals, key=lambda t: -vals[t])
     order, swaps = head_to_head_swap(
         order, head_to_head_pairs(state, through_week=through_week))

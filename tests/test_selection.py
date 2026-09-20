@@ -215,9 +215,10 @@ def test_no_generator_means_a_repeatable_ranking(midseason):
     b = selection.rank_teams(midseason, rat)
     assert a.order == b.order
     assert a.ratings == b.ratings
-    # Only the worst-loss boost separates them from the ratings given.
+    # Only the record boosts separate them from the ratings given.
+    top = selection.WORST_LOSS_BOOST + selection.BEST_WIN_BOOST
     for t, v in a.ratings.items():
-        assert 0 <= v - rat[t] <= selection.WORST_LOSS_BOOST + 1e-12
+        assert 0 <= v - rat[t] <= top + 1e-12
 
 
 def test_a_generator_shuffles_the_order_but_not_much(midseason):
@@ -267,24 +268,36 @@ ORDER4 = ["A", "B", "C", "D"]
 def test_losing_only_to_the_best_team_beats_losing_to_a_worse_one():
     st = loss_season()
     flat = {t: 1.0 for t in ORDER4}
-    boosted = selection.worst_loss_boost(st, ORDER4, flat)
+    boosted = selection.record_boost(st, ORDER4, flat)
     assert boosted["B"] == pytest.approx(boosted["C"])       # both lost to 1st
     assert boosted["C"] > boosted["D"]                       # D lost to 3rd too
     assert 0 < boosted["D"] - 1.0 < selection.WORST_LOSS_BOOST
 
 
-def test_an_unbeaten_team_gets_the_whole_boost():
+def test_an_unbeaten_team_gets_the_whole_worst_loss_boost():
     st = loss_season()
-    b = selection.worst_loss_boost(st, ORDER4, {t: 0.0 for t in ORDER4})
+    b = selection.record_boost(st, ORDER4, {t: 0.0 for t in ORDER4},
+                               best_win=0.0)
     assert b["A"] == pytest.approx(selection.WORST_LOSS_BOOST)
+
+
+def test_beating_the_best_team_beats_beating_a_worse_one():
+    """B beat only D, bottom of the four; A beat B, second."""
+    st = loss_season()
+    b = selection.record_boost(st, ORDER4, {t: 0.0 for t in ORDER4},
+                               worst_loss=0.0)
+    assert b["A"] > b["B"] > 0
+    assert b["A"] <= selection.BEST_WIN_BOOST + 1e-12
+    assert b["D"] == 0.0                       # D never won
 
 
 def test_a_loss_to_an_unranked_team_is_worth_nothing():
     st = loss_season()
-    b = selection.worst_loss_boost(st, ["A", "B", "C"], {t: 0.0 for t in "ABC"})
-    assert b["C"] > 0                      # C only lost to A
-    order = selection.worst_loss_place(st, ["A", "B", "C"])
-    assert order["C"] == 1                 # its worst loss is the top team
+    worst, best = selection.result_places(st, ["A", "B", "C"])
+    assert worst["C"] == 1                 # C's worst loss is the top team
+    assert worst["B"] == 1
+    # D is not in this ranking, so beating it counts for nothing.
+    assert best["B"] == 0 and best["C"] == 0
 
 
 def test_the_boost_can_reorder_two_close_teams():
@@ -298,5 +311,5 @@ def test_the_boost_is_small_enough_not_to_overturn_a_real_gap():
     """A tenth of a rating point is far more than the boost can make up."""
     st = loss_season()
     rat = {"A": 3.0, "B": 2.0, "C": 1.00, "D": 1.10}
-    b = selection.worst_loss_boost(st, ["A", "B", "D", "C"], rat)
+    b = selection.record_boost(st, ["A", "B", "D", "C"], rat)
     assert b["D"] > b["C"]

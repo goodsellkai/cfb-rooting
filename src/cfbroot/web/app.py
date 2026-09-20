@@ -20,7 +20,7 @@ from ..data.loader import default_year, load_season
 from ..data.season import SeasonState
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
-from ..sim.sample import sample_season
+from ..sim.sample import sample_season, weekly_systems
 
 HERE = Path(__file__).resolve().parent
 
@@ -62,6 +62,7 @@ class Store:
         self.job: Job | None = None
         self.payloads: dict[int, dict] = {}
         self.inputs = None            # kernel inputs, reused by sample seasons
+        self.weekly = None            # a rating system per committee poll week
 
     def get_season(self) -> SeasonState:
         with self.lock:
@@ -260,10 +261,16 @@ def api_sample(seed: int | None = None, from_start: bool = False):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if seed is None:
         seed = secrets.randbelow(1_000_000_000)
-    if store.inputs is None:
-        store.inputs = s.kernel_inputs()
+    if store.inputs is None or store.weekly is None:
+        # Both at once, and only once: a request arriving while these are
+        # being built would otherwise find the inputs ready and the weekly
+        # rankings missing, and come back without them.
+        with store.lock:
+            if store.inputs is None or store.weekly is None:
+                ki = s.kernel_inputs()
+                store.inputs, store.weekly = ki, weekly_systems(s, ki)
     return JSONResponse(sample_season(s, seed, from_start=from_start,
-                                      ki=store.inputs))
+                                      ki=store.inputs, weekly=store.weekly))
 
 
 @app.on_event("startup")

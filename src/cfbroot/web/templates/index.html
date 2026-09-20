@@ -146,8 +146,14 @@
       </div>
       <div class="panel">
         <div class="panel-head">
-          <h2>Standings</h2>
-          <select id="s-conf" class="inline" aria-label="Conference"></select>
+          <h2 id="s-righttitle">Standings</h2>
+          <div class="headfields">
+            <select id="s-right" class="inline" aria-label="Panel">
+              <option value="standings" selected>Standings</option>
+              <option value="top25">Committee top 25</option>
+            </select>
+            <select id="s-conf" class="inline" aria-label="Conference"></select>
+          </div>
         </div>
         <div id="s-standings"></div>
       </div>

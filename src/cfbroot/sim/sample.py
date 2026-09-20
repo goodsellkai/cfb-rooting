@@ -82,8 +82,58 @@ def _score(rng, mu, p) -> tuple[int, int]:
     return (win, lose) if m > 0 else (lose, win)
 
 
+FIRST_POLL_WEEK = 10        # the committee's first poll of a real season
+POLL_DEPTH = 25             # it publishes a top 25
+
+
+def poll_weeks(state: SeasonState) -> list[int]:
+    """The weeks a ranking is published for, as the committee would."""
+    cut = massey.selection_week(state)
+    weeks = sorted({g["week"] for g in state.games if not g["is_ccg"]})
+    last = (cut - 1) if cut is not None else max(weeks, default=0)
+    return [w for w in weeks if FIRST_POLL_WEEK <= w <= last]
+
+
+def weekly_systems(state: SeasonState, ki=None) -> dict:
+    """A rating system per poll week, built once and reused by every season.
+
+    Each covers the games up to that week, so a simulated season can be ranked
+    as it went along and not only at the end.
+    """
+    ki = ki if ki is not None else state.kernel_inputs()
+    games = [g for g in state.games if not g["is_ccg"]]
+    return {w: massey.sim_system(state, games, state.fcs_games, ki.g_pwin,
+                                 state.massey, through_week=w)
+            for w in poll_weeks(state)}
+
+
+def _rate(sys, ki, hpts, apts, mp, p):
+    """The Massey rating under one system, by node. No title games."""
+    n_g, n = ki.g_home.size, sys.n_nodes
+    at_home = (~ki.g_neutral).astype(np.float64)
+    gval = np.array([K._outcome(hpts[i], apts[i], mp.gof_k, mp.gof_c, mp.gof_q,
+                                mp.mov_weight, mp.mov_flat) if sys.g_in_fit[i]
+                     else 0.0 for i in range(n_g)])
+    none_i, none_f = np.zeros(1, np.int32), np.zeros(1)
+    vec, wts = K._fit_work(n, n_g, sys.x_h.size, 1)
+    r = sys.start.copy()
+    K._fit(n_g, sys.g_in_fit, sys.g_hnode, sys.g_anode, at_home, gval, sys.x_h,
+           sys.x_a, sys.x_home, sys.x_g, none_i, none_i, none_f, none_f, 0,
+           sys.minv, sys.prior, sys.prec, n, p.fit_tol, p.fit_max_iter, r,
+           sys.start, vec, wts)
+    out = np.zeros(n)
+    need = np.array([1 if k < sys.n_fbs else 0 for k in range(n)], np.uint8)
+    K._correct(n_g, sys.g_hnode, sys.g_anode, at_home, hpts, apts, sys.x_h,
+               sys.x_a, sys.x_home, sys.x_won, none_i, none_i, none_f,
+               np.zeros(1, np.uint8), np.full(n, -1, np.int32), False,
+               sys.tg_ptr, sys.tg_ref, sys.tg_home, n, r, r[n],
+               mp.correction_abs, mp.correction_passes, sys.gh_t, sys.gh_logw,
+               need, np.zeros(n), out, np.zeros(sys.gh_t.size))
+    return out
+
+
 def sample_season(state: SeasonState, seed: int | None = None,
-                  from_start: bool = False, ki=None) -> dict:
+                  from_start: bool = False, ki=None, weekly=None) -> dict:
     """Simulate one season from ``state`` and return all of it, JSON ready.
 
     ``from_start`` replays the whole season from week 1, setting aside the
@@ -91,7 +141,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
     seen those games; there is no preseason rating to go back to.
 
     ``ki`` is state.kernel_inputs(), which can be passed in to save building
-    it again.
+    it again. ``weekly`` is weekly_systems(), which adds a committee ranking
+    for each week of the season rather than only the final one.
     """
     rng = np.random.default_rng(seed)
     p = state.params
@@ -123,6 +174,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
     ccg_week = cut if cut is not None else max(g["week"] for g in games) + 1
     sim = dataclasses.replace(state, games=list(games),
                               conferences=[dataclasses.replace(c) for c in state.conferences])
+
+    by_name_idx = {t.school: t.idx for t in teams}
 
     # The power rating before the title games, with the kernel's own code.
     n_g, n = ki.g_home.size, m.n_nodes
@@ -223,6 +276,15 @@ def sample_season(state: SeasonState, seed: int | None = None,
             "status": HOME_WON if hp > ap else AWAY_WON, "completed": True,
             "is_ccg": True, "notes": f"{c.name} Championship"})
 
+    # The committee's weekly rankings, each from the games up to that week.
+    polls = {}
+    for w, sysw in (weekly or {}).items():
+        vals = _rate(sysw, ki, hpts, apts, mp, p)
+        by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
+        rank = selection.rank_teams(sim, by_school, rng=rng,
+                                    committee_sd=p.committee_sd, through_week=w)
+        polls[str(w)] = [by_name_idx[t] for t in rank.order[:POLL_DEPTH]]
+
     # Selection Sunday: the rating, the committee's noise and rules, the field.
     c0, c1, loser = np.zeros(n), np.zeros(n), np.zeros(n, np.uint8)
     K._selection_rating(n_g, m.g_in_fit, m.g_hnode, m.g_anode, at_home, gval,
@@ -245,8 +307,7 @@ def sample_season(state: SeasonState, seed: int | None = None,
                                  {t.school: t.conference for t in fbs},
                                  rule=fmt.bids, n_byes=p.n_byes,
                                  champion_byes=fmt.champion_byes)
-    by_name = {t.school: t.idx for t in teams}
-    seeds = [by_name[s] for s in field.seeds]
+    seeds = [by_name_idx[s] for s in field.seeds]
 
     # The bracket: 5-12, 6-11, 7-10 and 8-9 at the higher seed, then neutral
     # sites, 1 against the 8-9 winner and so on, as in the kernel.
@@ -276,13 +337,14 @@ def sample_season(state: SeasonState, seed: int | None = None,
         "from_start": from_start,
         "conferences": conferences,
         "title_games": title_games,
-        "ranking": [{"team": by_name[s], "rating": ranking.ratings[s]}
+        "ranking": [{"team": by_name_idx[s], "rating": ranking.ratings[s]}
                     for s in ranking.order],
         "field": [{"team": t, "seed": i + 1, "bye": s in field.byes,
                    "how": field.auto.get(s, "")}
                   for i, (t, s) in enumerate(zip(seeds, field.seeds))],
         "rounds": rounds,
         "champion": champion,
+        "polls": polls,
     }
     out["games"] = [
         {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],

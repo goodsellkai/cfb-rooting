@@ -628,8 +628,8 @@ def selection_week(state) -> int | None:
 
 
 def sim_system(state, sim_games, extra_games=None, expected=None,
-               params: MasseyParams | None = None,
-               min_games: int = 4) -> SimSystem:
+               params: MasseyParams | None = None, min_games: int = 4,
+               through_week: int | None = None) -> SimSystem:
     """Lay out rate_selection_day() for a simulator that has every result.
 
     sim_games is the simulator's game list, in its order. The simulator only
@@ -640,9 +640,12 @@ def sim_system(state, sim_games, extra_games=None, expected=None,
     the unplayed games gives a typical finished season; its fit is where every
     simulated season starts, and its curvature steers the solver. Seasons
     differ from it by a little, so the solver needs only a few steps.
+
+    ``through_week`` stops the fit earlier than selection day, for a ranking
+    as it would have stood partway through the season.
     """
     p = params or MasseyParams()
-    cut = selection_week(state)
+    cut = through_week if through_week is not None else selection_week(state)
     names, extra = _extra_arrays(state, extra_games, cut)
     n_state = len(state.teams)
     n_g = len(sim_games)

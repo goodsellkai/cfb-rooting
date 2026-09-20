@@ -193,7 +193,8 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             mp.prior_sd, mp.prior_games, p.fit_tol, p.fit_max_iter,
             mp.correction_abs, mp.correction_passes,
             p.committee_sd, p.title_jump_margin,
-            p.worst_loss_boost, p.worst_loss_scale, p.h2h_depth,
+            p.worst_loss_boost, p.worst_loss_scale,
+            p.best_win_boost, p.best_win_scale, p.h2h_depth,
             p.n_byes, bid_rule, fmt.champion_byes,
             out_hw, out_metrics, h_wins, h_made, h_seed, h_rank)
 

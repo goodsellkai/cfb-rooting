@@ -10,8 +10,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .selection import (COMMITTEE_SD, TITLE_JUMP_MARGIN, WORST_LOSS_BOOST,
-                        WORST_LOSS_SCALE)
+from .selection import (BEST_WIN_BOOST, BEST_WIN_SCALE, COMMITTEE_SD,
+                        TITLE_JUMP_MARGIN, WORST_LOSS_BOOST, WORST_LOSS_SCALE)
 
 PKG_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PKG_DIR.parent.parent
@@ -97,6 +97,8 @@ class ModelParams:
     title_jump_margin: float = TITLE_JUMP_MARGIN
     worst_loss_boost: float = WORST_LOSS_BOOST
     worst_loss_scale: float = WORST_LOSS_SCALE
+    best_win_boost: float = BEST_WIN_BOOST
+    best_win_scale: float = BEST_WIN_SCALE
 
     # Playoff size. Which teams get the automatic bids and the byes depends on
     # the season; see selection.playoff_format().
