@@ -159,6 +159,12 @@ def sample_season(state: SeasonState, seed: int | None = None,
     eff = {t.idx: t.rating + (p.rating_sd * rng.normal() if t.is_fbs else 0.0)
            for t in teams}
 
+    # How this committee sees each team, drawn once for the season. The
+    # kernel draws it per season too, where there is only the one ranking;
+    # here there is a ranking every week, and a committee that liked a team
+    # in October still likes it in November.
+    lean = {t.school: p.committee_sd * rng.normal() for t in teams if t.is_fbs}
+
     games = []
     for g in state.games:
         if g["is_ccg"]:
@@ -283,9 +289,9 @@ def sample_season(state: SeasonState, seed: int | None = None,
     polls = {}
     for w, sysw in (weekly or {}).items():
         vals = _rate(sysw, ki, hpts, apts, mp, p)
-        by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
-        rank = selection.rank_teams(sim, by_school, rng=rng,
-                                    committee_sd=p.committee_sd, through_week=w)
+        by_school = {t.school: float(vals[sysw.node[t.idx]]) + lean[t.school]
+                     for t in fbs}
+        rank = selection.rank_teams(sim, by_school, through_week=w)
         polls[str(w)] = [by_name_idx[t] for t in rank.order[:POLL_DEPTH]]
 
     # Selection Sunday: the rating, the committee's noise and rules, the field.
@@ -302,8 +308,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
                         vec, wts)
     ratings = {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
                                else c1[m.node[t.idx]]) for t in fbs}
-    ranking = selection.rank_teams(sim, ratings, rng=rng,
-                                   committee_sd=p.committee_sd,
+    ratings = {t: v + lean[t] for t, v in ratings.items()}
+    ranking = selection.rank_teams(sim, ratings,
                                    through_week=massey.selection_week(sim))
     fmt = selection.playoff_format(state.year)
     field = selection.pick_field(ranking.order, champions,

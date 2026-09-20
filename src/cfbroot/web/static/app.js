@@ -553,7 +553,7 @@ function teamResults(idx, inSeason) {
     .map(g => ({ ...g, label: g.title_game ? "Title" : `Wk ${g.week}` }));
 }
 
-function tipHTML(idx, games) {
+function tipHTML(idx, games, inSeason) {
   const t = team(idx);
   let w = 0, l = 0;
   const rows = games.map(g => {
@@ -571,7 +571,8 @@ function tipHTML(idx, games) {
       <td class="teamcell">${logo(opp, 14)}${esc(team(opp).name)}</td></tr>`;
   }).join("");
   const rating = t.rating != null ? ` · ${esc(STATE.rating_label)} ${num(t.rating, 1)}` : "";
-  const pr = pollRank(idx);
+  // The published polls belong to the real season, not a simulated one.
+  const pr = inSeason ? {} : pollRank(idx);
   const ranked = [pr.cfp ? `CFP #${pr.cfp}` : "", pr.ap ? `AP #${pr.ap}` : ""]
     .filter(Boolean).join(" · ");
   const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
@@ -614,7 +615,8 @@ document.addEventListener("mouseover", (e) => {
   if (idx === TIP_TEAM && !$("teamtip").hidden) return;
   TIP_TEAM = idx;
   const tip = $("teamtip");
-  tip.innerHTML = tipHTML(idx, teamResults(idx, !!el.closest("#seasonview")));
+  const inSeason = !!el.closest("#seasonview");
+  tip.innerHTML = tipHTML(idx, teamResults(idx, inSeason), inSeason);
   tip.hidden = false;
   placeTip(e);
 });
