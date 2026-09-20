@@ -182,20 +182,25 @@ function seasonGamesFor(idx) {
 }
 
 /** The committee ranking as it stood at the stage being shown: the latest
- * weekly poll during the season, the final one from Selection Sunday on. */
+ * weekly poll during the season, the final one from Selection Sunday on.
+ * ``prev`` is the poll before it, for the change in rank. */
 function currentPoll() {
   const stage = STAGES[STAGE];
   const polls = SEASON.polls || {};
   const weeks = Object.keys(polls).map(Number).sort((a, b) => a - b);
+  const at = (i, label) => ({
+    label, teams: polls[weeks[i]],
+    prev: i > 0 ? polls[weeks[i - 1]] : null,
+  });
   if (stage.kind === "week" && STAGE < stageIndex("selection")) {
-    const w = weeks.filter(x => x <= stage.week).pop();
-    return w ? { label: `week ${w}`, teams: polls[w] } : null;
+    const i = weeks.findLastIndex(x => x <= stage.week);
+    return i >= 0 ? at(i, `week ${weeks[i]}`) : null;
   }
   if (stage.kind === "ccg" && weeks.length) {
-    const w = weeks[weeks.length - 1];
-    return { label: `week ${w}`, teams: polls[w] };
+    return at(weeks.length - 1, `week ${weeks[weeks.length - 1]}`);
   }
-  return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team) };
+  return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team),
+           prev: weeks.length ? polls[weeks[weeks.length - 1]] : null };
 }
 
 function rankTag(idx) {
@@ -416,17 +421,31 @@ function renderTop25(recs) {
   const me = myIdx();
   const seedOf = Object.fromEntries((SEASON.field || []).map(f => [f.team, f]));
   const final = POLL.label === "final";
+  const was = new Map((POLL.prev || []).map((t, i) => [t, i + 1]));
   const rows = POLL.teams.map((t, i) => {
     const f = final ? seedOf[t] : null;
     return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
+      <td class="num">${moveTag(was, t, i + 1)}</td>
       <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)}</td>
       <td class="num">${rec(recs[t])}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
   $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
-    <thead><tr><th class="num">#</th><th>Team</th><th class="num">Record</th>
+    <thead><tr><th class="num">#</th><th class="num">+/-</th><th>Team</th>
+    <th class="num">Record</th>
     <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+
+/** How far a team moved since the poll before, as the committee shows it. */
+function moveTag(was, team, now) {
+  if (!was.size) return "";
+  const before = was.get(team);
+  if (!before) return '<span class="mv new">new</span>';
+  const d = before - now;
+  if (d === 0) return '<span class="mv flat">-</span>';
+  return `<span class="mv ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d}</span>`;
+}
+
 
 function renderStandings(recs) {
   const c = SEASON.conferences[Number($("s-conf").value) || 0];

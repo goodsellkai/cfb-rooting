@@ -275,10 +275,20 @@ def api_sample(seed: int | None = None, from_start: bool = False):
 
 @app.on_event("startup")
 def _warm_up() -> None:
-    """Start the shared simulation as the server comes up."""
+    """Start the shared simulation as the server comes up.
+
+    The sample season's weekly rankings need a rating system per week, which
+    takes a few seconds to lay out. Doing it here means the first click does
+    not have to wait for it.
+    """
     def work() -> None:
         try:
+            season = store.get_season()
             store.start_league()
+            ki = season.kernel_inputs()
+            weekly = weekly_systems(season, ki)
+            with store.lock:
+                store.inputs, store.weekly = ki, weekly
         except Exception:  # noqa: BLE001
             pass          # no key, no network: the first request will say so
 

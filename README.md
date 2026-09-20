@@ -33,8 +33,7 @@ scores.
 
 The Sample season tab plays out one simulated season week by week: every
 score, the standings, the title games, Selection Sunday and the bracket, with
-running stats. The committee ranks the teams each week from week 10, as it
-does in a real season, so the top 25 and the numbers beside each team move as
+running stats. The committee ranks the teams every week from week 3, so the top 25 and the numbers beside each team move as
 the season goes. Each click simulates a brand new season. It is only in the
 local app; the hosted version has the rooting guide alone.
 

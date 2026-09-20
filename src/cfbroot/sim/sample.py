@@ -82,7 +82,10 @@ def _score(rng, mu, p) -> tuple[int, int]:
     return (win, lose) if m > 0 else (lose, win)
 
 
-FIRST_POLL_WEEK = 10        # the committee's first poll of a real season
+# The real committee's first poll comes in November, but a ranking from week
+# three on is more use to watch, and the rating already has something to say
+# by then.
+FIRST_POLL_WEEK = 3
 POLL_DEPTH = 25             # it publishes a top 25
 
 

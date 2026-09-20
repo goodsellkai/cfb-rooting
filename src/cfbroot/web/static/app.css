@@ -404,3 +404,8 @@ table.standings th { padding: 0 8px 6px; }
 .gt-row.win .rk, .bteam.win .rk { color: var(--ink-2); }
 .headfields { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .headfields select[hidden] { display: none; }
+.mv { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mv.up { color: var(--good); }
+.mv.down { color: var(--bad); }
+.mv.flat { color: var(--muted); font-weight: 400; }
+.mv.new { color: var(--accent); font-size: 10px; letter-spacing: .02em; }
