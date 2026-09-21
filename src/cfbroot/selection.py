@@ -231,33 +231,37 @@ def title_game_jump(order: list[str], ratings: dict, results: list,
 # places, so the smaller figure is used.
 COMMITTEE_SD = 0.050
 
-# Worst loss. A team whose worst defeat came against a team near the top of
-# the ranking is treated better than one that lost to nobody in particular,
-# which is how the committee talks about "bad losses". The boost is
+# Worst loss and best win. A team whose worst defeat came against a team near
+# the top of the ranking is treated better than one that lost to nobody in
+# particular, which is how the committee talks about "bad losses", and a team
+# that has beaten someone near the top is treated better than one whose best
+# win is over nobody in particular. Both use the same curve and the same size,
+# so neither counts for more than the other:
 #
-#     boost = WORST_LOSS_BOOST * exp(-(place of the weakest team it lost to - 1)
-#                                    / WORST_LOSS_SCALE)
+#     worst loss boost = BOOST * exp(-(place of the weakest team it lost to - 1)
+#                                    / SCALE)
+#     best win boost   = BOOST * exp(-(place of the best team it beat - 1)
+#                                    / SCALE)
 #
-# so a team whose only loss is to the top team gets the full amount, one whose
-# worst loss is to 13th gets about a third of it, and a loss to anyone outside
-# the top 50 or so is worth nothing. A team that has not lost gets the full
-# amount. Title game losses do not count, since a title game only helps.
+# With a scale of 25, a result against 13th is worth about 60% of one against
+# the top team, one against 26th about 37%, and one against 50th about 14%.
+# A team that has not lost gets the full worst loss amount; one that has not
+# won gets no best win amount. Title games do not count, since a title game
+# only helps.
 #
-# The size is deliberately small: swept against the committee's polls over
-# 2023-25, 0.02 leaves the mean rank error where it was (2.95 places before
-# the title games, 2.89 on selection day), while 0.06 and above cost a tenth
-# of a place or more. It reorders the bubble without paying for it.
+# Picked by scoring shapes against every committee poll of 2023-25 (weeks 10
+# to selection day), with both boosts the same size: exponential at scales 6,
+# 12 and 25, straight-line ramps, a logistic cut at 10, 25 and 40, tiers
+# (top 10 / top 25), the opponent's rating instead of its place, and counts of
+# quality wins and bad losses. All of them help a little, taking the mean rank
+# error from 2.97 places to between 2.93 and 2.95. This one does it most
+# steadily: the gain holds across sizes 0.015 to 0.03, no season gets worse,
+# and selection day stays where it was. The shapes that scored a hair better
+# at one size swung back at the next, which is noise over three seasons.
 WORST_LOSS_BOOST = 0.02
-WORST_LOSS_SCALE = 12.0
-
-# Best win, the other way round: a team that has beaten someone near the top
-# is treated better than one whose best win is over nobody in particular.
-# Same shape, and smaller. Swept the same way, 0.01 takes the mean rank error
-# before the title games from 2.95 places to 2.91 and leaves selection day at
-# 2.89; larger values start trading one against the other. A team that has not
-# won gets nothing.
-BEST_WIN_BOOST = 0.01
-BEST_WIN_SCALE = 12.0
+WORST_LOSS_SCALE = 25.0
+BEST_WIN_BOOST = 0.02
+BEST_WIN_SCALE = 25.0
 
 
 def result_places(state, order: list[str], through_week: int | None = None
