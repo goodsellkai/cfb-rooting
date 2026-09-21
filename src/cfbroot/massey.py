@@ -51,6 +51,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.linalg import LinAlgError, cho_factor, cho_solve
 from scipy.special import log_ndtr, ndtr
 from scipy.stats import norm
 
@@ -187,6 +188,22 @@ def build_nodes(is_fbs):
     return node, fbs_idx, n_fbs + 1
 
 
+def _solve(a, b):
+    """Solve with the Hessian, which is positive definite.
+
+    Cholesky is a good deal faster here than numpy's general solver, whose
+    threaded LU takes about 70 ms on a system this size.
+    """
+    try:
+        return cho_solve(cho_factor(a, check_finite=False), b, check_finite=False)
+    except LinAlgError:
+        return np.linalg.solve(a, b)
+
+
+def _inv(a):
+    return _solve(a, np.eye(a.shape[0]))
+
+
 def fit_power(h_node, a_node, at_home, g, weight, n_nodes,
               prior_mean=None, params: MasseyParams | None = None):
     """Maximum likelihood ratings and home edge, by Fisher scoring.
@@ -246,13 +263,13 @@ def fit_power(h_node, a_node, at_home, g, weight, n_nodes,
         hess[n_nodes, n_nodes] = float((w * hv).sum())
         hess[np.diag_indices(n)] += prec
 
-        step = np.linalg.solve(hess, grad)
+        step = _solve(hess, grad)
         x = x + step
         if np.abs(step).max() < p.tol:
             converged = True
             break
 
-    sd = np.sqrt(np.clip(np.diag(np.linalg.inv(hess)), 0.0, None))
+    sd = np.sqrt(np.clip(np.diag(_inv(hess)), 0.0, None))
     return x[:n_nodes], float(x[n_nodes]), sd[:n_nodes], it, converged
 
 
@@ -736,7 +753,7 @@ def sim_system(state, sim_games, extra_games=None, expected=None,
         g_in_fit=in_fit, g_hnode=g_hnode, g_anode=g_anode,
         x_h=x_h, x_a=x_a, x_home=x_home, x_g=np.ascontiguousarray(x_g),
         x_won=x_won, played=played,
-        minv=np.ascontiguousarray(np.linalg.inv(hess)), start=x,
+        minv=np.ascontiguousarray(_inv(hess)), start=x,
         prior=np.concatenate([np.zeros(n_nodes), [p.hfa_mean]]), prec=prec,
         tg_ptr=ptr, tg_ref=ref[order].astype(np.int32),
         tg_home=home[order].astype(np.uint8),

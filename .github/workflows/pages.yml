@@ -1,7 +1,7 @@
 # Simulates the season and publishes the app to GitHub Pages as static files.
 #
-# Needs a repository secret named CFBD_API_KEY, and Pages set to deploy from
-# GitHub Actions (Settings > Pages > Source).
+# Needs Pages set to deploy from GitHub Actions (Settings > Pages > Source).
+# The data comes from ESPN; the CFBD_API_KEY secret is only a fallback.
 
 name: Publish site
 

@@ -7,6 +7,7 @@ import datetime as dt
 from ..config import ModelParams, has_api_key
 from . import cache
 from .cfbd_source import CFBDSource, SourceError
+from . import espn_season
 from .espn_source import ESPNError, fetch_fpi
 from .season import SeasonState, build_season
 
@@ -20,29 +21,37 @@ def default_year(today: dt.date | None = None) -> int:
 def load_season(year: int | None = None, *, live: bool = False,
                 force: bool = False, params: ModelParams | None = None,
                 synthetic: bool = False) -> SeasonState:
-    """Build a SeasonState from CFBD, or from fake data if there is no key.
+    """Build a SeasonState from ESPN, falling back to CFBD, then to fake data.
 
-    ``live=True`` caches game results for 10 minutes instead of 6 hours.
+    ESPN's scoreboard comes first: it has the same games and does not meter
+    them, where CFBD allows 1,000 calls a month. ``live=True`` keeps a week
+    still being played for 10 minutes instead of 3 hours.
     """
     year = year or default_year()
-
-    if synthetic or (not has_api_key() and _synthetic_allowed()):
-        import os
-
-        from .synthetic import synthetic_season
-        through = int(os.environ.get("CFBROOT_DEMO_WEEK", "6"))
-        state = synthetic_season(year=year, played_through=through, params=params)
-        state.notes.insert(0, "Demo data: no CFBD API key found, so this is a "
-                              "fake season played through week "
-                              f"{through}. Add CFBD_API_KEY to .env for real data.")
-        return state
-
-    src = CFBDSource(year)
-    teams = src.teams(force=force)
-    conferences = src.conferences(force=force)
-    games = drop_cancelled(src.games(live=live, force=force))
+    if synthetic:
+        return _demo(year, params, "Demo data")
 
     notes: list[str] = []
+    source, src, fcs = "ESPN", None, None
+    try:
+        data = espn_season.season(year, live=live, force=force)
+        teams, conferences, games = data["teams"], data["conferences"], data["games"]
+        fcs = data["fcs_games"]
+    except Exception as exc:  # noqa: BLE001
+        if not has_api_key():
+            if _synthetic_allowed():
+                return _demo(year, params, f"ESPN was unavailable ({exc}) and "
+                                           "there is no CFBD API key, so this is "
+                                           "demo data")
+            raise
+        notes.append(f"ESPN's scoreboard was unavailable ({exc}), so the games "
+                     "come from CollegeFootballData.")
+        source, src = "CFBD", CFBDSource(year)
+        teams = src.teams(force=force)
+        conferences = src.conferences(force=force)
+        games = src.games(live=live, force=force)
+    games = drop_cancelled(games)
+
     ratings_updated = None
     espn_extra: dict = {}
 
@@ -58,11 +67,12 @@ def load_season(year: int | None = None, *, live: bool = False,
                      "fell back to CollegeFootballData's FPI mirror, "
                      "which can be several days stale.")
 
-    if not fpi:
+    if not fpi and has_api_key():
+        src = src or CFBDSource(year)
         fpi = src.fpi(force=force)
 
     sp = []
-    if not fpi:
+    if not fpi and has_api_key():
         sp = src.sp(force=force)
         if not sp:
             raise SourceError(
@@ -71,6 +81,7 @@ def load_season(year: int | None = None, *, live: bool = False,
 
     state = build_season(year=year, teams_raw=teams, conferences_raw=conferences,
                          games_raw=games, fpi_raw=fpi, sp_raw=sp, params=params)
+    state.source = source
     state.rating_label = "FPI" if fpi else "SP+"
     state.ratings_updated = ratings_updated
     state.notes = notes + state.notes
@@ -113,16 +124,11 @@ def load_season(year: int | None = None, *, live: bool = False,
         pass
 
     try:
-        state.fcs_games = src.fcs_games(force=force)
+        state.fcs_games = fcs if fcs is not None else src.fcs_games(force=force)
     except Exception as exc:  # noqa: BLE001
         state.notes.append(
             f"FCS schedules were unavailable ({exc}), so every non-FBS "
             "opponent shares one rating.")
-
-    age = cache.cache_age("games", {"year": year, "season_type": "regular"})
-    if age is not None and age > 3600:
-        state.notes.append(f"Scores are from a cache written {age / 3600:.1f} hours "
-                           "ago. Restart the app to pull the latest results.")
     return state
 
 
@@ -145,6 +151,17 @@ def drop_cancelled(games: list[dict], now: dt.datetime | None = None,
                 continue
         out.append(g)
     return out
+
+
+def _demo(year: int, params, why: str) -> SeasonState:
+    import os
+
+    from .synthetic import synthetic_season
+    through = int(os.environ.get("CFBROOT_DEMO_WEEK", "6"))
+    state = synthetic_season(year=year, played_through=through, params=params)
+    state.source = "demo"
+    state.notes.insert(0, f"{why}: a fake season played through week {through}.")
+    return state
 
 
 def _synthetic_allowed() -> bool:

@@ -9,7 +9,10 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -e .
 ```
 
-Get a free API key at https://collegefootballdata.com/key and put it in a file named `.env` in this folder:
+Games, teams, FPI and polls come from ESPN, which needs no key. A
+CollegeFootballData key is optional and only used if ESPN is down. To add one,
+get it free at https://collegefootballdata.com/key and put it in a file named
+`.env` in this folder:
 
 ```
 CFBD_API_KEY=your_key_here
@@ -42,9 +45,9 @@ local app; the hosted version has the rooting guide alone.
 
 `cfbroot export` simulates the season and writes the whole app as static files
 to `site/`, so it can be hosted anywhere with no server. The Publish site
-workflow does this on a schedule and puts it on GitHub Pages. It needs a
-repository secret named `CFBD_API_KEY`, and Pages set to deploy from GitHub
-Actions.
+workflow does this on a schedule and puts it on GitHub Pages. It needs Pages
+set to deploy from GitHub Actions. A repository secret named `CFBD_API_KEY` is
+optional, as a fallback if ESPN is down.
 
 From the command line:
 

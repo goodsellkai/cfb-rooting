@@ -59,8 +59,8 @@ function banner(text, ok) {
 function showNotes() {
   const notes = (STATE.notes || []).filter(Boolean);
   if (!STATE.has_api_key) {
-    banner("No CFBD API key found. Showing a fake demo season. "
-      + "Add CFBD_API_KEY to .env and restart for real data.", false);
+    banner("Could not load the real season, so this is a fake demo one. "
+      + "Check the connection and restart.", false);
   } else if (notes.length) {
     banner(notes[0], true);
   } else {

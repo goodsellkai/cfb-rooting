@@ -122,6 +122,8 @@ class SeasonState:
     # {"ap": {team index: rank}, "cfp": ...}, and which week each is from.
     polls: dict = field(default_factory=dict)
     poll_weeks: dict = field(default_factory=dict)
+    # Where the games came from: "ESPN", "CFBD", or "demo" for fake data.
+    source: str = "demo"
     diagnostics: object = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"

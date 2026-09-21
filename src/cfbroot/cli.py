@@ -133,9 +133,9 @@ def cmd_massey(args) -> int:
     extra = []
     if not args.no_fcs:
         try:
-            from .data.cfbd_source import CFBDSource
-            with console.status("loading FCS games..."):
-                extra = CFBDSource(state.year).fcs_games(force=args.force)
+            extra = state.fcs_games
+            if not extra:
+                raise RuntimeError("the season came without them")
         except Exception as exc:  # noqa: BLE001
             console.print(f"[yellow]note[/] FCS games unavailable ({exc}); "
                           "every non-FBS opponent will share one rating.")

@@ -14,8 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..config import (DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig,
-                      has_api_key)
+from ..config import DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig
 from ..data.loader import default_year, load_season
 from ..data.season import SeasonState
 from ..model import provenance as model_provenance
@@ -63,6 +62,7 @@ class Store:
         self.payloads: dict[int, dict] = {}
         self.inputs = None            # kernel inputs, reused by sample seasons
         self.weekly = None            # a rating system per committee poll week
+        self.sample_ready = threading.Event()   # set once warm-up has tried
 
     def get_season(self) -> SeasonState:
         with self.lock:
@@ -148,7 +148,8 @@ def _season_payload(s: SeasonState) -> dict:
         "model": model_provenance(s.params),
         "diagnostics": diag.summary() if diag is not None else "",
         "notes": s.notes,
-        "has_api_key": has_api_key(),
+        "has_api_key": s.source != "demo",
+        "source": s.source,
         "loaded_at": store.loaded_at,
         "params": s.params.to_dict(),
         "metrics": [{"key": m, "label": METRIC_LABELS[m]} for m in METRIC_NAMES],
@@ -271,6 +272,9 @@ def api_sample(seed: int | None = None, from_start: bool = False):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if seed is None:
         seed = secrets.randbelow(1_000_000_000)
+    # Warm-up is already building these; waiting for it beats building a
+    # second copy alongside it.
+    store.sample_ready.wait(timeout=120)
     if store.inputs is None or store.weekly is None:
         # Both at once, and only once: a request arriving while these are
         # being built would otherwise find the inputs ready and the weekly
@@ -288,19 +292,24 @@ def _warm_up() -> None:
     """Start the shared simulation as the server comes up.
 
     The sample season's weekly rankings need a rating system per week, which
-    takes a few seconds to lay out. Doing it here means the first click does
-    not have to wait for it.
+    takes a few seconds to lay out. They are built first, before the long run
+    takes every core, so the first click does not wait on them.
     """
     def work() -> None:
         try:
             season = store.get_season()
-            store.start_league()
             ki = season.kernel_inputs()
             weekly = weekly_systems(season, ki)
             with store.lock:
                 store.inputs, store.weekly = ki, weekly
         except Exception:  # noqa: BLE001
-            pass          # no key, no network: the first request will say so
+            pass          # no network: the first request will say so
+        finally:
+            store.sample_ready.set()
+        try:
+            store.start_league()
+        except Exception:  # noqa: BLE001
+            pass
 
     threading.Thread(target=work, daemon=True, name="warm-up").start()
 

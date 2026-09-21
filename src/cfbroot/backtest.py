@@ -154,9 +154,8 @@ def fcs_games_for(year: int) -> list[dict]:
     Without them the rating still works; every non-FBS opponent just shares one
     rating, which costs about three places of accuracy per team.
     """
-    from .data.cfbd_source import CFBDSource
     try:
-        return CFBDSource(year).fcs_games()
+        return load_season(year).fcs_games
     except Exception:  # noqa: BLE001
         return []
 

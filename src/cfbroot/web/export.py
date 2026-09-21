@@ -18,7 +18,7 @@ import shutil
 import time
 from pathlib import Path
 
-from ..config import SimConfig, api_key
+from ..config import SimConfig
 from ..sim import run_league
 from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
 
@@ -31,10 +31,12 @@ def _write(path: Path, obj) -> int:
 
 def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
            log=print) -> None:
-    api_key()                 # a public site must not fall back to fake data
     if year:
         store.year = year
     state = store.get_season()
+    if state.source == "demo":
+        raise SystemExit("No real season could be loaded; a public site must "
+                         "not fall back to fake data.")
     log(f"{state.year} week {state.current_week()}: "
         f"{len(state.remaining_games)} games to simulate")
 
