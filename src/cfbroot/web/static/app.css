@@ -16,6 +16,11 @@
   --shadow: 0 1px 3px rgba(16, 24, 40, .07), 0 12px 28px -12px rgba(16, 24, 40, .12);
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 10px;
+  /* the field behind the panels */
+  --turf: #2f7d51;
+  --turf-2: #2b7149;
+  --endzone: #245f3e;
+  --chalk: rgba(255, 255, 255, .34);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -34,13 +39,26 @@
     --accent-soft: #16222f;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
     --shadow: 0 1px 3px rgba(0, 0, 0, .45), 0 12px 28px -12px rgba(0, 0, 0, .6);
+    --turf: #15321f;
+    --turf-2: #132c1d;
+    --endzone: #0f2417;
+    --chalk: rgba(255, 255, 255, .13);
   }
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
+  margin: 0; color: var(--ink);
+  /* A field running the height of the screen: an end zone at the top, one
+     at the bottom, yard lines every five yards across mown stripes. */
+  background:
+    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 4.1667vh)
+      0 8.3333vh / 100% 83.4vh no-repeat fixed,
+    linear-gradient(180deg, var(--endzone) 0 8.3333vh, transparent 8.3333vh 91.6667vh,
+      var(--endzone) 91.6667vh 100vh) 0 0 / 100% 100vh no-repeat fixed,
+    repeating-linear-gradient(180deg, var(--turf) 0 4.1667vh,
+      var(--turf-2) 4.1667vh 8.3333vh) 0 0 / 100% 100vh repeat fixed;
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
         "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
@@ -146,6 +164,8 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 
 /* layout */
 main { padding: 26px; max-width: 1240px; margin: 0 auto; width: 100%; flex: 1; }
+.empty { color: #fff; text-shadow: 0 1px 10px rgba(0, 0, 0, .45); }
+.empty h2 { color: #fff; }
 
 .banner {
   margin: 0; padding: 11px 26px; font-size: 13.5px;
