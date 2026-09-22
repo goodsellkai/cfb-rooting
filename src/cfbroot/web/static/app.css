@@ -51,14 +51,14 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; color: var(--ink);
   /* A field running the height of the screen: an end zone at the top, one
-     at the bottom, yard lines every five yards across mown stripes. */
+     at the bottom, yard lines every ten yards across mown stripes. */
   background:
-    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 4.1667vh)
+    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 16.6667vh)
       0 8.3333vh / 100% 83.4vh no-repeat fixed,
     linear-gradient(180deg, var(--endzone) 0 8.3333vh, transparent 8.3333vh 91.6667vh,
       var(--endzone) 91.6667vh 100vh) 0 0 / 100% 100vh no-repeat fixed,
-    repeating-linear-gradient(180deg, var(--turf) 0 4.1667vh,
-      var(--turf-2) 4.1667vh 8.3333vh) 0 0 / 100% 100vh repeat fixed;
+    repeating-linear-gradient(180deg, var(--turf) 0 16.6667vh,
+      var(--turf-2) 16.6667vh 33.3334vh) 0 0 / 100% 100vh repeat fixed;
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
         "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
@@ -273,6 +273,21 @@ th .hint { display: block; font-weight: 400; text-transform: none;
                  background: var(--good); }
 .impact .bar i.dim { background: #fff; border: 1px solid var(--line); }
 .swingcell.thin .amt, .swingcell.leaning .amt { color: var(--ink-2); }
+
+/* A narrow screen drops the impact bar, then the column, and only then
+   scrolls sideways. */
+@media (max-width: 1040px) {
+  /* No room for the bar, so the number carries the colour instead. */
+  .swingcell { width: 104px; }
+  .impact .bar { display: none; }
+  .swingcell.clear .amt { color: var(--good); }
+  table.games { min-width: 700px; }
+}
+@media (max-width: 800px) {
+  .swingcell { display: none; }
+  .key { display: none; }
+  table.games { min-width: 540px; }
+}
 
 /* confidence grades, used by the sample season */
 .sig { display: inline-block; font-size: 10.5px; font-weight: 700;
