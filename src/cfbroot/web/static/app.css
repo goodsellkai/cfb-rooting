@@ -401,25 +401,45 @@ tr.mine td { background: var(--accent-soft); }
 .seedchip.bye { background: var(--good-soft); color: var(--good); border-color: transparent; }
 
 /* bracket */
-.bracket { display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 12px;
-           overflow-x: auto; }
-.bcol { display: flex; flex-direction: column; gap: 10px; }
-.bgame { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
-.bgame.tbd { opacity: .45; border-style: dashed; }
-.bteam { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 13px;
+.bracket { display: grid; grid-template-columns: repeat(4, minmax(158px, 1fr));
+           gap: 22px; overflow-x: auto; padding-bottom: 4px; }
+.bcol { display: flex; flex-direction: column; justify-content: space-around; gap: 14px; }
+.bcol .subhead { text-align: center; margin: 0 0 2px; }
+.bgame {
+  position: relative; border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow-sm);
+}
+/* the line through to the next round */
+.bgame::after {
+  content: ""; position: absolute; top: 50%; right: -22px; width: 22px;
+  height: 1px; background: var(--line);
+}
+.bcol:last-child .bgame::after { display: none; }
+.bgame.tbd { opacity: .4; border-style: dashed; box-shadow: none; }
+.bgame.tbd .bteam { height: 32px; }
+.bgame.final { border-color: var(--good); }
+.bteam { display: flex; align-items: center; gap: 7px; padding: 7px 9px; font-size: 13px;
          color: var(--ink-2); }
 .bteam + .bteam { border-top: 1px solid var(--line-2); }
-.bteam.win { color: var(--ink); font-weight: 650; }
-.bteam.mine { background: var(--accent-soft); }
-.bseed { width: 16px; font-size: 10.5px; color: var(--muted); text-align: right; }
+.bteam.win { color: var(--ink); font-weight: 650; background: var(--good-soft); }
+.bteam.mine { box-shadow: inset 3px 0 0 var(--accent); }
+.bseed { width: 18px; font-size: 10.5px; color: var(--muted); text-align: center;
+         font-variant-numeric: tabular-nums; }
 .bname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bpts { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.champion { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
-            margin-bottom: 16px; border-radius: var(--radius);
-            background: var(--good-soft); color: var(--good); }
-.champion .logo { width: 40px; height: 40px; }
-.champion .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
-.champion .cname { font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+.bpts { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.byes { border: 1px dashed var(--line); border-radius: 10px; padding: 6px 2px 2px; }
+.byelabel { display: block; font-size: 10px; text-transform: uppercase;
+            letter-spacing: .06em; color: var(--muted); font-weight: 700;
+            padding: 0 9px 4px; }
+.byes .bteam { border: none; }
+.champion { display: flex; align-items: center; gap: 15px; padding: 15px 18px;
+            margin-bottom: 18px; border-radius: var(--radius);
+            border: 1px solid var(--good); background: var(--good-soft); }
+.champion .logo { width: 44px; height: 44px; }
+.champion .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+                   font-weight: 700; color: var(--good); }
+.champion .cname { font-size: 23px; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+@media (max-width: 820px) { .bracket { grid-template-columns: repeat(4, 158px); } }
 
 /* standings */
 table.standings td { padding: 6px 8px; }
@@ -455,6 +475,7 @@ table.standings th { padding: 0 8px 6px; }
 .playeropts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
          color: var(--ink-2); cursor: pointer; }
+.check[hidden] { display: none; }
 .check input { min-width: 0; width: 16px; height: 16px; margin: 0; padding: 0;
                accent-color: var(--accent); }
 

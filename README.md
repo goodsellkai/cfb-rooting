@@ -132,6 +132,13 @@ week and across the rest of the season. A swing survives as a real one, is
 marked as a direction the simulations lean toward, or is called too thin to
 tell.
 
+## Sim a season
+
+The site also plays out single simulated seasons: every score week by week,
+the standings, the title games, the committee's ranking, selection day and
+the bracket. Each one is a draw from the same distribution the odds come
+from, rated the same way.
+
 ## How well it does
 
 Backtested against every committee poll from 2023-25, from the first poll

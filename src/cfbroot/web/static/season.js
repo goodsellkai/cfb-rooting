@@ -1,10 +1,10 @@
 "use strict";
 
-/* Sample season: one simulated season, played back stage by stage.
+/* Sim a season: one simulated season, played back stage by stage.
  *
  * Uses app.js's globals: $, esc, num, team, logo, STATE, STATIC, WANTED.
- * Every season is simulated fresh by the local server when asked for, so the
- * tab only exists in the local app; the hosted site has nothing to run it.
+ * The local app simulates a fresh season on request. The hosted site has no
+ * server, so it draws from the seasons written out at build time.
  */
 
 let SEASON = null;      // the sample: games, title games, ranking, field, bracket
@@ -36,15 +36,29 @@ function showTab(name) {
 
 // Loading
 
+let UNSEEN = [];
+
+/** The next saved season, in a fresh random order once they run out. */
+function nextSavedSeason() {
+  if (!UNSEEN.length) {
+    UNSEEN = [...Array(STATE.sample_seasons || 1).keys()];
+    for (let i = UNSEEN.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [UNSEEN[i], UNSEEN[j]] = [UNSEEN[j], UNSEEN[i]];
+    }
+  }
+  return `data/season/${UNSEEN.pop()}.json`;
+}
+
 async function newSeason() {
   stopPlaying();
   $("s-loading").hidden = false;
   $("s-new").disabled = true;
   while (!STATE) await new Promise(r => setTimeout(r, 100));   // app.js still booting
   try {
-    const fresh = $("s-fresh").checked;
-    const resp = await fetch("/api/sample" + (fresh ? "?from_start=true" : ""),
-                             { cache: "no-store" });
+    const url = STATIC ? nextSavedSeason()
+      : "/api/sample" + ($("s-fresh").checked ? "?from_start=true" : "");
+    const resp = await fetch(url, { cache: "no-store" });
     if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
     SEASON = await resp.json();
   } catch (err) {
@@ -417,19 +431,34 @@ function renderBracket() {
   const shown = STAGES[STAGE].round;
   $("s-boardtitle").textContent = STAGES[STAGE].label;
   const seedOf = Object.fromEntries(SEASON.field.map(f => [f.team, f.seed]));
+  const byes = SEASON.field.filter(f => f.bye).map(f => f.team);
+
   const line = (t, pts, g, done) => `<div class="bteam${done && winner(g) === t ? " win" : ""}${t === me ? " mine" : ""}" data-team="${t}">
-      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 16)}
-      <span class="bname">${esc(team(t).name)}</span>${fpi(t)}<span class="bpts">${done ? pts : ""}</span></div>`;
+      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 18)}
+      <span class="bname">${esc(team(t).name)}</span>
+      <span class="bpts">${done ? pts : ""}</span></div>`;
+  const game = (g, done, cls) => `<div class="bgame${cls ? " " + cls : ""}">
+      ${line(g.home, g.home_points, g, done)}${line(g.away, g.away_points, g, done)}</div>`;
+  const blank = () => `<div class="bgame tbd"><div class="bteam"></div><div class="bteam"></div></div>`;
+
   const cols = SEASON.rounds.map((r, i) => {
     const done = i <= shown;
-    const body = done
-      ? r.games.map(g => `<div class="bgame">${line(g.home, g.home_points, g, true)}${line(g.away, g.away_points, g, true)}</div>`).join("")
-      : r.games.map(() => '<div class="bgame tbd"><div class="bteam">&nbsp;</div><div class="bteam">&nbsp;</div></div>').join("");
-    return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}</div>`;
+    const last = i === SEASON.rounds.length - 1;
+    const body = r.games.map(g => done ? game(g, true, last ? "final" : "") : blank()).join("");
+    const byeCol = i === 0 && byes.length
+      ? `<div class="byes"><span class="byelabel">Byes</span>${byes.map(t =>
+          `<div class="bteam bye${t === me ? " mine" : ""}" data-team="${t}">
+             <span class="bseed">${seedOf[t]}</span>${logo(t, 18)}
+             <span class="bname">${esc(team(t).name)}</span></div>`).join("")}</div>`
+      : "";
+    return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}${byeCol}</div>`;
   }).join("");
+
   const champ = shown === SEASON.rounds.length - 1 && SEASON.champion != null
-    ? `<div class="champion" data-team="${SEASON.champion}">${logo(SEASON.champion, 40)}<div><div class="label">National champion</div>
-        <div class="cname">${esc(team(SEASON.champion).name)}</div></div></div>` : "";
+    ? `<div class="champion${SEASON.champion === me ? " mine" : ""}" data-team="${SEASON.champion}">
+        ${logo(SEASON.champion, 44)}
+        <div><div class="label">National champion</div>
+          <div class="cname">${esc(team(SEASON.champion).name)}</div></div></div>` : "";
   $("s-board").innerHTML = champ + `<div class="bracket">${cols}</div>`;
 }
 
@@ -556,11 +585,8 @@ function onTeamChanged() {
 }
 
 if (STATIC) {
-  // The hosted build has the rooting guide only, so there is nothing to tab to.
-  document.querySelector(".tabs").hidden = true;
-  $("tab-season").hidden = true;
-} else {
-  try {
-    if (localStorage.getItem("cfbroot.tab") === "season") showTab("season");
-  } catch { /* private mode */ }
+  $("s-freshwrap").hidden = true;      // no server to replay a season on
 }
+try {
+  if (localStorage.getItem("cfbroot.tab") === "season") showTab("season");
+} catch { /* private mode */ }

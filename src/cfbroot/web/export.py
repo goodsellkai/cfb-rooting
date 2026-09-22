@@ -9,18 +9,25 @@ asking the server, and any static host can serve it.
       static/app.css, static/app.js, static/season.js
       data/state.json            the season, as /api/state returns it
       data/team/<idx>.json       one team's guide, as /api/team/<name> does
+      data/season/<n>.json       a simulated season, as /api/sample does
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from pathlib import Path
 
 from ..config import SimConfig
 from ..sim import run_league
+from ..sim.sample import sample_season, weekly_systems
 from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
+
+# Seasons written out for the Sim a season tab, which has no server to make
+# one on demand.
+SAMPLE_SEASONS = int(os.environ.get("CFBROOT_SAMPLES") or 200)
 
 
 def _write(path: Path, obj) -> int:
@@ -68,7 +75,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         html = html.replace(f'"static/{name}"', f'"static/{name}?v={build}"')
     (out / "index.html").write_text(html, encoding="utf-8")
 
-    size = _write(out / "data" / "state.json", _season_payload(state))
+    payload = _season_payload(state)
+    payload["sample_seasons"] = SAMPLE_SEASONS
+    size = _write(out / "data" / "state.json", payload)
     teams = state.fbs_teams
     for i, t in enumerate(teams, 1):
         size += _write(out / "data" / "team" / f"{t.idx}.json",
@@ -76,4 +85,13 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
+
+    (out / "data" / "season").mkdir()
+    ki = state.kernel_inputs()
+    weekly = weekly_systems(state, ki)
+    for i in range(SAMPLE_SEASONS):
+        size += _write(out / "data" / "season" / f"{i}.json",
+                       sample_season(state, SEED + i, ki=ki, weekly=weekly))
+        if (i + 1) % 50 == 0:
+            log(f"  wrote {i + 1} / {SAMPLE_SEASONS} simulated seasons")
     log(f"{out}: {size / 1e6:.0f} MB in {time.perf_counter() - t0:.0f}s")
