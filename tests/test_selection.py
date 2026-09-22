@@ -118,7 +118,8 @@ def test_2024_seeding_gives_the_byes_to_champions():
 
 
 def test_each_season_runs_its_own_rules():
-    assert selection.playoff_format(2026) == selection.PlayoffFormat("2026", False)
+    assert selection.playoff_format(2026) == selection.PlayoffFormat("2026", False,
+                                                                     ("Notre Dame",))
     assert selection.playoff_format(2025) == selection.PlayoffFormat("2024", False)
     assert selection.playoff_format(2024) == selection.PlayoffFormat("2024", True)
 

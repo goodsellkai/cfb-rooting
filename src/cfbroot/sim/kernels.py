@@ -80,72 +80,330 @@ def _draw_score(mu, sigma, tb, ts, tsd):
     return m, 0.5 * (t + m), 0.5 * (t - m)
 
 
-@njit(cache=True)
-def _order_conference(members, n_m, cwins, closses, score,
-                      conf_games, cg_lo, cg_hi, g_home, g_away, winner,
-                      order, pct, mark, h2h):
-    """Order a conference's members best to worst into ``order``.
+# Tiebreak steps and flags, as in data/conference_rules.py.
+TB_END = 0
+TB_H2H = 1
+TB_COMMON = 2
+TB_NEXT = 3
+TB_OPP_PCT = 4
+TB_TOTAL_WINS = 5
+TB_DIV_PCT = 6
+TB_RATING = 7
+TBF_RESTART = 1
+TBF_UNEQUAL = 2
+TBF_HOSTED = 4
 
-    Sorts by conference win percentage, then head-to-head among tied teams,
-    then committee score. The last step approximates the "highest ranked team"
-    tiebreaker the Big 12 and Big Ten use.
+
+@njit(cache=True)
+def _break_tie(grp, n, res, pct, members, cwins, closses, wins, score,
+               div_id, div, steps2, stepsm, flags, n_m, val, keep, cm):
+    """Pick one team out of a tied group, by a conference's own steps.
+
+    ``grp[:n]`` holds local member indices and is narrowed in place. ``res``
+    is the conference's results table: res[i, j] is how often i beat j.
+    Returns the local index of the team that comes out on top.
+    """
+    k = 0
+    for _guard in range(200):
+        if n == 1:
+            return grp[0]
+        steps = steps2 if n == 2 else stepsm
+        code = steps[k] if k < steps.shape[0] else TB_RATING
+        if code == TB_END:
+            code = TB_RATING
+
+        if code == TB_H2H:
+            complete = True
+            for a in range(n):
+                for b in range(a + 1, n):
+                    if res[grp[a], grp[b]] + res[grp[b], grp[a]] == 0:
+                        complete = False
+            if complete:
+                # Everyone played everyone: record among the tied teams.
+                for a in range(n):
+                    w = 0
+                    l = 0
+                    for b in range(n):
+                        if b != a:
+                            w += res[grp[a], grp[b]]
+                            l += res[grp[b], grp[a]]
+                    val[a] = w / (w + l) if w + l > 0 else 0.0
+            else:
+                # Not everyone met: a team that beat all the others goes
+                # through, and one that lost to all of them drops out.
+                for a in range(n):
+                    all_won = True
+                    for b in range(n):
+                        if b != a and not (res[grp[a], grp[b]] > 0
+                                           and res[grp[b], grp[a]] == 0):
+                            all_won = False
+                            break
+                    if all_won:
+                        return grp[a]
+                dropped = -1
+                for a in range(n):
+                    all_lost = True
+                    for b in range(n):
+                        if b != a and not (res[grp[b], grp[a]] > 0
+                                           and res[grp[a], grp[b]] == 0):
+                            all_lost = False
+                            break
+                    if all_lost:
+                        dropped = a
+                        break
+                if dropped >= 0:
+                    for a in range(dropped, n - 1):
+                        grp[a] = grp[a + 1]
+                    n -= 1
+                    k = 0
+                    continue
+                for a in range(n):
+                    val[a] = 0.0
+
+        elif code == TB_COMMON or code == TB_NEXT:
+            # Opponents every tied team played. In a divisional conference
+            # the common opponents are the other division's and the order of
+            # finish is the division's own.
+            for o in range(n_m):
+                cm[o] = 1
+                for a in range(n):
+                    if grp[a] == o:
+                        cm[o] = 0
+                if cm[o] == 1 and div >= 0:
+                    same = div_id[members[o]] == div
+                    if (code == TB_COMMON and same) or (code == TB_NEXT and not same):
+                        cm[o] = 0
+                if cm[o] == 1:
+                    for a in range(n):
+                        if res[grp[a], o] + res[o, grp[a]] == 0:
+                            cm[o] = 0
+                            break
+            if code == TB_COMMON:
+                for a in range(n):
+                    w = 0
+                    l = 0
+                    for o in range(n_m):
+                        if cm[o] == 1:
+                            w += res[grp[a], o]
+                            l += res[o, grp[a]]
+                    val[a] = w / (w + l) if w + l > 0 else 0.0
+            else:
+                # Down the standings a level at a time; teams level on
+                # percentage are taken together as a group.
+                level = 2.0
+                split = False
+                while not split:
+                    nxt = -1.0
+                    for o in range(n_m):
+                        if cm[o] == 1 and pct[o] < level - 1e-12 and pct[o] > nxt:
+                            nxt = pct[o]
+                    if nxt < 0.0:
+                        break
+                    level = nxt
+                    for a in range(n):
+                        w = 0
+                        l = 0
+                        for o in range(n_m):
+                            if cm[o] == 1 and abs(pct[o] - level) <= 1e-12:
+                                w += res[grp[a], o]
+                                l += res[o, grp[a]]
+                        val[a] = w / (w + l) if w + l > 0 else 0.0
+                    for a in range(1, n):
+                        if abs(val[a] - val[0]) > 1e-12:
+                            split = True
+                if not split:
+                    for a in range(n):
+                        val[a] = 0.0
+
+        elif code == TB_OPP_PCT:
+            for a in range(n):
+                tot = 0.0
+                cnt = 0
+                for o in range(n_m):
+                    gp = res[grp[a], o] + res[o, grp[a]]
+                    if gp > 0:
+                        tot += gp * pct[o]
+                        cnt += gp
+                val[a] = tot / cnt if cnt > 0 else 0.0
+
+        elif code == TB_TOTAL_WINS:
+            for a in range(n):
+                val[a] = wins[members[grp[a]]]
+
+        elif code == TB_DIV_PCT:
+            for a in range(n):
+                w = 0
+                l = 0
+                for o in range(n_m):
+                    if o != grp[a] and div_id[members[o]] == div_id[members[grp[a]]]:
+                        w += res[grp[a], o]
+                        l += res[o, grp[a]]
+                val[a] = w / (w + l) if w + l > 0 else 0.0
+
+        else:
+            for a in range(n):
+                val[a] = score[members[grp[a]]]
+
+        top = val[0]
+        for a in range(1, n):
+            if val[a] > top:
+                top = val[a]
+        m = 0
+        for a in range(n):
+            if val[a] >= top - 1e-12:
+                keep[m] = grp[a]
+                m += 1
+        if m == n:
+            if code == TB_RATING:
+                return grp[0]          # level on every count; first listed
+            k += 1
+            continue
+        if m == 1:
+            return keep[0]
+        for a in range(m):
+            grp[a] = keep[a]
+        n = m
+        if n == 2 or (flags & TBF_RESTART) != 0:
+            k = 0
+        else:
+            k += 1
+    return grp[0]
+
+
+@njit(cache=True)
+def _order_conference(members, n_m, cwins, closses, wins, score, div_id, div,
+                      conf_games, cg_lo, cg_hi, g_home, g_away, winner,
+                      steps2, stepsm, flags, n_pick, order, pct, mark, res):
+    """Order a conference best to worst into ``order`` (local indices).
+
+    The first ``n_pick`` places are settled the way the conference settles
+    its title game places: best conference winning percentage, ties broken by
+    its own steps (see data/conference_rules.py), and each place decided
+    before the next, so the tie for second starts over once first is taken.
+    With ``div`` at a division's index only that division's teams are in the
+    running, for a conference that sends its division winners. Everyone else
+    follows by winning percentage and then rating, which matters only for
+    showing the standings.
     """
     for j in range(n_m):
         t = members[j]
+        mark[t] = j
         played = cwins[t] + closses[t]
         pct[j] = cwins[t] / played if played > 0 else 0.0
-        order[j] = j
+        for q in range(n_m):
+            res[j, q] = 0
+    for gi in range(cg_lo, cg_hi):
+        g = conf_games[gi]
+        a = mark[g_home[g]]
+        b = mark[g_away[g]]
+        if a < 0 or b < 0:
+            continue
+        if winner[g] == 1:
+            res[a, b] += 1
+        elif winner[g] == 2:
+            res[b, a] += 1
 
-    # insertion sort by (pct desc, score desc)
-    for a in range(1, n_m):
+    taken = np.zeros(n_m, dtype=np.uint8)
+    grp = np.zeros(n_m, dtype=np.int32)
+    keep = np.zeros(n_m, dtype=np.int32)
+    val = np.zeros(n_m, dtype=np.float64)
+    cm = np.zeros(n_m, dtype=np.uint8)
+    n_out = 0
+    for _p in range(n_pick):
+        best = -1.0
+        for j in range(n_m):
+            if taken[j] == 0 and (div < 0 or div_id[members[j]] == div) and pct[j] > best:
+                best = pct[j]
+        if best < 0.0:
+            break
+        n = 0
+        for j in range(n_m):
+            if (taken[j] == 0 and (div < 0 or div_id[members[j]] == div)
+                    and abs(pct[j] - best) <= 1e-12):
+                grp[n] = j
+                n += 1
+        if (flags & TBF_UNEQUAL) != 0:
+            # A team that played one conference game more or fewer than a
+            # leader is tied with it when it matches it on wins or on
+            # losses. In 2026 that is the ACC's eight-game teams against its
+            # nine-game ones.
+            n_lead = n
+            for j in range(n_m):
+                if taken[j] != 0 or (div >= 0 and div_id[members[j]] != div):
+                    continue
+                if abs(pct[j] - best) <= 1e-12:
+                    continue
+                tj = members[j]
+                for q in range(n_lead):
+                    tm = members[grp[q]]
+                    if (abs((cwins[tj] + closses[tj]) - (cwins[tm] + closses[tm])) == 1
+                            and (cwins[tj] == cwins[tm] or closses[tj] == closses[tm])):
+                        grp[n] = j
+                        n += 1
+                        break
+        pick = _break_tie(grp, n, res, pct, members, cwins, closses, wins, score,
+                          div_id, div, steps2, stepsm, flags, n_m, val, keep, cm)
+        order[n_out] = pick
+        n_out += 1
+        taken[pick] = 1
+
+    start = n_out
+    for j in range(n_m):
+        if taken[j] == 0:
+            order[n_out] = j
+            n_out += 1
+    for a in range(start + 1, n_m):
         key = order[a]
         kp = pct[key]
         ks = score[members[key]]
         b = a - 1
-        while b >= 0 and (pct[order[b]] < kp - 1e-12 or
-                          (abs(pct[order[b]] - kp) <= 1e-12 and
-                           score[members[order[b]]] < ks)):
+        while b >= start and (pct[order[b]] < kp - 1e-12 or
+                              (abs(pct[order[b]] - kp) <= 1e-12 and
+                               score[members[order[b]]] < ks)):
             order[b + 1] = order[b]
             b -= 1
         order[b + 1] = key
+    for j in range(n_m):
+        mark[members[j]] = -1
 
-    # re-sort each tied block by head-to-head, then score
-    i = 0
-    while i < n_m:
-        j = i + 1
-        while j < n_m and abs(pct[order[j]] - pct[order[i]]) <= 1e-12:
-            j += 1
-        gsize = j - i
-        if gsize > 1:
-            for k in range(i, j):
-                mark[members[order[k]]] = k - i
-                h2h[k - i] = 0
+
+@njit(cache=True)
+def _title_game_pair(members, n_m, cwins, closses, wins, score, div_id, n_div,
+                     conf_games, cg_lo, cg_hi, g_home, g_away, winner,
+                     steps2, stepsm, flags, order, pct, mark, res):
+    """The two title game teams, higher seed first, as team indices.
+
+    The top two, or in a conference with divisions each division's winner,
+    with the better conference record as the higher seed (head-to-head, then
+    rating, if level).
+    """
+    if n_div >= 2:
+        _order_conference(members, n_m, cwins, closses, wins, score, div_id, 0,
+                          conf_games, cg_lo, cg_hi, g_home, g_away, winner,
+                          steps2, stepsm, flags, 1, order, pct, mark, res)
+        t1 = members[order[0]]
+        _order_conference(members, n_m, cwins, closses, wins, score, div_id, 1,
+                          conf_games, cg_lo, cg_hi, g_home, g_away, winner,
+                          steps2, stepsm, flags, 1, order, pct, mark, res)
+        t2 = members[order[0]]
+        p1 = cwins[t1] / max(1, cwins[t1] + closses[t1])
+        p2 = cwins[t2] / max(1, cwins[t2] + closses[t2])
+        second_hosts = p2 > p1 + 1e-12
+        if abs(p1 - p2) <= 1e-12:
+            beat = 0
             for gi in range(cg_lo, cg_hi):
                 g = conf_games[gi]
-                mh = mark[g_home[g]]
-                ma = mark[g_away[g]]
-                if mh >= 0 and ma >= 0:
-                    if winner[g] == 1:
-                        h2h[mh] += 1
-                    else:
-                        h2h[ma] += 1
-            for a in range(i + 1, j):
-                key = order[a]
-                kh = h2h[mark[members[key]]]
-                ks = score[members[key]]
-                b = a - 1
-                while b >= i:
-                    ob = order[b]
-                    oh = h2h[mark[members[ob]]]
-                    if oh < kh or (oh == kh and score[members[ob]] < ks):
-                        order[b + 1] = order[b]
-                        b -= 1
-                    else:
-                        break
-                order[b + 1] = key
-            for k in range(i, j):
-                mark[members[order[k]]] = -1
-        i = j
+                if (g_home[g] == t1 and g_away[g] == t2) or (g_home[g] == t2 and g_away[g] == t1):
+                    won = g_home[g] if winner[g] == 1 else g_away[g]
+                    beat += 1 if won == t1 else -1
+            second_hosts = beat < 0 or (beat == 0 and score[t2] > score[t1])
+        if second_hosts:
+            return t2, t1
+        return t1, t2
+    _order_conference(members, n_m, cwins, closses, wins, score, div_id, -1,
+                      conf_games, cg_lo, cg_hi, g_home, g_away, winner,
+                      steps2, stepsm, flags, 2, order, pct, mark, res)
+    return members[order[0]], members[order[1]]
 
 
 @njit(cache=True, parallel=True, nogil=True)
@@ -157,6 +415,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    conf_has_ccg, conf_crowns, conf_n_div, conf_is_power,
                    conf_fixed_ccg,
                    conf_ccg_pts, conf_ccg_home,
+                   conf_tb2, conf_tbm, conf_tbflags,
                    fbs_idx,
                    n_chunk_hint, m_node, m_n_fbs, m_in_fit, m_hn, m_an,
                    m_xh, m_xa, m_xhome, m_xg, m_xwon, m_played,
@@ -169,7 +428,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    corr_sd, corr_passes, committee_sd, jump_margin,
                    worst_loss, worst_loss_scale, best_win, best_win_scale,
                    h2h_depth,
-                   n_byes, bid_rule, champion_byes,
+                   n_byes, bid_rule, champion_byes, nd_idx,
                    out_hw, out_metrics,
                    h_wins, h_wins_made, h_seed, h_rank):
     n_teams = rating.shape[0]
@@ -229,7 +488,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         seed_of = np.zeros(n_teams, dtype=np.int32)
         order = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
         pct = np.zeros(MAX_CONF_SIZE, dtype=np.float64)
-        h2h = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
+        res = np.zeros((MAX_CONF_SIZE, MAX_CONF_SIZE), dtype=np.int32)
         mark = np.full(n_teams, -1, dtype=np.int32)
         members = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
         sortkey = np.zeros(n_fbs, dtype=np.float64)
@@ -324,41 +583,30 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 for j in range(n_m):
                     members[j] = conf_teams[m_lo + j]
 
-                _order_conference(members, n_m, cwins, closses, score,
-                                  conf_games, conf_games_ptr[cf],
-                                  conf_games_ptr[cf + 1],
-                                  g_home, g_away, winner,
-                                  order, pct, mark, h2h)
-
+                cg_lo = conf_games_ptr[cf]
+                cg_hi = conf_games_ptr[cf + 1]
+                tb_flags = conf_tbflags[cf]
                 fixed_home = conf_fixed_ccg[cf, 0]
                 if fixed_home >= 0:
                     t1 = fixed_home
                     t2 = conf_fixed_ccg[cf, 1]
                     st = conf_fixed_ccg[cf, 2]
                 elif not conf_has_ccg[cf] or n_m < 2:
+                    _order_conference(members, n_m, cwins, closses, wins, score,
+                                      div_id, -1, conf_games, cg_lo, cg_hi,
+                                      g_home, g_away, winner, conf_tb2[cf],
+                                      conf_tbm[cf], tb_flags, 1, order, pct,
+                                      mark, res)
                     champ[members[order[0]]] = 1
                     continue
                 else:
-                    nd = conf_n_div[cf]
-                    if nd >= 2:
-                        # best finisher from each of the top two divisions
-                        t1 = -1
-                        t2 = -1
-                        d1 = -1
-                        for k in range(n_m):
-                            t = members[order[k]]
-                            d = div_id[t]
-                            if t1 < 0:
-                                t1 = t
-                                d1 = d
-                            elif t2 < 0 and d != d1:
-                                t2 = t
-                                break
-                        if t2 < 0:
-                            t2 = members[order[1]]
-                    else:
-                        t1 = members[order[0]]
-                        t2 = members[order[1]]
+                    # The conference's own rules: top two, or division
+                    # winners, with its tiebreak steps; higher seed first.
+                    t1, t2 = _title_game_pair(
+                        members, n_m, cwins, closses, wins, score, div_id,
+                        conf_n_div[cf], conf_games, cg_lo, cg_hi, g_home,
+                        g_away, winner, conf_tb2[cf], conf_tbm[cf], tb_flags,
+                        order, pct, mark, res)
                     st = 0
 
                 in_ccg[t1] = 1
@@ -368,11 +616,13 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     p2 = conf_ccg_pts[cf, 1]
                     at_home = conf_ccg_home[cf]
                 else:
-                    # A drawn margin, like any other game. Title games are
-                    # treated as neutral site.
-                    _m, p1, p2 = _draw_score(scale * (eff[t1] - eff[t2]), sigma,
-                                             total_base, total_slope, total_sd)
-                    at_home = 0.0
+                    # A drawn margin, like any other game. Power conference
+                    # title games and the MAC's are at neutral sites; the
+                    # rest are at the higher seed's stadium.
+                    at_home = 1.0 if (tb_flags & TBF_HOSTED) != 0 else 0.0
+                    _m, p1, p2 = _draw_score(
+                        scale * (eff[t1] - eff[t2]) + hfa * at_home, sigma,
+                        total_base, total_slope, total_sd)
                 if p1 > p2:
                     won = t1
                     lost = t2
@@ -528,6 +778,11 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                         seeds[n_sel] = t
                         n_sel += 1
                         break
+                # Notre Dame is in if it is ranked in the top 12.
+                if nd_idx >= 0 and rank_of[nd_idx] < 12 and picked[nd_idx] == 0:
+                    picked[nd_idx] = 1
+                    seeds[n_sel] = nd_idx
+                    n_sel += 1
             else:
                 # 2024 and 2025: the five highest-ranked conference champions,
                 # from any conference, which is how Tulane and James Madison

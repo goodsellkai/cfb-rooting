@@ -10,8 +10,9 @@ The 2026-27 format, which is what pick_field() implements:
   plus the highest ranked Group of Six team. That last one changed for 2026 --
   it goes to the best Group of Six team outright, champion or not, where 2024
   and 2025 gave the five bids to the five highest ranked conference champions.
-  The other seven places are at large. Seeding is straight off the ranking, and
-  the top four seeds get the byes.
+  Notre Dame is in if it is ranked in the top 12 of the final rankings, also
+  new for 2026. The rest of the places are at large. Seeding is straight off
+  the ranking, and the top four seeds get the byes.
 
 The two twelve-team seasons before that ran different rules, which
 playoff_format() records:
@@ -84,12 +85,13 @@ def head_to_head_swap(order: list[str], beat: set, max_passes: int = 12
 class PlayoffFormat:
     bids: str               # a pick_field() rule: "2026" or "2024"
     champion_byes: bool     # the top four champions take seeds 1-4
+    top12: tuple[str, ...] = ()   # schools that are in if ranked in the top 12
 
 
 def playoff_format(year: int) -> PlayoffFormat:
     """The bid and seeding rules a season ran under."""
     if year >= 2026:
-        return PlayoffFormat("2026", False)
+        return PlayoffFormat("2026", False, ("Notre Dame",))
     if year == 2025:
         return PlayoffFormat("2024", False)
     return PlayoffFormat("2024", True)
@@ -112,7 +114,8 @@ class Field:
 
 def pick_field(order: list[str], champions: set, conference_of: dict,
                rule: str = "2026", size: int = FIELD, n_byes: int = N_BYES,
-               power=POWER, champion_byes: bool = False) -> Field:
+               power=POWER, champion_byes: bool = False,
+               top12: tuple[str, ...] = ("Notre Dame",)) -> Field:
     """Select and seed the playoff field from a ranking.
 
     ``order`` is best first. ``champions`` is the set of conference champions.
@@ -120,7 +123,8 @@ def pick_field(order: list[str], champions: set, conference_of: dict,
     ranked conference champions, which is what 2024 and 2025 used, or "none"
     for no automatic bids at all, which is what the four team playoff did.
     ``champion_byes`` gives seeds 1-4 to the four best ranked champions in the
-    field, as 2024 did.
+    field, as 2024 did. ``top12`` names the schools the "2026" rule puts in
+    whenever they are ranked in the top 12, which is Notre Dame.
     """
     power = set(power)
     sel: list[str] = []
@@ -144,6 +148,9 @@ def pick_field(order: list[str], champions: set, conference_of: dict,
             if c and c not in power and "independent" not in c.lower():
                 take(t, f"highest ranked Group of Six ({c})")
                 break
+        for t in order[:FIELD]:
+            if t in top12:
+                take(t, "ranked in the top 12")
     else:
         for t in order:
             if t in champions and len(sel) < 5:

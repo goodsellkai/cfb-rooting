@@ -23,7 +23,7 @@ from .. import massey, selection
 from ..config import MAX_CONF_SIZE
 from ..data.season import TO_SIMULATE, SeasonState
 from . import kernels as K
-from .kernels import _order_conference
+from .kernels import TBF_HOSTED, _order_conference, _title_game_pair
 
 HOME_WON, AWAY_WON = 1, 2
 
@@ -253,6 +253,9 @@ def sample_season(state: SeasonState, seed: int | None = None,
         winner[g["sim_idx"]] = g["status"]
     cw = np.zeros(len(teams), dtype=np.int32)
     cl = np.zeros(len(teams), dtype=np.int32)
+    wins = np.zeros(len(teams), dtype=np.int32)
+    for g in games:
+        wins[g["home_idx"] if g["status"] == HOME_WON else g["away_idx"]] += 1
     for i in np.flatnonzero(ki.g_conf):
         w, l = ((ki.g_home[i], ki.g_away[i]) if winner[i] == HOME_WON
                 else (ki.g_away[i], ki.g_home[i]))
@@ -261,7 +264,7 @@ def sample_season(state: SeasonState, seed: int | None = None,
 
     order_buf = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
     pct = np.zeros(MAX_CONF_SIZE)
-    h2h = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
+    res = np.zeros((MAX_CONF_SIZE, MAX_CONF_SIZE), dtype=np.int32)
     mark = np.full(len(teams), -1, dtype=np.int32)
     champions: set[str] = set()
     conferences = []
@@ -271,9 +274,13 @@ def sample_season(state: SeasonState, seed: int | None = None,
         n_m = members.size
         if n_m == 0:
             continue
-        _order_conference(members, n_m, cw, cl, score, ki.conf_games,
-                          ki.conf_games_ptr[c.idx], ki.conf_games_ptr[c.idx + 1],
-                          ki.g_home, ki.g_away, winner, order_buf, pct, mark, h2h)
+        cg_lo, cg_hi = ki.conf_games_ptr[c.idx], ki.conf_games_ptr[c.idx + 1]
+        tb2, tbm = ki.conf_tb2[c.idx], ki.conf_tbm[c.idx]
+        flags = int(ki.conf_tbflags[c.idx])
+        _order_conference(members, n_m, cw, cl, wins, score, ki.div_id, -1,
+                          ki.conf_games, cg_lo, cg_hi, ki.g_home, ki.g_away,
+                          winner, tb2, tbm, flags, min(2, n_m), order_buf, pct,
+                          mark, res)
         order = [int(members[order_buf[k]]) for k in range(n_m)]
         entry = {"name": c.name, "order": order, "champion": None,
                  "title_game": None, "crowns": c.crowns_champion}
@@ -287,10 +294,13 @@ def sample_season(state: SeasonState, seed: int | None = None,
             champions.add(teams[order[0]].school)
             continue
         else:
-            t1, t2, st = order[0], order[1], TO_SIMULATE
-            if len(c.divisions) >= 2:
-                t2 = next((t for t in order[1:]
-                           if teams[t].div_idx != teams[t1].div_idx), order[1])
+            # The conference's own rules, as in the kernel: top two or
+            # division winners, higher seed first.
+            t1, t2 = _title_game_pair(
+                members, n_m, cw, cl, wins, score, ki.div_id, len(c.divisions),
+                ki.conf_games, cg_lo, cg_hi, ki.g_home, ki.g_away, winner,
+                tb2, tbm, flags, order_buf, pct, mark, res)
+            t1, t2, st = int(t1), int(t2), TO_SIMULATE
         real = None if from_start else next(
             (g for g in state.games if g["is_ccg"] and g["status"] != TO_SIMULATE
              and {g["home_idx"], g["away_idx"]} == {t1, t2}), None)
@@ -299,8 +309,11 @@ def sample_season(state: SeasonState, seed: int | None = None,
                               real["home_idx"], real["away_idx"])
             neutral = real["neutral"]
         else:
-            hp, ap = _score(rng, p.rating_scale * (eff[t1] - eff[t2]), p)
-            neutral = True
+            # Neutral for the power conferences and the MAC; the others play
+            # at the higher seed's stadium.
+            neutral = (flags & TBF_HOSTED) == 0
+            hp, ap = _score(rng, p.rating_scale * (eff[t1] - eff[t2])
+                            + (0.0 if neutral else p.hfa), p)
         won, lost = (t1, t2) if hp > ap else (t2, t1)
         entry["champion"] = won
         champions.add(teams[won].school)
@@ -362,7 +375,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
     field = selection.pick_field(ranking.order, champions,
                                  {t.school: t.conference for t in fbs},
                                  rule=fmt.bids, n_byes=p.n_byes,
-                                 champion_byes=fmt.champion_byes)
+                                 champion_byes=fmt.champion_byes,
+                                 top12=fmt.top12)
     seeds = [by_name_idx[s] for s in field.seeds]
 
     # The bracket: 5-12, 6-11, 7-10 and 8-9 at the higher seed, then neutral

@@ -14,6 +14,7 @@ import numpy as np
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
 from ..massey import MasseyParams, sim_system
+from . import conference_rules as CR
 from ..model import evaluate, win_probability
 
 # status codes on the unified game table
@@ -67,6 +68,11 @@ class ConferenceInfo:
     # A scheduled or played title game replaces the simulated one:
     # (home_idx, away_idx, status).
     fixed_ccg: tuple[int, int, int] | None = None
+    # How the conference breaks ties for its title game, and where it plays
+    # it: see data/conference_rules.py.
+    tb_two: tuple[int, ...] = (CR.H2H, CR.RATING)
+    tb_multi: tuple[int, ...] = (CR.H2H, CR.RATING)
+    tb_flags: int = 0
 
 
 @dataclass
@@ -100,6 +106,9 @@ class KernelInputs:
     conf_fixed_ccg: np.ndarray         # (n_conf, 3): home, away, status; -1 if none
     conf_ccg_pts: np.ndarray           # (n_conf, 2): its score, if played
     conf_ccg_home: np.ndarray          # (n_conf,): 1.0 unless neutral site
+    conf_tb2: np.ndarray               # (n_conf, CR.N_STEPS): two-team tiebreak steps
+    conf_tbm: np.ndarray               # (n_conf, CR.N_STEPS): three or more
+    conf_tbflags: np.ndarray           # (n_conf,): CR flags
 
     massey: object                  # cfbroot.massey.SimSystem for this schedule
 
@@ -286,6 +295,12 @@ class SeasonState:
                 conf_ccg_pts[ci] = (g["home_points"], g["away_points"])
                 conf_ccg_home[ci] = 0.0 if g["neutral"] else 1.0
 
+        conf_tb2 = np.array([CR.step_row(c.tb_two) for c in self.conferences]
+                            or np.zeros((0, CR.N_STEPS)), dtype=np.int8).reshape(-1, CR.N_STEPS)
+        conf_tbm = np.array([CR.step_row(c.tb_multi) for c in self.conferences]
+                            or np.zeros((0, CR.N_STEPS)), dtype=np.int8).reshape(-1, CR.N_STEPS)
+        conf_tbflags = np.array([c.tb_flags for c in self.conferences], dtype=np.int32)
+
         return KernelInputs(
             rating=rating, conf_id=conf_id, div_id=div_id, is_fbs=is_fbs,
             g_home=g_home, g_away=g_away, g_neutral=g_neutral, g_conf=g_conf,
@@ -296,6 +311,7 @@ class SeasonState:
             conf_has_ccg=conf_has_ccg, conf_crowns=conf_crowns, conf_n_div=conf_n_div,
             conf_is_power=conf_is_power, conf_fixed_ccg=conf_fixed,
             conf_ccg_pts=conf_ccg_pts, conf_ccg_home=conf_ccg_home,
+            conf_tb2=conf_tb2, conf_tbm=conf_tbm, conf_tbflags=conf_tbflags,
             massey=msys,
             n_teams=n_teams, n_conf=n_conf,
         )
@@ -360,7 +376,8 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         idx = len(teams)
         cname = t.get("conference")
         ci = conf_idx_for(cname)
-        division = t.get("division") or None
+        division = (t.get("division")
+                    or CR.division_of(cname, school, year) or None)
         di = -1
         if division and ci >= 0:
             key = (ci, division)
@@ -451,6 +468,18 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             "sim_idx": -1, "pwin_home": float("nan"),
         })
 
+    # A second regular-season meeting of two conference members does not
+    # count in the standings. That is the Pac-12's week-13 flex game, played
+    # outside its seven-game round robin; nobody else has one.
+    met = set()
+    for g in sorted(games, key=lambda g: (g["week"], g["start_date"] or "")):
+        if not g["conference_game"] or g["is_ccg"]:
+            continue
+        pair = frozenset((g["home_idx"], g["away_idx"]))
+        if pair in met:
+            g["conference_game"] = False
+        met.add(pair)
+
     # Conferences
     conferences: list[ConferenceInfo] = []
     for i, name in enumerate(conf_names):
@@ -459,11 +488,13 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         independent = "independent" in name.lower()
         has_ccg = (len(members) >= 4 and name not in NO_CCG_CONFERENCES
                    and not independent)
+        rules = CR.title_rules(name, year)
         conferences.append(ConferenceInfo(
             idx=i, name=name, abbreviation=meta.get("abbreviation") or name,
             is_power=name in POWER_CONFERENCES, has_ccg=has_ccg,
             crowns_champion=not independent and len(members) >= 2,
-            divisions=conf_divisions.get(i, []), team_idxs=members))
+            divisions=conf_divisions.get(i, []), team_idxs=members,
+            tb_two=rules.two, tb_multi=rules.multi, tb_flags=rules.flags))
 
     # A scheduled or played title game replaces the simulated matchup.
     for g in games:

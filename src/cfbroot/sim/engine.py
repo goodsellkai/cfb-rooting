@@ -146,6 +146,9 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
 
     fmt = playoff_format(state.year)
     bid_rule = kernels.BIDS_2026 if fmt.bids == "2026" else kernels.BIDS_CHAMPIONS
+    # The one team with its own top-12 bid, Notre Dame from 2026.
+    nd = next((t for t in state.fbs_teams if t.school in fmt.top12), None)
+    nd_idx = nd.idx if nd is not None else -1
     fbs_idx = np.flatnonzero(ki.is_fbs).astype(np.int32)
     n_fbs = int(fbs_idx.size)
     n_rem = int(ki.remaining_idx.size)
@@ -182,6 +185,7 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             ki.conf_teams_ptr, ki.conf_teams, ki.conf_games_ptr, ki.conf_games,
             ki.conf_has_ccg, ki.conf_crowns, ki.conf_n_div, ki.conf_is_power,
             ki.conf_fixed_ccg, ki.conf_ccg_pts, ki.conf_ccg_home,
+            ki.conf_tb2, ki.conf_tbm, ki.conf_tbflags,
             fbs_idx,
             n_chunks, m.node, m.n_fbs, m.g_in_fit, m.g_hnode, m.g_anode,
             m.x_h, m.x_a, m.x_home, m.x_g, m.x_won, m.played,
@@ -195,7 +199,7 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             p.committee_sd, p.title_jump_margin,
             p.worst_loss_boost, p.worst_loss_scale,
             p.best_win_boost, p.best_win_scale, p.h2h_depth,
-            p.n_byes, bid_rule, fmt.champion_byes,
+            p.n_byes, bid_rule, fmt.champion_byes, nd_idx,
             out_hw, out_metrics, h_wins, h_made, h_seed, h_rank)
 
         hw = out_hw[:this]
