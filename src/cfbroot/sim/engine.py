@@ -1,13 +1,11 @@
 """Runs the kernel in batches and adds up the results.
 
-Which team you are asking about never changed how a season played out, so the
-kernel records every team and one set of simulations answers for all of them.
-That is what lets the app simulate once and then switch teams instantly.
+Which team you are asking about never changed how a season played out, so one
+set of simulations answers for all of them.
 
-Unplayed games are simulated independently, so splitting one set of simulations
-by the result of a game gives that game's effect. No game needs its own run,
-and since both halves share the other games' draws, the difference between them
-is less noisy than two separate runs.
+Unplayed games are simulated independently, so splitting those simulations by
+the result of one game gives that game's effect. Both halves share the other
+games' draws, so their difference is less noisy than two separate runs.
 """
 
 from __future__ import annotations

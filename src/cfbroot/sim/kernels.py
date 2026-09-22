@@ -101,7 +101,6 @@ def _break_tie(grp, n, res, pct, members, cwins, closses, wins, score,
 
     ``grp[:n]`` holds local member indices and is narrowed in place. ``res``
     is the conference's results table: res[i, j] is how often i beat j.
-    Returns the local index of the team that comes out on top.
     """
     k = 0
     for _guard in range(200):
@@ -278,12 +277,10 @@ def _order_conference(members, n_m, cwins, closses, wins, score, div_id, div,
 
     The first ``n_pick`` places are settled the way the conference settles
     its title game places: best conference winning percentage, ties broken by
-    its own steps (see data/conference_rules.py), and each place decided
-    before the next, so the tie for second starts over once first is taken.
-    With ``div`` at a division's index only that division's teams are in the
-    running, for a conference that sends its division winners. Everyone else
-    follows by winning percentage and then rating, which matters only for
-    showing the standings.
+    its own steps (see data/conference_rules.py), one place at a time, so the
+    tie for second starts over once first is taken. With ``div`` set, only
+    that division's teams are in the running. The rest follow by winning
+    percentage and then rating, which only affects the standings display.
     """
     for j in range(n_m):
         t = members[j]
@@ -508,9 +505,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
             # 1. Game outcomes and scores. Played games keep their real
             # scores; the rest get a drawn margin, and the two scores follow
-            # from it. Drawing the margin rather than flipping a weighted coin
-            # gives exactly the same win probability, because it is the same
-            # distribution the probability was read off in the first place.
+            # from it. Drawing the margin leaves each game's win probability
+            # unchanged, since that is where the probability came from.
             for i in range(n_g):
                 st = g_status[i]
                 if st != 0:
@@ -639,11 +635,10 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 cc_won[n_cc] = 1 if p1 > p2 else 0
                 n_cc += 1
 
-            # 5. The rating, exactly as massey.rate_selection_day() does it.
-            # Two fits: one with the title games, which everyone takes, and
-            # the one above without them, which a title game loser keeps. So a
-            # title game can only help. A nudge on top stands in for the
-            # committee's own variability.
+            # 5. The rating, as massey.rate_selection_day() does it: two
+            # fits, one with the title games and the one above without, which
+            # a title game loser keeps, so a title game can only help. A nudge
+            # on top stands in for the committee's own variability.
             _selection_rating(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
                               hpts, apts, m_xh, m_xa, m_xhome, m_xg, m_xwon,
                               cc_h, cc_a, cc_home, cc_g, cc_won, n_cc, cc_of,
@@ -872,9 +867,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 for k in range(field):
                     reached[k] = 0
 
-            # 8. Outputs. Everything is recorded for every team. Which team
-            # is being asked about never changed how a season played out, so
-            # one set of simulations answers for all of them.
+            # 8. Outputs, recorded for every team, since one set of
+            # simulations answers for all of them.
             for k in range(n_rem):
                 out_hw[s, k] = 1 if winner[remaining_idx[k]] == 1 else 0
 
@@ -996,12 +990,10 @@ def _outcome(hp, ap, gof_k, gof_c, gof_q, mov_w, mov_flat):
 def _add_score(h, a, at_home, g, r, grad, n_nodes):
     """One game's pull on the gradient; returns its curvature.
 
-    The curvature is the observed one, the second derivative of the game's
-    log-likelihood, rather than its expected value (Fisher information). Both
-    lead to the same maximum. With a probit link Fisher scoring only closes in
-    on it linearly, about ten steps a season; Newton's method gets there in
-    about five. The likelihood is log-concave in the rating gap for any
-    outcome value between 0 and 1, so the curvature is never negative.
+    The curvature is the observed one, not its expected value, so the fit
+    takes Newton steps rather than Fisher scoring steps: same maximum, about
+    half as many steps. The log-likelihood is concave in the rating gap for
+    any outcome value between 0 and 1, so the curvature is never negative.
     """
     d = r[h] - r[a] + r[n_nodes] * at_home
     if d > _MCLIP:
@@ -1048,12 +1040,9 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                minv, prior, prec, n_nodes, tol, max_iter, r, vec, wts):
     """massey.fit_power()'s maximum, by Newton's method.
 
-    Each step solves its linear system by conjugate gradients steered with the
-    curvature of a typical season, which is close to every simulated one. The
-    system is only solved as closely as the step needs: loosely while the fit
-    is still far off, tightly once it is close, so the answer is as exact as
-    solving every step fully. ``r`` is the starting point and is updated in
-    place.
+    Each step solves its linear system by conjugate gradients, preconditioned
+    with the curvature of a typical season, and only as closely as that step
+    needs. ``r`` is the starting point and is updated in place.
     """
     n = n_nodes + 1
     grad, step, res, z, pv, ap = vec[0], vec[1], vec[2], vec[3], vec[4], vec[5]
@@ -1144,9 +1133,9 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                 big = abs(step[k])
         if not big < math.inf:
             return -1                      # not a number: give up, see _fit
-        # A long step is shortened, so no step can overshoot far enough to
-        # leave the fit somewhere it cannot climb back from. Near the answer
-        # steps are far below the cap, so where it ends up is unchanged.
+        # A long step is shortened so it cannot overshoot into somewhere the
+        # fit will not climb back from. Near the answer steps are far below
+        # the cap, so the answer is unchanged.
         shrink = _MAX_STEP / big if big > _MAX_STEP else 1.0
         for k in range(n):
             r[k] += shrink * step[k]
@@ -1161,10 +1150,8 @@ def _fit(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
          minv, prior, prec, n_nodes, tol, max_iter, r, start, vec, wts):
     """_fit_power(), started again from ``start`` if it does not converge.
 
-    Each season starts from the one before, which is close and saves steps.
-    A fit that fails must not hand its answer on, or every season after it
-    starts from somewhere bad; so it is thrown away and redone from the
-    typical season.
+    A failed fit must not hand its answer on, so it is thrown away and redone
+    from the typical season.
     """
     it = _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                     cc_h, cc_a, cc_home, cc_g, n_cc,
@@ -1190,11 +1177,9 @@ def _correct(n_g, in_fit, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won
     opponents also read where the last pass left them. On the last pass only
     the teams flagged in ``need`` are worked out, since nobody reads the rest.
 
-    A game's likelihood is worked out once and given to both teams. The home
+    A game's likelihood is worked out once and given to both teams: the home
     side's term at one Gauss-Hermite point is the away side's at the mirrored
-    point, since the points are symmetric about zero, so the log-CDF, which is
-    nearly all the cost, is paid once per game rather than once per team.
-    ``ll`` holds each node's log weights, (n_nodes, points).
+    point. ``ll`` holds each node's log weights, (n_nodes, points).
     """
     n_q = gh_t.shape[0]
     n_x = x_h.shape[0]

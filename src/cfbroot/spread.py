@@ -5,23 +5,20 @@ sigma, and the curve rating_sd_start, rating_sd_floor and rating_sd_weeks.
 
 ESPN keeps every week's FPI. For each snapshot, every later regular-season
 game between two FBS teams gets a residual: the margin minus the margin FPI
-predicted (slope 1, the model's home edge). Oriented to one team, two of its
-residuals share only that team's rating error; the opponents' errors and the
-game noise are independent. So the mean product of a team's residuals across
-different games is the variance of the error it carries for the rest of the
-season, which is what the simulator draws once per season. What is left of a
-game's squared residual after both teams' errors is the game noise.
+predicted. Two of one team's residuals share only that team's rating error,
+since the opponents' errors and the game noise are independent, so the mean
+product of a team's residuals across games is the variance of the error it
+carries for the rest of the season. What is left of a game's squared residual
+after both teams' errors is the game noise.
 
 Measured over 2023-25, the team error is 7.1 points before the season and
-shrinks as FPI sees results, levelling off near 5 by mid-October, while the
-game noise holds at 13.5 to 14 all year. The curve
+levels off near 5 by mid-October, while the game noise holds at 13.5 to 14 all
+year. The curve
 
     rating_sd(w)^2 = floor^2 + (start^2 - floor^2) * exp(-w / weeks)
 
-with w the weeks of results FPI has seen fits every week to within its
-uncertainty. Fitted on two seasons and tested on the third, it scored better
-than a constant 3.91 in all nine cases tried, and its 80% ranges for teams'
-remaining win totals held 78% of outcomes against 72%.
+with w the weeks of results FPI has seen, fitted on two seasons and tested on
+the third, beat a constant in every case tried.
 """
 
 from __future__ import annotations

@@ -1,9 +1,8 @@
 """Massey ratings.
 
 The model follows the method Kenneth Massey documents at
-masseyratings.com/theory. His published description is informal, so the shape
-is his and the constants are fitted to reproduce his published output. Where a
-number was recovered rather than given, the comment says so.
+masseyratings.com/theory. The shape is his; constants he does not publish are
+fitted to reproduce his published output.
 
 One default departs from him on purpose: mov_weight discounts margin of
 victory, because the playoff committee does. MasseyParams(mov_weight=1.0) is
@@ -12,31 +11,29 @@ his model as published.
 The model has three stages.
 
 1. Game outcome function. Each game's score becomes a number g in [0, 1]: the
-   chance the winner would win a rematch under the same conditions. It reads
-   both the margin and the total, because a 30-29 game is closer to a coin flip
-   than a 10-9 game. Massey publishes eleven sample values and no formula;
-   fit_gof() in the tests recovers one that hits all eleven to within 0.003.
+   chance the winner would win a rematch. It reads both the margin and the
+   total, because a 30-29 game is closer to a coin flip than a 10-9 game.
+   Massey publishes eleven sample values and no formula; fit_gof() in the
+   tests recovers one that matches them.
 
 2. Power rating. Each team's performance is normally distributed about its
    rating, so P(A beats B) = Phi(rA - rB + home edge). Maximising
 
        prod over games of  p^g * (1 - p)^(1 - g)
 
-   gives the maximum likelihood ratings and home edge. Preseason ratings enter
-   as a prior, which is what keeps the answer sane in September when the
-   schedule graph is barely connected. This is the Pwr column on his site.
+   gives the maximum likelihood ratings and home edge. A prior keeps the
+   answer sane in September, when the schedule graph is barely connected.
+   This is the Pwr column on his site.
 
 3. Bayesian win-loss correction. The power rating is built from scores alone,
    so it misses teams that win without winning big. The power fit becomes a
-   prior and the actual wins and losses become the likelihood; the posterior
-   mean is the overall rating. This is the Rat column, and it is the one that
-   moves an 11-2 BYU up and a 9-4 Alabama down.
+   prior and the wins and losses become the likelihood; the posterior mean is
+   the overall rating. This is the Rat column.
 
-Margin of victory is what the BCS banned, so rate_season(use_scores=False)
-drops stage 1 and feeds g = 1 for a win and 0 for a loss. That is the shape of
-what Massey actually submitted to the BCS, and it needs no scores. It is a
-blunt switch, though, and it ranked 11-1 Boise State second in 2024. Turning
-mov_weight down instead keeps the scoreboard and only flattens it.
+rate_season(use_scores=False) drops stage 1 and feeds g = 1 for a win and 0
+for a loss, the shape of what Massey submitted to the BCS, which banned margin
+of victory. Turning mov_weight down instead keeps the scoreboard and only
+flattens it.
 
 Like Massey's, the rating covers all of Division I: FCS teams are rated from
 their own schedules when those are passed in as extra games. Anyone with fewer
@@ -74,19 +71,13 @@ class MasseyParams:
     gof_c: float = GOF_C
     gof_q: float = GOF_Q
 
-    # Prior on the ratings, in rating units (one unit is one standard deviation
-    # of a single game's outcome). Wide on purpose: Massey says preseason
-    # ratings are "negligible by the end of the year", and fitting against his
-    # published finals agrees, preferring the widest prior tried. It is the
-    # early-season fit that leans on this, which is the point of having it.
+    # Prior on the ratings, in rating units (one unit is one standard
+    # deviation of a single game's outcome). Wide, since Massey says preseason
+    # ratings are "negligible by the end of the year".
     prior_sd: float = 16.0
-    # Floor on the prior, in games. A team is given at least this many games'
-    # worth of prior, so a team that has played fewer than this gets pulled
-    # toward the prior mean and one with a full schedule is left alone. Massey
-    # says preseason ratings exist to "guarantee a unique solution to the
-    # equations early in the season", and without this the fit runs away in
-    # September: in week 3 of 2026 it fails to converge at all, and ratings
-    # reach 2300 on a scale whose full-season spread is about 4.
+    # Floor on the prior, in games. A team with fewer games than this is
+    # pulled toward the prior mean; one with a full schedule is left alone.
+    # Without it the fit runs away in September.
     prior_games: float = 4.0
     # Home edge. Massey's per-team values sit in a narrow band around 2.2
     # points, which he gets with a strong prior; one shared value is used here.
@@ -96,52 +87,33 @@ class MasseyParams:
     # Exponential decay on a game's weight, in weeks. 0 turns it off.
     half_life_weeks: float = 0.0
 
-    # How much of the margin of victory to keep. 1.0 is Massey's own model:
-    # the game outcome function's answer is used as it stands. 0.0 shrinks
-    # every game to the same value, so a win is a win and the scoreboard only
-    # decides who won. In between, each game's outcome value is pulled that
-    # far toward the typical winner's value, which flattens blowouts and close
-    # calls toward each other without throwing the scoreboard away.
+    # How much of the margin of victory to keep. 1.0 is Massey's own model;
+    # 0.0 makes a win a win. In between, each game's outcome value is pulled
+    # that far toward the typical winner's value, flattening blowouts without
+    # throwing the scoreboard away.
     #
-    # This is a deliberate departure from Massey, tuned for agreement with the
-    # playoff committee rather than with him. Sweeping it against the
-    # committee's last poll before championship weekend, 2023-25, the mean
-    # rank error falls from 3.91 places at 1.0 to about 3.15 around 0.4-0.5,
-    # and leaving one season out picks 0.40, 0.40 and 0.45, so the gain is not
-    # an artefact of fitting three seasons. It costs fidelity to Massey
-    # himself: the mean rank error inside his published top 25 goes from 2.65
-    # to 4.00. Set it to 1.0 to get his model back.
+    # Tuned for agreement with the committee rather than with Massey. Swept
+    # against the committee's polls over 2023-25, the mean rank error falls
+    # from 3.9 places at 1.0 to about 3.2 around 0.4 to 0.5, and leaving one
+    # season out picks the same range. Set it to 1.0 to get his model back.
     mov_weight: float = 0.45
-    # What a win shrinks toward. This is the average outcome value of a winning
-    # team over a full season, which came out at 0.836, 0.832 and 0.836 in
-    # 2025, 2024 and 2023, so it is fixed rather than measured per fit. Keeping
-    # it constant means mov_weight means the same thing whatever games it sees.
+    # What a win shrinks toward: the average outcome value of a winning team
+    # over a season, near 0.835 in each of 2023-25. Fixed rather than measured
+    # per fit, so mov_weight means the same thing whatever games it sees.
     mov_flat: float = 0.835
 
-    # Spread of the prior in the win-loss correction, in rating units. A flat
-    # spread fits better than scaling each team's by its own standard error.
-    #
-    # correction_passes re-runs the correction with opponents read at their
-    # corrected ratings rather than their power ratings. Massey's ratings are
-    # "totally interdependent", solved together, so one pass was wrong. Three
-    # passes cut the mean rank error inside his published top 25 from 3.13 to
-    # 2.65 places, and on his standings of 1 Dec 2024 it moves an undefeated
-    # Oregon from 4th to 1st, which is where he had them. Pushing the spread up
-    # instead of iterating does not work: it drifts toward a pure win-loss
-    # rating and floats 11-1 Boise State into the top 2.
-    #
-    # The spread is how far the correction may move a team, so it is how much
-    # the bare record counts against the scoreboard. Swept against the
-    # committee's polls over 2023-25, 0.25 is the best of 0.20 to 0.30: the
-    # mean rank error falls from 3.05 places to 2.95 before the title games
-    # and 3.05 to 2.89 on selection day. Past 0.27 it turns back up, drifting
-    # toward a pure win-loss rating.
+    # Spread of the prior in the win-loss correction, in rating units. It is
+    # how far the correction may move a team, so it is how much the bare
+    # record counts against the scoreboard. Swept against the committee's
+    # polls over 2023-25, 0.25 is the best of 0.20 to 0.30; past that it
+    # drifts toward a pure win-loss rating.
     correction_abs: float = 0.25
+    # Re-runs the correction with opponents read at their corrected ratings
+    # rather than their power ratings, since Massey's ratings are "totally
+    # interdependent". Three passes match his published top 25 best.
     correction_passes: int = 3
-    # Gauss-Hermite points used to average over the prior. Eight already agree
-    # with any larger number to within rounding; an 81-point grid over four
-    # standard deviations, used before, sat 0.00025 off because it cut the
-    # tails, without changing any team's rank.
+    # Gauss-Hermite points for the average over the prior. Eight already agree
+    # with any larger number to within rounding.
     correction_nodes: int = 10
 
     max_iter: int = 60

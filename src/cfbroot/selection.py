@@ -225,46 +225,32 @@ def title_game_jump(order: list[str], ratings: dict, results: list,
 # Committee noise
 
 # Standard deviation of the nudge added to each rating to stand in for the
-# committee's own variability, in rating units. Set so a nudged ranking sits
-# 1.35 places from the unnudged one on average through the top 25; at 0.050 the
-# measured displacement is 1.34, which is about 1.3% of the rating's full
-# spread.
+# committee's own variability, in rating units. It moves a team 1.3 places on
+# average through the top 25.
 #
-# The committee's own rankings sit 2.99 places from ours, which would want
-# 0.116. That figure counts every disagreement as chance, and much of it is
-# not: the committee favours ACC and SEC teams by a few places, and a third of
-# the gap is predictable from margin, schedule and conference. Calibrating to
-# the whole gap would dress up a known bias as noise and swing seeds by five
-# places, so the smaller figure is used.
+# The committee's rankings sit 2.99 places from ours, which would want 0.116.
+# Much of that gap is not chance: the committee favours ACC and SEC teams, and
+# a third of it is predictable from margin, schedule and conference. Treating
+# all of it as noise would swing seeds by five places.
 COMMITTEE_SD = 0.050
 
-# Worst loss and best win. A team whose worst defeat came against a team near
-# the top of the ranking is treated better than one that lost to nobody in
-# particular, which is how the committee talks about "bad losses", and a team
-# that has beaten someone near the top is treated better than one whose best
-# win is over nobody in particular. Both use the same curve and the same size,
-# so neither counts for more than the other:
+# Worst loss and best win, the way the committee talks about bad losses and
+# quality wins. Both use the same curve and the same size:
 #
 #     worst loss boost = BOOST * exp(-(place of the weakest team it lost to - 1)
 #                                    / SCALE)
 #     best win boost   = BOOST * exp(-(place of the best team it beat - 1)
 #                                    / SCALE)
 #
-# With a scale of 25, a result against 13th is worth about 60% of one against
-# the top team, one against 26th about 37%, and one against 50th about 14%.
-# A team that has not lost gets the full worst loss amount; one that has not
-# won gets no best win amount. Title games do not count, since a title game
-# only helps.
+# A result against 13th is worth about 60% of one against the top team, and
+# one against 50th about 14%. A team that has not lost gets the full worst
+# loss amount; one that has not won gets no best win amount. Title games do
+# not count, since a title game only helps.
 #
-# Picked by scoring shapes against every committee poll of 2023-25 (weeks 10
-# to selection day), with both boosts the same size: exponential at scales 6,
-# 12 and 25, straight-line ramps, a logistic cut at 10, 25 and 40, tiers
-# (top 10 / top 25), the opponent's rating instead of its place, and counts of
-# quality wins and bad losses. All of them help a little, taking the mean rank
-# error from 2.97 places to between 2.93 and 2.95. This one does it most
-# steadily: the gain holds across sizes 0.015 to 0.03, no season gets worse,
-# and selection day stays where it was. The shapes that scored a hair better
-# at one size swung back at the next, which is noise over three seasons.
+# Chosen by scoring exponential, straight-line, logistic, tiered, rating-based
+# and count-based shapes against every committee poll of 2023-25. All of them
+# help by about the same amount; this one holds its gain across sizes 0.015 to
+# 0.03 with no season getting worse.
 WORST_LOSS_BOOST = 0.02
 WORST_LOSS_SCALE = 25.0
 BEST_WIN_BOOST = 0.02

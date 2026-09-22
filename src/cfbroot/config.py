@@ -52,15 +52,13 @@ class ModelParams:
 
     # Game outcome model
     hfa: float = 2.75              # home field advantage, points
-    # Game noise: what one game does beyond both teams' true strength. Holds
-    # at 13.5 to 14 points all season in 2023-25.
+    # Game noise: what one game does beyond both teams' true strength.
     sigma: float = 13.86
     # A team's rating error: how far FPI is off about it, for the rest of the
     # season. Drawn once per simulated season, since a misjudged team is
     # misjudged every week. It shrinks as FPI sees results, from 7.2 points
-    # before the season toward 4.7, closing 63% of the gap every 4.6 weeks:
-    # about 6 after week 4 and 5 by mid-October. rating_sd is the value in use;
-    # build_season() sets it from team_error() for the current week.
+    # before the season toward 4.7. build_season() sets rating_sd from
+    # team_error() for the current week.
     rating_sd_start: float = 7.18
     rating_sd_floor: float = 4.68
     rating_sd_weeks: float = 4.60
@@ -69,11 +67,9 @@ class ModelParams:
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
 
     # Simulated scores. The margin is drawn first, from the same distribution
-    # the win probability already came from, so no game's odds change; the
-    # total is then drawn around it and the two scores fall out. Measured over
-    # 2,398 FBS games in 2023-25: totals average 53.1 with an SD of 16.8, and
-    # rise slightly with the margin (a blowout is a little higher scoring, not
-    # lower), which is the slope below.
+    # the win probability came from, so no game's odds change; the total is
+    # drawn around it and the two scores fall out. Totals rise slightly with
+    # the margin, which is the slope below.
     total_base: float = 50.19
     total_slope: float = 0.180     # extra points per point of margin
     total_sd: float = 16.61
@@ -82,16 +78,13 @@ class ModelParams:
     calibration_n: int = 1496
     calibration_seasons: str = "2024-25"
 
-    # Ranking and selection. The rating itself is Massey's, and its own
-    # settings live in cfbroot.massey; these are the parts the Monte Carlo
-    # needs to know about.
-    #
+    # Ranking and selection. The rating's own settings live in cfbroot.massey.
     # Each simulated season solves the power rating until no rating moves by
-    # more than fit_tol, which is far below anything that could change a rank.
+    # more than fit_tol, far below anything that could change a rank.
     fit_tol: float = 1e-8
     fit_max_iter: int = 500
-    # How far down the table the head-to-head pass looks. Only the top matters
-    # to the field, and scanning all of it every season is wasted work.
+    # How far down the table the head-to-head pass looks. Only the top of it
+    # can matter to the field.
     h2h_depth: int = 30
     committee_sd: float = COMMITTEE_SD
     title_jump_margin: float = TITLE_JUMP_MARGIN

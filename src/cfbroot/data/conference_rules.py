@@ -13,15 +13,12 @@ Checked for 2026 against the conferences' own publications:
 
 Every conference sends its top two by conference winning percentage, except
 the Sun Belt, which sends its East and West division winners. Ties go through
-the steps below in order. A step that picks one team out sends it through; a
-step that narrows a group of three or more to a smaller group either starts
-over with that group or carries on to the next step, as each conference says;
-a group of two always starts over with the two-team order.
+the steps below in order, one place at a time.
 
 The last step in every conference is something the simulator does not have:
-SportSource Analytics' ratings (Big Ten, Big 12, ACC, Pac-12), the SEC's
-capped scoring margin, the CFP ranking or a composite of computer rankings
-(the Group of Six). The model's own power rating stands in for all of them.
+SportSource Analytics' ratings, the SEC's capped scoring margin, the CFP
+ranking or a composite of computer rankings. The model's own rating stands in
+for all of them.
 """
 
 from __future__ import annotations

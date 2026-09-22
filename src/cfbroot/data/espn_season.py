@@ -1,12 +1,9 @@
 """Teams, conferences and games from ESPN's public scoreboard.
 
-CollegeFootballData meters its API at 1,000 calls a month, which a site rebuilt
-every hour on a Saturday runs straight through. ESPN publishes the same games
-and does not meter them, and its team ids are the ones CFBD uses, so this
-hands back the same shapes CFBDSource does and nothing downstream can tell
-which one it came from. Checked for 2026: all 138 FBS teams match CFBD by id
-with identical names, and ESPN's conference ids map one to one onto CFBD's
-conference names.
+CollegeFootballData meters its API at 1,000 calls a month, which a site
+rebuilt hourly runs through. ESPN has the same games, does not meter them, and
+uses the same team ids, so this hands back the shapes CFBDSource does and
+nothing downstream can tell the difference.
 """
 
 from __future__ import annotations
@@ -37,7 +34,7 @@ FBS_CONFERENCES = {
 }
 
 # How long a week's games are kept before asking again. A week that is over
-# does not change; one still being played does, by the minute on a Saturday.
+# does not change; one still being played does.
 TTL_FINISHED = 7 * 86400
 TTL_LIVE = 10 * 60
 TTL_IDLE = 3 * 3600

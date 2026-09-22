@@ -23,12 +23,8 @@ __all__ = [
 
 @lru_cache(maxsize=16)
 def _z(alpha: float) -> float:
-    """The normal quantile for a confidence level.
-
-    Cached because it is the same handful of values over and over: building a
-    rooting guide asked scipy for the 95% quantile twelve thousand times, which
-    was half the time the whole guide took.
-    """
+    """The normal quantile for a confidence level. Cached: a guide asks for
+    the same handful of values thousands of times."""
     return float(sps.norm.ppf(1.0 - alpha / 2.0))
 
 

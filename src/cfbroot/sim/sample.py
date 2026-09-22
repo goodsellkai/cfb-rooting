@@ -8,8 +8,7 @@ massey.rate_selection_day() exactly, so a sample season is one draw from the
 distribution the odds come from.
 
 Scores here land on totals football actually produces, since they are for
-reading. The kernel keeps the unrounded margin; the difference moves a rating
-by a hair and never changes who won.
+reading. The kernel keeps the unrounded margin.
 """
 
 from __future__ import annotations
@@ -28,9 +27,8 @@ from .kernels import TBF_HOSTED, _order_conference, _title_game_pair
 HOME_WON, AWAY_WON = 1, 2
 
 # How often one team finished a game on each score, 0 to 79, over every game
-# with an FBS team in 2023-25 (5,258 scores). A drawn score lands on a nearby
-# total in proportion to these, so 1 never comes up and 24, 17 and 31 come up
-# the most, as they do.
+# with an FBS team in 2023-25. A drawn score lands on a nearby total in
+# proportion to these, so 1 never comes up and 24, 17 and 31 come up most.
 SCORE_FREQ = (
     112, 0, 0, 121, 0, 2, 80, 212, 4, 43, 198, 21, 26, 166, 227, 37, 85, 238,
     31, 66, 221, 219, 46, 114, 311, 49, 72, 205, 172, 51, 117, 237, 30, 53, 180,
@@ -197,10 +195,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
     eff = {t.idx: t.rating + (p.rating_sd * rng.normal() if t.is_fbs else 0.0)
            for t in teams}
 
-    # How this committee sees each team, drawn once for the season. The
-    # kernel draws it per season too, where there is only the one ranking;
-    # here there is a ranking every week, and a committee that liked a team
-    # in October still likes it in November.
+    # How this committee sees each team, drawn once for the season: a
+    # committee that liked a team in October still likes it in November.
     lean = {t.school: p.committee_sd * rng.normal() for t in teams if t.is_fbs}
 
     games = []

@@ -23,9 +23,8 @@ def load_season(year: int | None = None, *, live: bool = False,
                 synthetic: bool = False) -> SeasonState:
     """Build a SeasonState from ESPN, falling back to CFBD, then to fake data.
 
-    ESPN's scoreboard comes first: it has the same games and does not meter
-    them, where CFBD allows 1,000 calls a month. ``live=True`` keeps a week
-    still being played for 10 minutes instead of 3 hours.
+    ``live=True`` keeps a week still being played for 10 minutes instead of
+    3 hours.
     """
     year = year or default_year()
     if synthetic:
