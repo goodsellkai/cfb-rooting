@@ -36,6 +36,7 @@ async function boot() {
     banner("Could not load season data: " + err, false);
     return;
   }
+  setHeaderImage();
   renderTopMeta();
   fillTeams();
   fillMetrics();
@@ -88,6 +89,14 @@ function chip(text, value, href) {
   return href
     ? `<a class="chip" href="${href}" target="_blank" rel="noopener">${inner}</a>`
     : `<span class="chip">${inner}</span>`;
+}
+
+const ASSETS = STATIC ? "static/" : "/static/";
+
+function setHeaderImage() {
+  const n = 1 + Math.floor(Math.random() * 4);
+  document.querySelector(".topbar").style.backgroundImage =
+    `url("${ASSETS}header/${n}.jpg")`;
 }
 
 function renderTopMeta() {
@@ -438,10 +447,10 @@ function gameRowsHTML(games) {
   }));
 
   let html = `<div class="tablewrap"><table class="games"><thead><tr>
-      <th>Matchup<span class="hint">bold is who to root for</span></th>
+      <th>Matchup</th>
       <th class="num">If away wins</th>
       <th class="num">If home wins</th>
-      <th class="swingcell">Impact<span class="hint">gap between the two results</span></th>
+      <th class="swingcell">Impact</th>
     </tr></thead><tbody>`;
 
   for (const g of games) {
@@ -451,12 +460,8 @@ function gameRowsHTML(games) {
     const w = Math.min(100, 100 * Math.abs(s.delta) / maxAbs);
     const dim = sigOf(s) ? "" : " dim";
     const pHome = g.p_home_win;
-    const rootName = rootHome ? g.home : g.away;
     const gap = Math.abs(s.delta);
     const impact = (100 * gap).toFixed(gap >= 0.01 ? 1 : 2) + "%";
-    const note = conf === "clear" ? `root for ${rootName}`
-      : conf === "leaning" ? `leans ${rootName}`
-      : "too close to call";
 
     // Bold the team to root for.
     const awayCls = "side" + (rootHome ? "" : " root") + (conf === "clear" ? " strong" : "");
@@ -476,7 +481,6 @@ function gameRowsHTML(games) {
           <span class="amt">${impact}</span>
           <span class="bar"><i class="${dim.trim() || "on"}" style="width:${w}%"></i></span>
         </div>
-        <div class="why">${esc(note)}</div>
       </td>
     </tr>`;
   }
