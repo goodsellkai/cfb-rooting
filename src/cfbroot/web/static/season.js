@@ -431,32 +431,30 @@ function renderBracket() {
   const shown = STAGES[STAGE].round;
   $("s-boardtitle").textContent = STAGES[STAGE].label;
   const seedOf = Object.fromEntries(SEASON.field.map(f => [f.team, f.seed]));
-  const byes = SEASON.field.filter(f => f.bye).map(f => f.team);
 
   const line = (t, pts, g, done) => `<div class="bteam${done && winner(g) === t ? " win" : ""}${t === me ? " mine" : ""}" data-team="${t}">
-      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 18)}
+      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 16)}
       <span class="bname">${esc(team(t).name)}</span>
       <span class="bpts">${done ? pts : ""}</span></div>`;
   const game = (g, done, cls) => `<div class="bgame${cls ? " " + cls : ""}">
       ${line(g.home, g.home_points, g, done)}${line(g.away, g.away_points, g, done)}</div>`;
   const blank = () => `<div class="bgame tbd"><div class="bteam"></div><div class="bteam"></div></div>`;
+  // A quarterfinal's home side is a team that had the week off, so it sits in
+  // its slot before the round is played.
+  const waiting = (g) => `<div class="bgame waiting">${line(g.home, "", g, false)}
+      <div class="bteam"></div></div>`;
 
   const cols = SEASON.rounds.map((r, i) => {
     const done = i <= shown;
     const last = i === SEASON.rounds.length - 1;
-    const body = r.games.map(g => done ? game(g, true, last ? "final" : "") : blank()).join("");
-    const byeCol = i === 0 && byes.length
-      ? `<div class="byes"><span class="byelabel">Byes</span>${byes.map(t =>
-          `<div class="bteam bye${t === me ? " mine" : ""}" data-team="${t}">
-             <span class="bseed">${seedOf[t]}</span>${logo(t, 18)}
-             <span class="bname">${esc(team(t).name)}</span></div>`).join("")}</div>`
-      : "";
-    return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}${byeCol}</div>`;
+    const body = r.games.map(g =>
+      done ? game(g, true, last ? "final" : "") : (i === 1 ? waiting(g) : blank())).join("");
+    return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}</div>`;
   }).join("");
 
   const champ = shown === SEASON.rounds.length - 1 && SEASON.champion != null
     ? `<div class="champion${SEASON.champion === me ? " mine" : ""}" data-team="${SEASON.champion}">
-        ${logo(SEASON.champion, 44)}
+        ${logo(SEASON.champion, 34)}
         <div><div class="label">National champion</div>
           <div class="cname">${esc(team(SEASON.champion).name)}</div></div></div>` : "";
   $("s-board").innerHTML = champ + `<div class="bracket">${cols}</div>`;
