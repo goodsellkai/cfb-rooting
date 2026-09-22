@@ -24,9 +24,9 @@ from ..sim.sample import sample_season, weekly_systems
 HERE = Path(__file__).resolve().parent
 
 # One run of this size serves every team, so the app does it once at start-up
-# rather than per team. A million seasons puts the error on a playoff
-# probability at about four hundredths of a percentage point.
-DEFAULT_SIMS = 1_000_000
+# rather than per team. Two and a half million seasons put the error on a
+# playoff probability at about two and a half hundredths of a percentage point.
+DEFAULT_SIMS = 2_500_000
 SEED = 12345
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")

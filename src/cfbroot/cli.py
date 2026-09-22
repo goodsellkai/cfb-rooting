@@ -207,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("export", help="write the app as a static site")
     e.add_argument("--out", default="site")
-    e.add_argument("--sims", type=int, default=1_000_000)
+    e.add_argument("--sims", type=int, default=2_500_000)
     e.set_defaults(func=cmd_export)
 
     g = sub.add_parser("guide", help="print a rooting guide in the terminal")

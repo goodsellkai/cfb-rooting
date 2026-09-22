@@ -165,12 +165,11 @@ def _rate(sys, ki, hpts, apts, mp, p):
            sys.start, vec, wts)
     out = np.zeros(n)
     need = np.array([1 if k < sys.n_fbs else 0 for k in range(n)], np.uint8)
-    K._correct(n_g, sys.g_hnode, sys.g_anode, at_home, hpts, apts, sys.x_h,
-               sys.x_a, sys.x_home, sys.x_won, none_i, none_i, none_f,
-               np.zeros(1, np.uint8), np.full(n, -1, np.int32), False,
-               sys.tg_ptr, sys.tg_ref, sys.tg_home, n, r, r[n],
+    K._correct(n_g, sys.g_in_fit, sys.g_hnode, sys.g_anode, at_home, hpts, apts,
+               sys.x_h, sys.x_a, sys.x_home, sys.x_won, none_i, none_i, none_f,
+               np.zeros(1, np.uint8), 0, False, n, r, r[n],
                mp.correction_abs, mp.correction_passes, sys.gh_t, sys.gh_logw,
-               need, np.zeros(n), out, np.zeros(sys.gh_t.size))
+               need, np.zeros(n), out, np.zeros((n, sys.gh_t.size)))
     return out
 
 
@@ -352,7 +351,7 @@ def sample_season(state: SeasonState, seed: int | None = None,
                         mp.prior_sd, mp.prior_games, p.fit_tol, p.fit_max_iter,
                         mp.correction_abs, mp.correction_passes, m.gh_t, m.gh_logw,
                         m.tg_ptr, m.tg_ref, m.tg_home, r0, r0.copy(), c0, c1,
-                        np.zeros(n), np.zeros(m.gh_t.size), np.zeros(n, np.uint8),
+                        np.zeros(n), np.zeros((n, m.gh_t.size)), np.zeros(n, np.uint8),
                         vec, wts)
     ratings = {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
                                else c1[m.node[t.idx]]) for t in fbs}

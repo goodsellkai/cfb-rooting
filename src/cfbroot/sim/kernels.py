@@ -202,7 +202,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         for i in range(n_g):
             if not g_neutral[i]:
                 g_at_home[i] = 1.0
-        r0 = m_start.copy()          # warm start, carried between seasons
+        r0 = m_start.copy()          # each season starts from the typical one
         r1 = m_start.copy()
         fvec, fwts = _fit_work(n_nodes, n_g, m_xh.shape[0], n_conf)
         c0 = np.zeros(n_nodes, dtype=np.float64)
@@ -211,7 +211,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         prec0 = m_prec.copy()
         prec1 = np.zeros(n_nodes + 1, dtype=np.float64)
         cwork = np.zeros(n_nodes, dtype=np.float64)
-        ll = np.zeros(m_gh_t.shape[0], dtype=np.float64)
+        ll = np.zeros((n_nodes, m_gh_t.shape[0]), dtype=np.float64)
         need = np.zeros(n_nodes, dtype=np.uint8)
         cc_h = np.zeros(n_conf, dtype=np.int32)
         cc_a = np.zeros(n_conf, dtype=np.int32)
@@ -290,7 +290,10 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
 
             # 3. Massey power rating without the title games. It breaks ties
             # in the conference standings, and it is the fit a title game
-            # loser keeps.
+            # loser keeps. It starts from the typical season, which is closer
+            # on average than the last simulated one.
+            for k in range(n_nodes + 1):
+                r0[k] = m_start[k]
             for i in range(n_g):
                 if m_in_fit[i]:
                     gval[i] = _outcome(hpts[i], apts[i], gof_k, gof_c, gof_q,
@@ -736,7 +739,15 @@ def _outcome(hp, ap, gof_k, gof_c, gof_q, mov_w, mov_flat):
 
 @njit(cache=True, inline="always")
 def _add_score(h, a, at_home, g, r, grad, n_nodes):
-    """One game's pull on the gradient; returns its Fisher information."""
+    """One game's pull on the gradient; returns its curvature.
+
+    The curvature is the observed one, the second derivative of the game's
+    log-likelihood, rather than its expected value (Fisher information). Both
+    lead to the same maximum. With a probit link Fisher scoring only closes in
+    on it linearly, about ten steps a season; Newton's method gets there in
+    about five. The likelihood is log-concave in the rating gap for any
+    outcome value between 0 and 1, so the curvature is never negative.
+    """
     d = r[h] - r[a] + r[n_nodes] * at_home
     if d > _MCLIP:
         d = _MCLIP
@@ -752,10 +763,12 @@ def _add_score(h, a, at_home, g, r, grad, n_nodes):
     grad[h] += sc
     grad[a] -= sc
     grad[n_nodes] += sc * at_home
-    v = cdf * (1.0 - cdf)
-    if v < 1e-12:
-        v = 1e-12
-    return pdf * pdf / v
+    l1 = pdf / c                  # d/dd log(cdf)
+    l0 = pdf / omc                # -d/dd log(1 - cdf)
+    w = g * l1 * (d + l1) + (1.0 - g) * l0 * (l0 - d)
+    if w < 1e-12:
+        w = 1e-12
+    return w
 
 
 @njit(cache=True, inline="always")
@@ -769,7 +782,7 @@ def _add_curve(h, a, at_home, w, v, out, n_nodes):
 @njit(cache=True)
 def _fit_work(n_nodes, n_g, n_x, n_conf):
     """Scratch space for _fit_power, one per thread: six vectors, then one
-    Fisher information per game (season games, extra games, title games)."""
+    curvature per game (season games, extra games, title games)."""
     return (np.zeros((6, n_nodes + 1), dtype=np.float64),
             np.zeros(n_g + n_x + n_conf, dtype=np.float64))
 
@@ -778,12 +791,14 @@ def _fit_work(n_nodes, n_g, n_x, n_conf):
 def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                cc_h, cc_a, cc_home, cc_g, n_cc,
                minv, prior, prec, n_nodes, tol, max_iter, r, vec, wts):
-    """massey.fit_power(): Fisher scoring to the same maximum.
+    """massey.fit_power()'s maximum, by Newton's method.
 
-    Each step solves the same linear system the standalone solves, by
-    conjugate gradients steered with the curvature of a typical season, which
-    is close to every simulated one. ``r`` is the starting point and is
-    updated in place.
+    Each step solves its linear system by conjugate gradients steered with the
+    curvature of a typical season, which is close to every simulated one. The
+    system is only solved as closely as the step needs: loosely while the fit
+    is still far off, tightly once it is close, so the answer is as exact as
+    solving every step fully. ``r`` is the starting point and is updated in
+    place.
     """
     n = n_nodes + 1
     grad, step, res, z, pv, ap = vec[0], vec[1], vec[2], vec[3], vec[4], vec[5]
@@ -810,8 +825,15 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                 return -1                  # the ratings are not numbers
             if abs(grad[k]) > gmax:
                 gmax = abs(grad[k])
+        # How closely to solve this step: relative to the gradient, never
+        # looser than 1e-2 nor tighter than 1e-6.
+        eta = gmax
+        if eta > 1e-2:
+            eta = 1e-2
+        elif eta < 1e-6:
+            eta = 1e-6
 
-        # Solve (information + prior) step = grad.
+        # Solve (curvature + prior) step = grad.
         rz = 0.0
         for k in range(n):
             step[k] = 0.0
@@ -847,7 +869,7 @@ def _fit_power(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
                 res[k] -= alpha * ap[k]
                 if abs(res[k]) > rmax:
                     rmax = abs(res[k])
-            if rmax <= 1e-6 * gmax:
+            if rmax <= eta * gmax:
                 break
             rz_new = 0.0
             for k in range(n):
@@ -902,9 +924,9 @@ def _fit(n_g, in_fit, hn, an, g_at_home, gval, x_h, x_a, x_home, x_g,
 
 
 @njit(cache=True)
-def _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
-             cc_h, cc_a, cc_home, cc_won, cc_of, use_cc,
-             tg_ptr, tg_ref, tg_home, n_nodes, power, hfa, sd, passes,
+def _correct(n_g, in_fit, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
+             cc_h, cc_a, cc_home, cc_won, n_cc, use_cc,
+             n_nodes, power, hfa, sd, passes,
              gh_t, gh_logw, need, prev, out, ll):
     """massey.win_loss_correction(), repeated ``passes`` times.
 
@@ -912,76 +934,67 @@ def _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
     last pass left it, weighted by how likely its wins and losses were against
     opponents also read where the last pass left them. On the last pass only
     the teams flagged in ``need`` are worked out, since nobody reads the rest.
+
+    A game's likelihood is worked out once and given to both teams. The home
+    side's term at one Gauss-Hermite point is the away side's at the mirrored
+    point, since the points are symmetric about zero, so the log-CDF, which is
+    nearly all the cost, is paid once per game rather than once per team.
+    ``ll`` holds each node's log weights, (n_nodes, points).
     """
     n_q = gh_t.shape[0]
+    n_x = x_h.shape[0]
     for k in range(n_nodes):
         prev[k] = power[k]
     for ps in range(passes):
         last = ps == passes - 1
         for t in range(n_nodes):
+            for q in range(n_q):
+                ll[t, q] = gh_logw[q]
+        for i in range(n_g + n_x + (n_cc if use_cc else 0)):
+            if i < n_g:
+                if not in_fit[i]:
+                    continue
+                h = hn[i]
+                a = an[i]
+                edge = hfa * g_at_home[i]
+                home_won = hpts[i] > apts[i]
+            elif i < n_g + n_x:
+                k = i - n_g
+                h = x_h[k]
+                a = x_a[k]
+                edge = hfa * x_home[k]
+                home_won = x_won[k] == 1
+            else:
+                k = i - n_g - n_x
+                h = cc_h[k]
+                a = cc_a[k]
+                edge = hfa * cc_home[k]
+                home_won = cc_won[k] == 1
+            if last and need[h] == 0 and need[a] == 0:
+                continue
+            base = prev[h] - prev[a] + edge
+            for q in range(n_q):
+                d = base + sd * gh_t[q]
+                if d > _MCLIP:
+                    d = _MCLIP
+                elif d < -_MCLIP:
+                    d = -_MCLIP
+                v = _log_ndtr(d) if home_won else _log_ndtr(-d)
+                ll[h, q] += v
+                ll[a, n_q - 1 - q] += v
+        for t in range(n_nodes):
             if last and need[t] == 0:
                 out[t] = prev[t]
                 continue
-            for q in range(n_q):
-                ll[q] = gh_logw[q]
-            centre = prev[t]
-            for gi in range(tg_ptr[t], tg_ptr[t + 1]):
-                ref = tg_ref[gi]
-                home = tg_home[gi] == 1
-                if ref < n_g:
-                    if home:
-                        opp = an[ref]
-                        edge = hfa * g_at_home[ref]
-                        won = hpts[ref] > apts[ref]
-                    else:
-                        opp = hn[ref]
-                        edge = -hfa * g_at_home[ref]
-                        won = apts[ref] > hpts[ref]
-                else:
-                    k = ref - n_g
-                    if home:
-                        opp = x_a[k]
-                        edge = hfa * x_home[k]
-                        won = x_won[k] == 1
-                    else:
-                        opp = x_h[k]
-                        edge = -hfa * x_home[k]
-                        won = x_won[k] == 0
-                base = centre - prev[opp] + edge
-                for q in range(n_q):
-                    d = base + sd * gh_t[q]
-                    if d > _MCLIP:
-                        d = _MCLIP
-                    elif d < -_MCLIP:
-                        d = -_MCLIP
-                    ll[q] += _log_ndtr(d) if won else _log_ndtr(-d)
-            if use_cc and cc_of[t] >= 0:
-                k = cc_of[t]
-                if cc_h[k] == t:
-                    opp = cc_a[k]
-                    edge = hfa * cc_home[k]
-                    won = cc_won[k] == 1
-                else:
-                    opp = cc_h[k]
-                    edge = -hfa * cc_home[k]
-                    won = cc_won[k] == 0
-                base = centre - prev[opp] + edge
-                for q in range(n_q):
-                    d = base + sd * gh_t[q]
-                    if d > _MCLIP:
-                        d = _MCLIP
-                    elif d < -_MCLIP:
-                        d = -_MCLIP
-                    ll[q] += _log_ndtr(d) if won else _log_ndtr(-d)
-            top = ll[0]
+            top = ll[t, 0]
             for q in range(1, n_q):
-                if ll[q] > top:
-                    top = ll[q]
+                if ll[t, q] > top:
+                    top = ll[t, q]
             num = 0.0
             den = 0.0
             for q in range(n_q):
-                wq = math.exp(ll[q] - top)
-                num += wq * (centre + sd * gh_t[q])
+                wq = math.exp(ll[t, q] - top)
+                num += wq * (prev[t] + sd * gh_t[q])
                 den += wq
             out[t] = num / den
         for k in range(n_nodes):
@@ -1015,9 +1028,9 @@ def _selection_rating(n_g, in_fit, hn, an, g_at_home, gval, hpts, apts,
     if n_cc == 0:
         for k in range(n_nodes):
             need[k] = 1 if k < n_fbs else 0
-        _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
-                 cc_h, cc_a, cc_home, cc_won, cc_of, False,
-                 tg_ptr, tg_ref, tg_home, n_nodes, r0, r0[n_nodes], corr_sd,
+        _correct(n_g, in_fit, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home,
+                 x_won, cc_h, cc_a, cc_home, cc_won, n_cc, False,
+                 n_nodes, r0, r0[n_nodes], corr_sd,
                  corr_passes, gh_t, gh_logw, need, work, c1, ll)
         return
 
@@ -1037,11 +1050,11 @@ def _selection_rating(n_g, in_fit, hn, an, g_at_home, gval, hpts, apts,
 
     for k in range(n_nodes):
         need[k] = 1 if k < n_fbs else 0
-    _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
-             cc_h, cc_a, cc_home, cc_won, cc_of, True,
-             tg_ptr, tg_ref, tg_home, n_nodes, r1, r1[n_nodes], corr_sd,
+    _correct(n_g, in_fit, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
+             cc_h, cc_a, cc_home, cc_won, n_cc, True,
+             n_nodes, r1, r1[n_nodes], corr_sd,
              corr_passes, gh_t, gh_logw, need, work, c1, ll)
-    _correct(n_g, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
-             cc_h, cc_a, cc_home, cc_won, cc_of, False,
-             tg_ptr, tg_ref, tg_home, n_nodes, r0, r0[n_nodes], corr_sd,
+    _correct(n_g, in_fit, hn, an, g_at_home, hpts, apts, x_h, x_a, x_home, x_won,
+             cc_h, cc_a, cc_home, cc_won, n_cc, False,
+             n_nodes, r0, r0[n_nodes], corr_sd,
              corr_passes, gh_t, gh_logw, loser, work, c0, ll)

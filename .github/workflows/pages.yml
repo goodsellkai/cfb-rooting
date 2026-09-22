@@ -28,9 +28,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # A million seasons, each rated with the full Massey model, is about an
-    # hour on GitHub's four-core runners.
+    # Two and a half million seasons, each rated with the full Massey model,
+    # is about an hour and a quarter on GitHub's four-core runners. That is
+    # longer than the hourly Saturday schedule, so on Saturdays builds run
+    # back to back rather than on the hour.
     timeout-minutes: 180
+    env:
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +45,28 @@ jobs:
 
       - name: Install
         run: pip install .
+
+      # The simulator is compiled on first use, which takes a minute and a
+      # half. Keeping the compiled code saves that on every build. The key
+      # changes whenever the source, the dependencies or the CPU model does,
+      # so a stale copy is never used.
+      - name: Identify CPU
+        id: cpu
+        run: echo "model=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the compiled simulator
+        uses: actions/cache@v4
+        with:
+          path: .numba-cache
+          key: numba-${{ runner.os }}-${{ steps.cpu.outputs.model }}-${{ hashFiles('src/cfbroot/**/*.py', 'pyproject.toml') }}
+
+      # Numba checks cached code against the source file's time stamp, and a
+      # fresh install gives every file a new one. The cache key above already
+      # changes with the source, so a fixed stamp is safe.
+      - name: Fix source time stamps
+        run: |
+          pkg="$(python -c 'import cfbroot, os; print(os.path.dirname(cfbroot.__file__))')"
+          find "$pkg" -name '*.py' -exec touch -d '2000-01-01 00:00:00' {} +
 
       - name: Simulate and export
         env:

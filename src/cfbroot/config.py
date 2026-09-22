@@ -120,10 +120,10 @@ class ModelParams:
 class SimConfig:
     """How many seasons to simulate. Model parameters live on SeasonState.params."""
 
-    # The web app runs a million seasons once at start-up, because the result
-    # serves every team; the error on a playoff probability is then about four
-    # hundredths of a percentage point. Anything calling the library directly
-    # gets a lighter default.
+    # The web app runs two and a half million seasons once at start-up,
+    # because the result serves every team; the error on a playoff probability
+    # is then about two and a half hundredths of a percentage point. Anything
+    # calling the library directly gets a lighter default.
     n_sims: int = 100_000
     batch_size: int = 50_000
     seed: int = 12345

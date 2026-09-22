@@ -67,7 +67,7 @@ def simulator_rating(state):
                         mp.prior_sd, mp.prior_games, 1e-12, 500,
                         mp.correction_abs, mp.correction_passes, m.gh_t,
                         m.gh_logw, m.tg_ptr, m.tg_ref, m.tg_home, r0, r1, c0, c1,
-                        np.zeros(n), np.zeros(m.gh_t.size), np.zeros(n, np.uint8),
+                        np.zeros(n), np.zeros((n, m.gh_t.size)), np.zeros(n, np.uint8),
                         vec, wts)
     return {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
                             else c1[m.node[t.idx]]) for t in state.fbs_teams}
@@ -113,6 +113,14 @@ def test_the_fit_lands_in_the_same_place_from_a_bad_start():
     for start in (m.start + rng.normal(0, 5, n + 1), m.start * 20,
                   np.full(n + 1, np.nan)):
         assert np.abs(fit(start) - want).max() < 1e-7
+
+
+def test_gauss_hermite_points_mirror():
+    """The simulator's correction hands each game's term at point q to the
+    other team at the mirrored point, which needs symmetric points."""
+    t, logw = massey.gauss_hermite(massey.MasseyParams().correction_nodes)
+    assert np.allclose(t[::-1], -t, atol=1e-12)
+    assert np.allclose(logw[::-1], logw, atol=1e-12)
 
 
 def test_a_title_game_win_is_added_and_a_loss_is_not():
