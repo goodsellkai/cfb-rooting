@@ -22,9 +22,9 @@ const URLS = STATIC
   : { state: "/api/state", team: (t) => "/api/team/" + encodeURIComponent(t.name) };
 
 const CONF_TITLE = {
-  clear: "Statistically significant.",
-  leaning: "Direction is a best guess.",
-  thin: "Too few simulations on one side.",
+  clear: "The simulations separate the two results",
+  leaning: "The direction is a lean, not a clear result",
+  thin: "Too few simulations on one side to say",
 };
 
 // Startup
@@ -36,7 +36,7 @@ async function boot() {
     banner("Could not load season data: " + err, false);
     return;
   }
-  renderSeasonLine();
+  renderTopMeta();
   fillTeams();
   fillMetrics();
   fillWeeks();
@@ -78,18 +78,28 @@ function ago(iso) {
   return `${Math.round(h / 24)}d ago`;
 }
 
-function renderSeasonLine() {
-  $("seasonline").textContent =
-    `${STATE.year} season · week ${STATE.current_week} · `
-    + `${STATE.games_played} played, ${STATE.games_remaining} to simulate`;
+const LINKS = {
+  poll: "https://www.espn.com/college-football/rankings",
+  fpi: "https://www.espn.com/college-football/fpi",
+};
+
+function chip(text, value, href) {
+  const inner = `${esc(text)} <b>${esc(value)}</b>`;
+  return href
+    ? `<a class="chip" href="${href}" target="_blank" rel="noopener">${inner}</a>`
+    : `<span class="chip">${inner}</span>`;
+}
+
+function renderTopMeta() {
   const pw = STATE.poll_weeks || {};
-  const pollChip = pw.cfp ? `<span class="chip">CFP poll <b>week ${pw.cfp}</b></span>`
-    : pw.ap ? `<span class="chip">AP poll <b>week ${pw.ap}</b></span>` : "";
-  $("topmeta").innerHTML = pollChip
-    + `<span class="chip">${esc(STATE.rating_label)} <b>${esc(ago(STATE.ratings_updated) || "-")}</b></span>`
-    + (STATE.loaded_at
-      ? `<span class="chip">Simulated <b>${esc(ago(new Date(1000 * STATE.loaded_at).toISOString()))}</b></span>`
-      : "");
+  const poll = pw.cfp ? chip("CFP poll", "week " + pw.cfp, LINKS.poll)
+    : pw.ap ? chip("AP poll", "week " + pw.ap, LINKS.poll) : "";
+  const rating = STATE.rating_label === "FPI"
+    ? chip("FPI", ago(STATE.ratings_updated) || "-", LINKS.fpi)
+    : chip(STATE.rating_label, ago(STATE.ratings_updated) || "-");
+  const sims = STATE.loaded_at
+    ? chip("Simulated", ago(new Date(1000 * STATE.loaded_at).toISOString())) : "";
+  $("topmeta").innerHTML = poll + rating + sims;
 }
 
 function team(idx) {
@@ -331,6 +341,12 @@ function visibleGames() {
   if ($("sigfilter").value === "sig") {
     games = games.filter(g => sigOf(g.swings[key]));
   }
+  const q = ($("rootsearch").value || "").trim().toLowerCase();
+  if (q) {
+    games = games.filter(g => (g.home + " " + g.away).toLowerCase().includes(q)
+      || [g.home_idx, g.away_idx].some(
+        i => (team(i).conference || "").toLowerCase().includes(q)));
+  }
   return games.sort((a, b) => {
     const sa = a.swings[key], sb = b.swings[key];
     return (sigOf(sb) - sigOf(sa))
@@ -360,8 +376,8 @@ function render() {
   $("weeklabel").textContent = selectedWeek() === null
     ? "(all remaining games)" : "(week " + selectedWeek() + ")";
   $("footmeta").textContent =
-    `${RESULT.n_sims.toLocaleString()} seasons · `
-    + `${STATE.rating_label} ${ago(STATE.ratings_updated)}`;
+    `${STATE.year} week ${STATE.current_week} · `
+    + `${RESULT.n_sims.toLocaleString()} simulated seasons`;
 }
 
 function renderHeadline() {
@@ -422,24 +438,25 @@ function gameRowsHTML(games) {
   }));
 
   let html = `<div class="tablewrap"><table class="games"><thead><tr>
-      <th>Matchup</th>
+      <th>Matchup<span class="hint">bold is who to root for</span></th>
       <th class="num">If away wins</th>
       <th class="num">If home wins</th>
-      <th class="swingcell">Swing in ${esc(label)}</th>
-      <th class="num">Confidence</th>
+      <th class="swingcell">Impact<span class="hint">gap between the two results</span></th>
     </tr></thead><tbody>`;
 
   for (const g of games) {
     const s = g.swings[key];
     const conf = confidenceOf(s);
     const rootHome = s.home;
-    const scale = 50 / maxAbs;
-    const w = Math.min(50, Math.abs(s.delta) * scale);
-    const left = rootHome ? 50 : 50 - w;
-    const ciLo = 50 + Math.max(-50, Math.min(50, (s.lo || 0) * scale));
-    const ciHi = 50 + Math.max(-50, Math.min(50, (s.hi || 0) * scale));
+    const w = Math.min(100, 100 * Math.abs(s.delta) / maxAbs);
     const dim = sigOf(s) ? "" : " dim";
     const pHome = g.p_home_win;
+    const rootName = rootHome ? g.home : g.away;
+    const gap = Math.abs(s.delta);
+    const impact = (100 * gap).toFixed(gap >= 0.01 ? 1 : 2) + "%";
+    const note = conf === "clear" ? `root for ${rootName}`
+      : conf === "leaning" ? `leans ${rootName}`
+      : "too close to call";
 
     // Bold the team to root for.
     const awayCls = "side" + (rootHome ? "" : " root") + (conf === "clear" ? " strong" : "");
@@ -454,15 +471,13 @@ function gameRowsHTML(games) {
       </td>
       ${outcomeCell(1 - pHome, s.p_if_away, base, !rootHome)}
       ${outcomeCell(pHome, s.p_if_home, base, rootHome)}
-      <td class="swingcell"><div class="swing">
-          <div class="axis"></div>
-          <div class="fill ${rootHome ? "pos" : "neg"}${dim}"
-               style="left:${left}%;width:${w}%"></div>
-          <div class="ci" style="left:${Math.min(ciLo, ciHi)}%;width:${Math.abs(ciHi - ciLo)}%"></div>
+      <td class="swingcell ${conf}" title="${esc(CONF_TITLE[conf])}">
+        <div class="impact">
+          <span class="amt">${impact}</span>
+          <span class="bar"><i class="${dim.trim() || "on"}" style="width:${w}%"></i></span>
         </div>
-        <div class="swingnum">${signed(s.delta)}pp</div>
+        <div class="why">${esc(note)}</div>
       </td>
-      <td class="num"><span class="sig ${conf}" title="${esc(CONF_TITLE[conf])}">${conf}</span></td>
     </tr>`;
   }
   return html + "</tbody></table></div>";
@@ -495,9 +510,10 @@ function renderRootList() {
 
   $("rootlist").innerHTML = shown.length
     ? gameRowsHTML(shown)
-    : `<p class="foot">Nothing significant on this slate.</p>`;
+    : `<p class="foot">No games here move your odds enough to call. `
+      + `Switch Show to all games to see the rest.</p>`;
 
-  $("rootcount").textContent = `${shown.length} of ${slate.length}`;
+  $("rootcount").textContent = `${shown.length} of ${slate.length} games`;
 }
 
 function renderLeague() {
@@ -675,6 +691,7 @@ document.addEventListener("click", (e) => {
 
 // Events
 
+$("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
 for (const id of ["primary", "week", "sigfilter"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });
 }

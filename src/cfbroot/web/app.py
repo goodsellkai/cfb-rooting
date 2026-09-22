@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 import time
@@ -26,7 +27,7 @@ HERE = Path(__file__).resolve().parent
 # One run of this size serves every team, so the app does it once at
 # start-up. It puts the error on a playoff probability at about 0.025
 # percentage points.
-DEFAULT_SIMS = 2_500_000
+DEFAULT_SIMS = int(os.environ.get("CFBROOT_SIMS") or 2_500_000)
 SEED = 12345
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")

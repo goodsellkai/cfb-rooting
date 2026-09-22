@@ -144,7 +144,7 @@ METRIC_NAMES = [
     "reach_semifinal",
     "reach_title_game",
     "win_national_title",
-    "undefeated_regular_season",
+    "finish_ranked",
 ]
 
 METRIC_LABELS = {
@@ -156,7 +156,7 @@ METRIC_LABELS = {
     "reach_semifinal": "Reach semifinal",
     "reach_title_game": "Reach national title game",
     "win_national_title": "Win national title",
-    "undefeated_regular_season": "Undefeated regular season",
+    "finish_ranked": "Finish ranked (top 25)",
 }
 
 # Metrics shown by default, in order.

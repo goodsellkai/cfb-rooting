@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Who To Root For</title>
+<title>CFB Rooting Guide</title>
+<link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://cdn.collegefootballdata.com">
 <link rel="stylesheet" href="/static/app.css">
 </head>
@@ -11,11 +12,8 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
-    <div class="brandtext">
-      <h1>Who To Root For</h1>
-      <p id="seasonline" class="sub">loading season&hellip;</p>
-    </div>
+    <img class="mark" src="/static/logo.svg" alt="" width="34" height="34">
+    <h1>CFB Rooting Guide</h1>
   </div>
   <div id="topmeta" class="topmeta"></div>
 </header>
@@ -48,8 +46,8 @@
       <label class="field narrow guideonly">
         <span>Show</span>
         <select id="sigfilter">
-          <option value="all" selected>All games</option>
-          <option value="sig">Only significant</option>
+          <option value="sig" selected>Games that matter</option>
+          <option value="all">All games</option>
         </select>
       </label>
     </div>
@@ -64,7 +62,7 @@
   </section>
 
   <section id="empty" class="empty">
-    <h2>Pick your team.</h2>
+    <h2>Choose a team</h2>
   </section>
 
   <section id="results" hidden>
@@ -89,13 +87,13 @@
     <div class="panel">
       <div class="panel-head">
         <h2>Who to root for <span id="weeklabel" class="muted"></span></h2>
-        <span id="rootcount" class="muted"></span>
+        <div class="headfields">
+          <input id="rootsearch" class="search" type="search" autocomplete="off"
+                 placeholder="Search teams" aria-label="Search this table">
+          <span id="rootcount" class="muted"></span>
+        </div>
       </div>
       <div id="rootlist"></div>
-      <p class="legend"><b>Bold</b> = root for &middot;
-        <span class="sig clear">clear</span> significant &middot;
-        <span class="sig leaning">leaning</span> best guess &middot;
-        <span class="sig thin">thin</span> too few sims</p>
     </div>
 
     <div class="panel">
@@ -163,7 +161,9 @@
 </main>
 
 <footer class="sitefoot">
-  <span>cfbroot</span>
+  <span>Built by Kai Goodsell &middot;
+    <a href="https://github.com/goodsellkai/cfb-rooting" target="_blank"
+       rel="noopener">Source on GitHub</a></span>
   <span id="footmeta"></span>
 </footer>
 

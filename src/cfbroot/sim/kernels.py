@@ -46,7 +46,7 @@ M_QF = 4
 M_SF = 5
 M_TITLE_GAME = 6
 M_NATL = 7
-M_UNDEFEATED = 8
+M_RANKED = 8          # in the committee's final top 25
 N_METRICS = 9
 
 # Automatic bid rules, passed as bid_rule.
@@ -880,8 +880,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     out_metrics[s, m, j] = 0
                 out_metrics[s, M_WIN_CONF, j] = champ[t]
                 out_metrics[s, M_CCG, j] = in_ccg[t]
-                if losses[t] == 0:
-                    out_metrics[s, M_UNDEFEATED, j] = 1
+                if rank_of[t] < 25:
+                    out_metrics[s, M_RANKED, j] = 1
                 w = wins[t]
                 if w > max_w:
                     w = max_w

@@ -556,6 +556,8 @@ function onTeamChanged() {
 }
 
 if (STATIC) {
+  // The hosted build has the rooting guide only, so there is nothing to tab to.
+  document.querySelector(".tabs").hidden = true;
   $("tab-season").hidden = true;
 } else {
   try {
