@@ -26,7 +26,7 @@ cfbroot = "cfbroot.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cfbroot = ["web/templates/*.html", "web/static/*"]
+cfbroot = ["web/templates/*.html", "web/static/*", "web/static/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
