@@ -20,7 +20,7 @@
   --turf: #2a7048;
   --turf-2: #378f5d;
   --endzone: #245f3e;
-  --chalk: rgba(255, 255, 255, .34);
+  --chalk: rgba(255, 255, 255, .45);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -42,7 +42,7 @@
     --turf: #122b1c;
     --turf-2: #1a4028;
     --endzone: #0f2417;
-    --chalk: rgba(255, 255, 255, .13);
+    --chalk: rgba(255, 255, 255, .2);
   }
 }
 
@@ -50,15 +50,18 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; color: var(--ink);
-  /* A field running the height of the screen: an end zone at the top, one
-     at the bottom, yard lines every ten yards across mown stripes. */
+  /* A field running the height of the screen: an end zone at the top, one at
+     the bottom, and eight mown stripes between them. A chalk line falls on
+     every other stripe boundary, starting at each goal line. */
+  background-color: var(--turf);
   background:
-    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 16.6667vh)
+    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 20.8334vh)
       0 8.3333vh / 100% 83.4vh no-repeat fixed,
     linear-gradient(180deg, var(--endzone) 0 8.3333vh, transparent 8.3333vh 91.6667vh,
       var(--endzone) 91.6667vh 100vh) 0 0 / 100% 100vh no-repeat fixed,
-    repeating-linear-gradient(180deg, var(--turf) 0 16.6667vh,
-      var(--turf-2) 16.6667vh 33.3334vh) 0 0 / 100% 100vh repeat fixed;
+    repeating-linear-gradient(180deg, var(--turf) 0 10.4167vh,
+      var(--turf-2) 10.4167vh 20.8334vh) 0 8.3333vh / 100% 83.34vh no-repeat fixed,
+    linear-gradient(var(--turf), var(--turf)) 0 0 / 100% 100vh no-repeat fixed;
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
         "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
