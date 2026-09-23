@@ -14,8 +14,10 @@ import unicodedata
 from datetime import datetime, timezone
 
 SITE_NAME = "CFB Rooting Guide"
-SITE_URL = os.environ.get(
-    "CFBROOT_SITE_URL", "https://goodsellkai.github.io/cfb-rooting").rstrip("/")
+# An unset variable arrives as an empty string from the build, which would
+# leave every address relative: legal for a link, useless in a sitemap.
+SITE_URL = (os.environ.get("CFBROOT_SITE_URL")
+            or "https://goodsellkai.github.io/cfb-rooting").rstrip("/")
 
 
 def slug(school: str) -> str:
