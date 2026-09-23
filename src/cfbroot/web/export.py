@@ -94,6 +94,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         encoding="utf-8")
     (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
     (out / "sitemap.xml").write_text(pages.sitemap(state.fbs_teams), encoding="utf-8")
+    (out / "_headers").write_text(pages.headers(), encoding="utf-8")
+    (out / "404.html").write_text(
+        page(pages.not_found_head(), pages.not_found(), 0), encoding="utf-8")
 
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS

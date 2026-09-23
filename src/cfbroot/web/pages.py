@@ -35,6 +35,7 @@ def _pct(x, digits=1):
 
 def _head(title, description, url, extra=""):
     t, d = html.escape(title), html.escape(description)
+    card = f"{SITE_URL}/static/header/1.jpg"
     return f"""<title>{t}</title>
 <meta name="description" content="{d}">
 <link rel="canonical" href="{url}">
@@ -43,7 +44,15 @@ def _head(title, description, url, extra=""):
 <meta property="og:title" content="{t}">
 <meta property="og:description" content="{d}">
 <meta property="og:url" content="{url}">
-<meta name="twitter:card" content="summary_large_image">{extra}"""
+<meta property="og:image" content="{card}">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{card}">
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"WebSite","name":"{SITE_NAME}",
+"url":"{SITE_URL}/","description":"{d}"}}
+</script>{extra}"""
 
 
 def home_head(state, n_sims):
@@ -75,6 +84,15 @@ how much each result moves that team's odds of reaching the College Football
 Playoff, winning its conference, or winning the national title. The numbers
 come from simulating the rest of the season {_sims(n_sims)} times, through
 week {week}.</p>
+<h2>How it works</h2>
+<p>Every unplayed game is simulated from ESPN's FPI, with the margin drawn
+from the same distribution the win probability comes from. Each simulated
+season is then rated with Massey's model, ranked the way the selection
+committee ranks, and run through the playoff's bid rules and each
+conference's tiebreakers. Splitting those seasons by who won a given game is
+what tells you the game is worth, say, four points of playoff odds. Swings
+too small to separate from noise are marked as such rather than shown as
+findings.</p>
 <h2>Every team</h2>
 <ul class="teamlinks">
 {links}
@@ -106,6 +124,17 @@ wins expected.</p>
 <h2>Week {week}</h2>
 {rest}
 <p><a href="../../">All teams</a></p>"""
+
+
+def not_found_head() -> str:
+    return _head(f"Page not found | {SITE_NAME}",
+                 "That address is not part of this site.", SITE_URL + "/")
+
+
+def not_found() -> str:
+    return f"""<h1>Page not found</h1>
+<p>That address is not part of this site.</p>
+<p><a href="/">Go to {SITE_NAME}</a></p>"""
 
 
 def sitemap(teams) -> str:

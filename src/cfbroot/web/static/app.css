@@ -300,6 +300,24 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   table.games { min-width: 540px; }
 }
 
+/* phones: two cards and two controls to a row, and less space around them */
+@media (max-width: 560px) {
+  main { padding: 14px; }
+  .panel { padding: 14px 13px 16px; }
+  .controlbar { padding: 12px 14px 14px; gap: 12px; }
+  .groupfields { gap: 9px; }
+  .field { flex: 1 1 calc(50% - 5px); }
+  .field select, .field input, .field.narrow select, .field.narrow input,
+  .combo input { width: 100%; min-width: 0; }
+  .cards { grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+  .card { padding: 11px 12px; }
+  .card .value { font-size: 22px; }
+  .topbar { min-height: 86px; padding: 14px 16px; }
+  .topbar h1 { font-size: 19px; }
+  .sitefoot { padding: 12px 16px; }
+  .empty { padding: 20px 16px 24px; }
+}
+
 /* confidence grades, used by the sample season */
 .sig { display: inline-block; font-size: 10.5px; font-weight: 700;
        letter-spacing: .04em; padding: 2px 8px; border-radius: 999px;
