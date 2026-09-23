@@ -17,8 +17,11 @@ let WANTED = null;     // the team most recently asked for
 // The hosted build is plain files written ahead of time; the local app asks
 // its server. Both return the same JSON.
 const STATIC = !!window.CFBROOT_STATIC;
+// A team page sits two levels down, so the hosted build says how to get back
+// to the root for data and assets.
+const BASE = window.CFBROOT_BASE || "";
 const URLS = STATIC
-  ? { state: "data/state.json", team: (t) => `data/team/${t.idx}.json` }
+  ? { state: BASE + "data/state.json", team: (t) => `${BASE}data/team/${t.idx}.json` }
   : { state: "/api/state", team: (t) => "/api/team/" + encodeURIComponent(t.name) };
 
 const CONF_TITLE = {
@@ -42,8 +45,10 @@ async function boot() {
   fillMetrics();
   fillWeeks();
   showNotes();
-  let saved = null;
-  try { saved = localStorage.getItem("cfbroot.team"); } catch { /* private mode */ }
+  let saved = window.CFBROOT_TEAM || null;
+  if (!saved) {
+    try { saved = localStorage.getItem("cfbroot.team"); } catch { /* private mode */ }
+  }
   if (saved && teamNamed(saved)) {
     $("team").value = saved;
     loadTeam();
@@ -91,7 +96,7 @@ function chip(text, value, href) {
     : `<span class="chip">${inner}</span>`;
 }
 
-const ASSETS = STATIC ? "static/" : "/static/";
+const ASSETS = STATIC ? BASE + "static/" : "/static/";
 
 function setHeaderImage() {
   const n = 1 + Math.floor(Math.random() * 4);
@@ -298,6 +303,11 @@ async function loadTeam() {
     }
     RESULT = body;
     render();
+    // Each team has its own address on the hosted site, so a link to what
+    // is on screen goes to the same place.
+    if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
+      history.pushState({ team: t.name }, "", `${BASE}team/${t.slug}/`);
+    }
     return;
   }
 }
@@ -695,6 +705,7 @@ document.addEventListener("click", (e) => {
 
 // Events
 
+window.addEventListener("popstate", () => location.reload());
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
 for (const id of ["primary", "week", "sigfilter"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });

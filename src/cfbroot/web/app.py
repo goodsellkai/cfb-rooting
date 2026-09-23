@@ -21,6 +21,7 @@ from ..data.season import SeasonState
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
 from ..sim.sample import sample_season, weekly_systems
+from .pages import slug
 
 HERE = Path(__file__).resolve().parent
 
@@ -157,7 +158,7 @@ def _season_payload(s: SeasonState) -> dict:
         "default_metrics": DEFAULT_METRICS,
         "teams": [
             {"idx": t.idx, "name": t.school, "conference": t.conference,
-             "rating": t.rating, "abbr": t.abbreviation}
+             "rating": t.rating, "abbr": t.abbreviation, "slug": slug(t.school)}
             for t in sorted(s.fbs_teams, key=lambda t: t.school)
         ],
         # All teams, including non-FBS opponents, so every game can show logos.
@@ -228,6 +229,7 @@ def _asset_token() -> str:
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = html.replace("<!--HEAD-->", "<title>CFB Rooting Guide</title>")
     token = _asset_token()
     for name in ("app.css", "app.js", "season.js"):
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")

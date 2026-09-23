@@ -10,6 +10,8 @@ asking the server, and any static host can serve it.
       data/state.json            the season, as /api/state returns it
       data/team/<idx>.json       one team's guide, as /api/team/<name> does
       data/season/<n>.json       a simulated season, as /api/sample does
+      team/<school>/index.html   that team's page, which the app then takes over
+      sitemap.xml, robots.txt
 """
 
 from __future__ import annotations
@@ -23,11 +25,15 @@ from pathlib import Path
 from ..config import SimConfig
 from ..sim import run_league
 from ..sim.sample import sample_season, weekly_systems
+from . import pages
 from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
 
 # Seasons written out for the Sim a season tab, which has no server to make
 # one on demand.
 SAMPLE_SEASONS = int(os.environ.get("CFBROOT_SAMPLES") or 200)
+
+# What each page shows before its script runs.
+INTRO_BLOCK = "<!--INTRO--><h2>Choose a team</h2><!--/INTRO-->"
 
 
 def _write(path: Path, obj) -> int:
@@ -62,26 +68,47 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     (out / "data" / "team").mkdir(parents=True)
     shutil.copytree(HERE / "static", out / "static")
 
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
-    html = (html.replace('href="/static/', 'href="static/')
-                .replace('<script src="/static/app.js">',
-                         '<script>window.CFBROOT_STATIC = true;</script>\n'
-                         '<script src="/static/app.js">')
-                .replace('src="/static/', 'src="static/'))
+    template = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
     # Tag the assets with the build, so a browser holding last build's copy
     # of the script or stylesheet fetches the new one.
     build = str(int(time.time()))
     for name in ("app.css", "app.js", "season.js"):
-        html = html.replace(f'"static/{name}"', f'"static/{name}?v={build}"')
-    (out / "index.html").write_text(html, encoding="utf-8")
+        template = template.replace(f'/static/{name}"', f'/static/{name}?v={build}"')
+
+    def page(head: str, intro: str, depth: int, team: str | None = None) -> str:
+        """The app's page, with what a crawler reads written in."""
+        base = "../" * depth
+        boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
+        boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
+        boot += "</script>\n"
+        html = (template.replace("<!--HEAD-->", head)
+                        .replace(INTRO_BLOCK, intro)
+                        .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
+                        .replace('href="/static/', f'href="{base}static/')
+                        .replace('src="/static/', f'src="{base}static/'))
+        return html
+
+    (out / "index.html").write_text(
+        page(pages.home_head(state, n_sims),
+             pages.home_body(state, state.fbs_teams, n_sims), 0),
+        encoding="utf-8")
+    (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
+    (out / "sitemap.xml").write_text(pages.sitemap(state.fbs_teams), encoding="utf-8")
 
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS
     size = _write(out / "data" / "state.json", payload)
     teams = state.fbs_teams
+    week = state.default_week() or state.current_week()
     for i, t in enumerate(teams, 1):
-        size += _write(out / "data" / "team" / f"{t.idx}.json",
-                       store.payload(t.idx))
+        guide = store.payload(t.idx)
+        size += _write(out / "data" / "team" / f"{t.idx}.json", guide)
+        team_dir = out / "team" / pages.slug(t.school)
+        team_dir.mkdir(parents=True)
+        (team_dir / "index.html").write_text(
+            page(pages.team_head(state, t, guide),
+                 pages.team_body(state, t, guide, week), 2, t.school),
+            encoding="utf-8")
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")

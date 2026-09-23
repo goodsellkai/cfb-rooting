@@ -56,7 +56,7 @@ async function newSeason() {
   $("s-new").disabled = true;
   while (!STATE) await new Promise(r => setTimeout(r, 100));   // app.js still booting
   try {
-    const url = STATIC ? nextSavedSeason()
+    const url = STATIC ? BASE + nextSavedSeason()
       : "/api/sample" + ($("s-fresh").checked ? "?from_start=true" : "");
     const resp = await fetch(url, { cache: "no-store" });
     if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
