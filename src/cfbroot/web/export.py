@@ -22,7 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
-from ..config import SimConfig
+from ..config import METRIC_NAMES, SimConfig
 from ..sim import run_league
 from ..sim.sample import sample_season, weekly_systems
 from . import pages
@@ -62,6 +62,15 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     store.league = run_league(
         state, SimConfig(n_sims=n_sims, batch_size=50_000, seed=SEED),
         progress=progress)
+
+    # Every simulated season fills the bracket, so the playoff probabilities
+    # have to add up to its size. A season loaded wrong shows up here rather
+    # than on the site.
+    made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
+    total = made.sum() / n_sims
+    if abs(total - state.params.playoff_size) > 0.01:
+        raise SystemExit(f"playoff probabilities add to {total:.2f}, not "
+                         f"{state.params.playoff_size}: not publishing")
 
     if out.exists():
         shutil.rmtree(out)

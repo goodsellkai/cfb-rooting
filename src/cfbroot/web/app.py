@@ -117,8 +117,31 @@ store = Store()
 
 # JSON helpers
 
+# What the page reads out of a game. The rest of what the guide works out,
+# the p-values and the counts behind them, never reaches the screen, and
+# sending it costs more than everything else on the page put together.
+GAME_KEYS = ("home", "away", "home_idx", "away_idx", "week", "neutral",
+             "p_home_win")
+SWING_KEYS = ("p_if_home", "p_if_away", "delta", "lo", "hi", "home",
+              "sig_week", "sig_all", "reliable")
+
+
+def _slim(games):
+    out = []
+    for g in games:
+        row = {k: g[k] for k in GAME_KEYS if k in g}
+        row["swings"] = {m: {k: s[k] for k in SWING_KEYS if k in s}
+                         for m, s in g["swings"].items()}
+        out.append(row)
+    return out
+
+
 def _clean(obj):
-    """Make numpy scalars and NaNs safe for JSON."""
+    """Make numpy scalars and NaNs safe for JSON.
+
+    Probabilities are rounded to six places, which is far finer than anything
+    shown and keeps a full-precision float from taking twenty characters.
+    """
     if isinstance(obj, dict):
         return {k: _clean(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -127,7 +150,7 @@ def _clean(obj):
         return int(obj)
     if isinstance(obj, (np.floating, float)):
         f = float(obj)
-        return None if not np.isfinite(f) else f
+        return None if not np.isfinite(f) else round(f, 6)
     if isinstance(obj, (np.bool_,)):
         return bool(obj)
     return obj
@@ -209,8 +232,8 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
                      for k, v in guide.headline.items()},
         "wins_distribution": guide.wins_distribution,
         "seed_distribution": guide.seed_distribution,
-        "own_games": [g.as_dict() for g in guide.own_games],
-        "games": [g.as_dict() for g in guide.games],
+        "own_games": _slim([g.as_dict() for g in guide.own_games]),
+        "games": _slim([g.as_dict() for g in guide.games]),
         "league": league_all(s, res),
     })
 
