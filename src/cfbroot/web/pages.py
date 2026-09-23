@@ -118,6 +118,19 @@ def sitemap(teams) -> str:
             f"{body}\n</urlset>\n")
 
 
+def headers() -> str:
+    """How long each kind of file may be held, for hosts that read _headers."""
+    return """/data/*
+  Cache-Control: public, max-age=600
+/static/header/*
+  Cache-Control: public, max-age=604800
+/static/*
+  Cache-Control: public, max-age=86400
+/*
+  Cache-Control: public, max-age=300
+"""
+
+
 def robots() -> str:
     # The data files are for the page, not for crawlers: they are hundreds of
     # megabytes and hold nothing a search result would show.

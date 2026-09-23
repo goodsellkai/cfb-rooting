@@ -71,7 +71,20 @@ jobs:
       - name: Simulate and export
         env:
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+          CFBROOT_SITE_URL: ${{ vars.SITE_URL }}
         run: cfbroot export --out site
+
+      # Cloudflare serves the site once its secrets are set; until then the
+      # GitHub Pages copy below is the live one.
+      - name: Publish to Cloudflare Pages
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=cfbroot --branch=main
 
       - uses: actions/upload-pages-artifact@v3
         with:

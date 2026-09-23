@@ -11,7 +11,7 @@ asking the server, and any static host can serve it.
       data/team/<idx>.json       one team's guide, as /api/team/<name> does
       data/season/<n>.json       a simulated season, as /api/sample does
       team/<school>/index.html   that team's page, which the app then takes over
-      sitemap.xml, robots.txt
+      sitemap.xml, robots.txt, _headers
 """
 
 from __future__ import annotations
