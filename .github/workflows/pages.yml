@@ -86,9 +86,44 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site --project-name=cfbroot --branch=main
 
+      # Once SITE_URL names the real domain, Cloudflare serves the site and
+      # the GitHub Pages copy becomes a signpost to it, so old links and
+      # anything search engines still hold keep working.
+      - name: Prepare the GitHub Pages copy
+        id: ghpages
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          if [ -z "$SITE_URL" ]; then
+            echo "path=site" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p redirect
+          cat > redirect/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>CFB Rooting Guide has moved</title>
+          <link rel="canonical" href="$SITE_URL/">
+          <meta http-equiv="refresh" content="0; url=$SITE_URL/">
+          <script>
+          // Keep the part of the address after the project name, so a link to
+          // a team lands on that team.
+          var rest = location.pathname.replace(/^\/cfb-rooting/, "");
+          location.replace("$SITE_URL" + (rest === "/" ? "/" : rest) + location.search);
+          </script>
+          </head>
+          <body><p>This site is now at <a href="$SITE_URL/">$SITE_URL</a>.</p></body>
+          </html>
+          HTML
+          sed 's/^          //' -i redirect/index.html
+          cp redirect/index.html redirect/404.html
+          echo "path=redirect" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: ${{ steps.ghpages.outputs.path }}
 
   deploy:
     needs: build
