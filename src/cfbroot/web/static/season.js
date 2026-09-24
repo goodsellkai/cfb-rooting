@@ -586,5 +586,7 @@ if (STATIC) {
   $("s-freshwrap").hidden = true;      // no server to replay a season on
 }
 try {
-  if (localStorage.getItem("cfbroot.tab") === "season") showTab("season");
+  if (!window.CFBROOT_INFO && localStorage.getItem("cfbroot.tab") === "season") {
+    showTab("season");
+  }
 } catch { /* private mode */ }

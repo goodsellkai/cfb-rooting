@@ -41,6 +41,13 @@ async function boot() {
   }
   setHeaderImage();
   renderTopMeta();
+  if (window.CFBROOT_INFO) {          // a page that is only words
+    document.body.classList.add("info");
+    document.querySelector(".controlbar").hidden = true;
+    document.querySelector(".tabs").hidden = true;
+    return;
+  }
+  watchLive();
   fillTeams();
   fillMetrics();
   fillWeeks();
@@ -135,6 +142,68 @@ function pollTag(idx) {
   const wk = (STATE.poll_weeks || {})[r.cfp ? "cfp" : "ap"];
   return `<span class="rk" title="${r.kind} #${r.best}${wk ? `, week ${wk}` : ""}"
       >${r.best}</span>`;
+}
+
+
+// Live scores
+//
+// The odds come from the last build, which can be an hour old on a Saturday.
+// The scores do not have to be: the page asks ESPN what is happening now and
+// marks each game accordingly, so a game that has already been decided says
+// so rather than looking like it is still to come.
+
+const LIVE = new Map();
+const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/"
+  + "college-football/scoreboard?groups=80&limit=400";
+
+/** Two teams, in a fixed order, as one string. */
+function gameKey(g) {
+  const name = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return [name(g.home ?? g.home_name), name(g.away ?? g.away_name)].sort().join("|");
+}
+
+function liveState(ev) {
+  const c = ev.competitions && ev.competitions[0];
+  if (!c) return null;
+  const st = c.status && c.status.type;
+  const side = {};
+  for (const x of c.competitors || []) side[x.homeAway] = x;
+  const home = side.home, away = side.away;
+  if (!home || !away || !st) return null;
+  const score = `${away.team.abbreviation} ${away.score}, `
+    + `${home.team.abbreviation} ${home.score}`;
+  return {
+    state: st.state,                       // pre, in or post
+    detail: st.shortDetail || st.detail,   // "Q3 4:12" or a kickoff time
+    score,
+    home: (home.team.location || ""), away: (away.team.location || ""),
+  };
+}
+
+async function refreshLive() {
+  try {
+    const resp = await fetch(SCOREBOARD, { cache: "no-store" });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    LIVE.clear();
+    for (const ev of data.events || []) {
+      const s = liveState(ev);
+      if (!s) continue;
+      if (s.state === "in") s.detail = `${s.detail} · ${s.score}`;
+      LIVE.set(gameKey(s), s);
+    }
+  } catch { /* offline, or ESPN is having a day; the page still works */ }
+}
+
+/** Every few minutes while a tab is open, and again when it comes back. */
+function watchLive() {
+  const tick = async () => {
+    await refreshLive();
+    if (RESULT) { renderOwnGames(); renderRootList(); }
+  };
+  tick();
+  setInterval(() => { if (!document.hidden) tick(); }, 180000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
 }
 
 // Team picker
@@ -432,10 +501,29 @@ function renderDist(elId, dist, labelFn) {
     const b = document.createElement("div");
     b.className = "b" + (dist[i] === max ? " hi" : "");
     b.title = `${labelFn(i)}: ${pct(dist[i])}`;
-    b.innerHTML = `<i style="height:${(100 * dist[i] / max).toFixed(1)}%"></i>`
+    b.innerHTML = `<span class="col"><i style="height:${(100 * dist[i] / max).toFixed(2)}%"></i></span>`
       + `<span>${labelFn(i)}</span>`;
     el.appendChild(b);
   }
+}
+
+/** "Sat 3:30 PM · ABC", in the reader's own time zone. */
+function kickoff(g) {
+  const bits = [];
+  if (g.start_date) {
+    const t = new Date(g.start_date);
+    if (!isNaN(t)) {
+      bits.push(t.toLocaleString([], { weekday: "short", hour: "numeric",
+                                       minute: "2-digit" }));
+    }
+  }
+  if (g.broadcast) bits.push(esc(g.broadcast));
+  const live = LIVE.get(gameKey(g));
+  if (live && live.state === "in") return `<span class="when live">${esc(live.detail)}</span>`;
+  if (live && live.state === "post") {
+    return `<span class="when done">Final ${esc(live.score)}</span>`;
+  }
+  return bits.length ? `<span class="when">${bits.join(" · ")}</span>` : "";
 }
 
 function logo(idx, size) {
@@ -483,6 +571,7 @@ function gameRowsHTML(games) {
         <span class="at">${g.neutral ? "vs" : "@"}</span>
         <span class="${homeCls}" data-team="${g.home_idx}">${logo(g.home_idx, 18)}${pollTag(g.home_idx)}${esc(g.home)}</span>
         ${g.neutral ? '<span class="tag">neutral</span>' : ""}
+        ${kickoff(g)}
       </td>
       ${outcomeCell(1 - pHome, s.p_if_away, base, !rootHome)}
       ${outcomeCell(pHome, s.p_if_home, base, rootHome)}

@@ -94,6 +94,7 @@ def _game(e: dict, week: int) -> dict:
     hid, hname, hconf = team("home")
     aid, aname, aconf = team("away")
     notes = [n.get("headline") for n in c.get("notes") or [] if n.get("headline")]
+    tv = [n for b in c.get("broadcasts") or [] for n in b.get("names") or []]
     return {
         "id": int(e["id"]), "week": week, "season_type": "regular",
         "start_date": e.get("date"),
@@ -102,6 +103,7 @@ def _game(e: dict, week: int) -> dict:
         "home_points": points("home"), "away_points": points("away"),
         "completed": done, "neutral_site": bool(c.get("neutralSite")),
         "conference_game": bool(c.get("conferenceCompetition")),
+        "broadcast": tv[0] if tv else "",
         "notes": notes[0] if notes else "",
     }
 

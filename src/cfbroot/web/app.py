@@ -121,7 +121,7 @@ store = Store()
 # the p-values and the counts behind them, never reaches the screen, and
 # sending it costs more than everything else on the page put together.
 GAME_KEYS = ("home", "away", "home_idx", "away_idx", "week", "neutral",
-             "p_home_win")
+             "p_home_win", "start_date", "broadcast")
 SWING_KEYS = ("p_if_home", "p_if_away", "delta", "lo", "hi", "home",
               "sig_week", "sig_all", "reliable")
 
@@ -198,7 +198,8 @@ def _season_payload(s: SeasonState) -> dict:
         # What is still to come, for the same card.
         "upcoming": [
             {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
-             "neutral": g["neutral"], "p_home": g.get("pwin_home")}
+             "neutral": g["neutral"], "p_home": g.get("pwin_home"),
+             "start": g.get("start_date"), "tv": g.get("broadcast", "")}
             for g in sorted(s.games, key=lambda g: g["week"])
             if g["status"] == 0 and not g["is_ccg"]
         ],
@@ -253,6 +254,22 @@ def _asset_token() -> str:
 def index() -> HTMLResponse:
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
     html = html.replace("<!--HEAD-->", "<title>CFB Rooting Guide</title>")
+    token = _asset_token()
+    for name in ("app.css", "app.js", "season.js"):
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/how-it-works/", response_class=HTMLResponse)
+def how_it_works() -> HTMLResponse:
+    from . import pages
+    state = store.get_season()
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("<!--HEAD-->", pages.how_head(state, DEFAULT_SIMS))
+                .replace(pages.INTRO_BLOCK, pages.how_body(state, DEFAULT_SIMS)))
+    html = html.replace('<script src="/static/app.js',
+                        '<script>window.CFBROOT_INFO = true;</script>'
+                        '<script src="/static/app.js')
     token = _asset_token()
     for name in ("app.css", "app.js", "season.js"):
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")

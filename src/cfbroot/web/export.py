@@ -32,8 +32,7 @@ from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
 # one on demand.
 SAMPLE_SEASONS = int(os.environ.get("CFBROOT_SAMPLES") or 200)
 
-# What each page shows before its script runs.
-INTRO_BLOCK = "<!--INTRO--><h2>Choose a team</h2><!--/INTRO-->"
+INTRO_BLOCK = pages.INTRO_BLOCK
 
 
 def _write(path: Path, obj) -> int:
@@ -84,15 +83,19 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     for name in ("app.css", "app.js", "season.js"):
         template = template.replace(f'/static/{name}"', f'/static/{name}?v={build}"')
 
-    def page(head: str, intro: str, depth: int, team: str | None = None) -> str:
+    def page(head: str, intro: str, depth: int, team: str | None = None,
+             info: bool = False) -> str:
         """The app's page, with what a crawler reads written in."""
         base = "../" * depth
         boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
         boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
+        boot += " window.CFBROOT_INFO = true;" if info else ""
         boot += "</script>\n"
         html = (template.replace("<!--HEAD-->", head)
                         .replace(INTRO_BLOCK, intro)
                         .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
+                        .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
+                        .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
                         .replace('href="/static/', f'href="{base}static/')
                         .replace('src="/static/', f'src="{base}static/'))
         return html
@@ -100,6 +103,12 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     (out / "index.html").write_text(
         page(pages.home_head(state, n_sims),
              pages.home_body(state, state.fbs_teams, n_sims), 0),
+        encoding="utf-8")
+    how = out / "how-it-works"
+    how.mkdir()
+    (how / "index.html").write_text(
+        page(pages.how_head(state, n_sims), pages.how_body(state, n_sims), 1,
+             info=True),
         encoding="utf-8")
     (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
     (out / "sitemap.xml").write_text(pages.sitemap(state.fbs_teams), encoding="utf-8")
