@@ -151,13 +151,16 @@ def sitemap(teams) -> str:
 
 def headers() -> str:
     """How long each kind of file may be held, for hosts that read _headers."""
+    # One rule per path, since a host that matches several applies them all.
     return """/data/*
   Cache-Control: public, max-age=600
 /static/header/*
   Cache-Control: public, max-age=604800
 /static/*
   Cache-Control: public, max-age=86400
-/*
+/
+  Cache-Control: public, max-age=300
+/team/*
   Cache-Control: public, max-age=300
 """
 
