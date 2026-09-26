@@ -101,10 +101,17 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         return html
 
     odds = made / n_sims
-    race = sorted(zip(store.league.names, odds), key=lambda r: -r[1])[:10]
+    standing = sorted(zip(store.league.names, odds), key=lambda r: -r[1])
     (out / "index.html").write_text(
         page(pages.home_head(state, n_sims),
-             pages.home_body(state, state.fbs_teams, n_sims, race), 0),
+             pages.home_body(state, state.fbs_teams, n_sims,
+                             standing[:10], standing[10:18]), 0),
+        encoding="utf-8")
+    everyone = out / "teams"
+    everyone.mkdir()
+    (everyone / "index.html").write_text(
+        page(pages.teams_head(state), pages.teams_body(state, state.fbs_teams),
+             1, info=True),
         encoding="utf-8")
     how = out / "how-it-works"
     how.mkdir()

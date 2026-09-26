@@ -79,46 +79,84 @@ def team_head(state, team, payload):
     return _head(title, desc, f"{SITE_URL}/team/{slug(team.school)}/")
 
 
-def home_body(state, teams, n_sims, race=()):
+def _team_row(school, logo, odds=None, best=1.0, pos=None):
+    art = (f'<img src="{html.escape(logo)}" alt="" width="22" height="22">'
+           if logo else '<span class="noart"></span>')
+    bar = ""
+    if odds is not None:
+        width = max(2, round(100 * odds / best)) if best else 2
+        bar = (f'<span class="odds"><span class="barline">'
+               f'<i style="width:{width}%"></i></span>'
+               f'<b>{_pct(odds)}</b></span>')
+    rank = f'<span class="pos">{pos}</span>' if pos else ""
+    return (f'<li>{rank}{art}<a href="team/{slug(school)}/">'
+            f'{html.escape(school)}</a>{bar}</li>')
+
+
+def home_body(state, teams, n_sims, race=(), bubble=()):
     week = state.current_week()
     logos = {t.school: t.logo for t in teams}
-    rows = ""
-    for i, (school, odds) in enumerate(race, 1):
-        logo = logos.get(school)
-        art = (f'<img src="{html.escape(logo)}" alt="" width="22" height="22">'
-               if logo else "")
-        rows += (f'<li><span class="pos">{i}</span>{art}'
-                 f'<a href="team/{slug(school)}/">{html.escape(school)}</a>'
-                 f'<b>{_pct(odds)}</b></li>\n')
-    grid = ""
-    for t in teams:
-        logo = logos.get(t.school)
-        art = (f'<img src="{html.escape(logo)}" alt="" width="20" height="20">'
-               if logo else "")
-        grid += (f'<li><a href="team/{slug(t.school)}/">{art}'
-                 f'{html.escape(t.school)}</a></li>\n')
+    best = race[0][1] if race else 1.0
+    top = "\n".join(_team_row(s, logos.get(s), o, best, i)
+                    for i, (s, o) in enumerate(race, 1))
+    edge = "\n".join(_team_row(s, logos.get(s), o, best)
+                     for s, o in bubble)
     return f"""<h1>Root for the right team</h1>
 <p class="lead">Your team has games left, and so does everyone chasing the
-same playoff spot. Pick a team and every remaining game of the {state.year}
-season is sorted by how much each result moves that team's odds, worked out
-from {_sims(n_sims)} simulated seasons.</p>
+same playoff spot. Pick a team and every game left in the {state.year} season
+is sorted by how much each result moves that team's odds, out of
+{_sims(n_sims)} simulated seasons.</p>
 <p class="lead">Some weeks the game that matters most does not involve your
 team at all.</p>
+<p class="cta"><a href="#team">Pick your team</a> or take one of these.</p>
 
-<h2>The race through week {week}</h2>
-<ol class="race">
-{rows}</ol>
+<div class="boards">
+  <div>
+    <h2>The race, week {week}</h2>
+    <ol class="race">
+{top}
+    </ol>
+  </div>
+  <div>
+    <h2>On the bubble</h2>
+    <ol class="race">
+{edge}
+    </ol>
+    <p class="foot"><a href="teams/">All {len(teams)} teams</a></p>
+  </div>
+</div>
 
-<h2>Pick your team</h2>
-<ul class="teamgrid">
-{grid}</ul>
-
-<h2>Where the numbers come from</h2>
-<p>Each simulated season plays out every game left, rates all {len(teams)}
+<p class="lead">Each simulated season plays out every game left, rates the
 teams on the results the way the real ones are rated, ranks them the way the
-selection committee does, and fills the bracket. Splitting those seasons by
-who won a given game is what tells you the game is worth, say, four points of
-playoff odds. <a href="how-it-works/">The longer version</a>.</p>"""
+selection committee does, and fills the bracket.
+<a href="how-it-works/">How that works</a>.</p>"""
+
+
+def teams_head(state):
+    desc = (f"Playoff odds and a rooting guide for all 138 FBS teams, "
+            f"updated through week {state.current_week()} of the {state.year} "
+            f"season.")
+    return _head(f"Every team | {SITE_NAME}", desc, f"{SITE_URL}/teams/")
+
+
+def teams_body(state, teams):
+    by_conf: dict[str, list] = {}
+    for t in teams:
+        by_conf.setdefault(t.conference or "Independent", []).append(t)
+    out = ""
+    for conf in sorted(by_conf):
+        links = "\n".join(
+            f'<li><a href="../team/{slug(t.school)}/">'
+            + (f'<img src="{html.escape(t.logo)}" alt="" width="20" height="20">'
+               if t.logo else "")
+            + f'{html.escape(t.school)}</a></li>'
+            for t in sorted(by_conf[conf], key=lambda t: t.school))
+        out += f'<h2>{html.escape(conf)}</h2>\n<ul class="teamgrid">\n{links}\n</ul>\n'
+    return f"""<h1>Every team</h1>
+<p class="lead">Each team's page has its playoff, conference and title odds,
+and every remaining game sorted by how much it moves them.</p>
+{out}
+<p><a href="../">Back to the guide</a></p>"""
 
 
 def team_body(state, team, payload, week):
@@ -238,7 +276,7 @@ def not_found() -> str:
 
 def sitemap(teams) -> str:
     day = datetime.now(timezone.utc).date().isoformat()
-    urls = ([SITE_URL + "/", SITE_URL + "/how-it-works/"]
+    urls = ([SITE_URL + "/", SITE_URL + "/how-it-works/", SITE_URL + "/teams/"]
             + [f"{SITE_URL}/team/{slug(t.school)}/" for t in teams])
     body = "\n".join(
         f"  <url><loc>{u}</loc><lastmod>{day}</lastmod></url>" for u in urls)

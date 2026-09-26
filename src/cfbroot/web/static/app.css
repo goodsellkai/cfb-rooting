@@ -191,17 +191,33 @@ main { padding: 26px; max-width: 1240px; margin: 0 auto; width: 100%; flex: 1; }
 .empty h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
             color: var(--muted); font-weight: 700; margin: 22px 0 8px; }
 .empty p { max-width: 640px; margin: 0 auto 10px; }
-body.info .empty { text-align: left; max-width: 760px; margin: 0 auto; }
+body.info .empty { text-align: left; max-width: 860px; margin: 0 auto; }
+body.info .empty .lead { margin-left: 0; }
+body.info .teamgrid { margin: 6px 0 18px; }
 body.info .empty h1 { font-size: 26px; }
 body.info .empty h2 { margin-top: 26px; }
 body.info .empty p { margin: 0 0 12px; max-width: none; }
-.empty .lead { font-size: 15.5px; max-width: 620px; }
+.empty .lead { font-size: 15.5px; max-width: 640px; margin: 0 auto 12px; }
+.empty .cta { font-size: 14px; margin: 16px 0 4px; }
+.empty .cta a { color: var(--accent); font-weight: 650; }
+/* the two boards on the landing page */
+.boards { display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+          max-width: 880px; margin: 18px auto 6px; text-align: left; }
+@media (max-width: 720px) { .boards { grid-template-columns: 1fr; } }
+.boards h2 { margin: 0 0 6px; }
+.boards .foot { margin-top: 10px; }
 /* the playoff race, as it stands */
-.empty ol.race { list-style: none; padding: 0; columns: 1; max-width: 460px;
-                 margin: 0 auto; text-align: left; }
+.empty ol.race { list-style: none; padding: 0; columns: 1; margin: 0;
+                 text-align: left; }
 .race li { display: flex; align-items: center; gap: 9px; padding: 6px 10px;
            border-bottom: 1px solid var(--line-2); font-size: 14px; }
 .race li:last-child { border-bottom: none; }
+.race .noart { width: 22px; height: 22px; }
+.race .odds { display: flex; align-items: center; gap: 8px; }
+.race .barline { display: block; width: 68px; height: 6px; border-radius: 999px;
+                 background: var(--line-2); overflow: hidden; }
+.race .barline i { display: block; height: 100%; background: var(--good); }
+.race b { min-width: 50px; text-align: right; font-size: 13px; }
 .race .pos { width: 18px; color: var(--muted); font-size: 12px;
              font-variant-numeric: tabular-nums; }
 .race img { width: 22px; height: 22px; object-fit: contain; }
@@ -292,6 +308,8 @@ th .hint { display: block; font-weight: 400; text-transform: none;
 .when { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .when.live { color: var(--good); font-weight: 600; }
 .when.done { color: var(--ink-2); }
+.finalscore { font-family: var(--mono); font-variant-numeric: tabular-nums;
+              font-size: 13.5px; }
 .logo { width: 18px; height: 18px; object-fit: contain; vertical-align: middle; flex: none; }
 .logo.ph { display: inline-block; border-radius: 50%; background: var(--line); }
 .teamcell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }

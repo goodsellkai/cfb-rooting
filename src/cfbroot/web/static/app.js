@@ -176,6 +176,7 @@ function liveState(ev) {
     state: st.state,                       // pre, in or post
     detail: st.shortDetail || st.detail,   // "Q3 4:12" or a kickoff time
     score,
+    hp: Number(home.score), ap: Number(away.score),
     home: (home.team.location || ""), away: (away.team.location || ""),
   };
 }
@@ -519,7 +520,10 @@ function kickoff(g) {
   }
   if (g.broadcast) bits.push(esc(g.broadcast));
   const live = LIVE.get(gameKey(g));
-  if (live && live.state === "in") return `<span class="when live">${esc(live.detail)}</span>`;
+  const tv = g.broadcast ? ` · ${esc(g.broadcast)}` : "";
+  if (live && live.state === "in") {
+    return `<span class="when live">${esc(live.detail)}${tv}</span>`;
+  }
   if (live && live.state === "post") {
     return `<span class="when done">Final ${esc(live.score)}</span>`;
   }
@@ -604,9 +608,59 @@ function renderOwnGames() {
   $("owntable").innerHTML = gameRowsHTML(games);
 }
 
+function playedGames() {
+  const wk = selectedWeek();
+  const q = ($("rootsearch").value || "").trim().toLowerCase();
+  const done = (STATE.played || [])
+    .filter(g => !g.title_game && (wk === null || g.week === wk));
+  // Anything that finished since the last build, off the live scoreboard.
+  for (const g of (RESULT ? RESULT.games : [])) {
+    if (wk !== null && g.week !== wk) continue;
+    const live = LIVE.get(gameKey(g));
+    if (!live || live.state !== "post" || !Number.isFinite(live.hp)) continue;
+    done.push({week: g.week, home: g.home_idx, away: g.away_idx,
+               home_points: live.hp, away_points: live.ap,
+               neutral: g.neutral});
+  }
+  return done
+    .filter(g => !q || [g.home, g.away].some(
+      i => (team(i).name || "").toLowerCase().includes(q)))
+    .sort((a, b) => b.week - a.week);
+}
+
+/** What happened, for the games this week that are already over. */
+function playedRowsHTML(games) {
+  let html = `<div class="tablewrap"><table class="games"><thead><tr>
+      <th>Matchup</th><th class="num">Final</th><th>Week</th>
+    </tr></thead><tbody>`;
+  for (const g of games) {
+    const homeWon = g.home_points > g.away_points;
+    const side = (idx, won) => `<span class="side${won ? " root" : ""}"
+        data-team="${idx}">${logo(idx, 18)}${pollTag(idx)}${esc(team(idx).name)}</span>`;
+    html += `<tr>
+      <td class="matchup">${side(g.away, !homeWon)}
+        <span class="at">${g.neutral ? "vs" : "@"}</span>
+        ${side(g.home, homeWon)}</td>
+      <td class="num"><span class="finalscore">${g.away_points} - ${g.home_points}</span></td>
+      <td class="muted">Week ${g.week}</td>
+    </tr>`;
+  }
+  return html + "</tbody></table></div>";
+}
+
 function renderRootList() {
   const key = $("primary").value;
   const wk = selectedWeek();
+
+  if ($("sigfilter").value === "done") {
+    const done = playedGames();
+    $("rootlist").innerHTML = done.length
+      ? playedRowsHTML(done.slice(0, 80))
+      : `<p class="foot">No finished games on this slate yet.</p>`;
+    $("rootcount").textContent = `${done.length} played`;
+    return;
+  }
+
   const slate = RESULT.games.filter(g => wk === null || g.week === wk);
   const games = visibleGames();
   const shown = games.slice(0, 60);
