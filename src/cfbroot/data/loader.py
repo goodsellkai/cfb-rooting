@@ -9,7 +9,7 @@ from . import cache
 from .cfbd_source import CFBDSource, SourceError
 from . import espn_season
 from .espn_source import ESPNError, fetch_fpi
-from .season import SeasonState, build_season
+from .season import SeasonState, build_season, carry_ratings
 
 
 def default_year(today: dt.date | None = None) -> int:
@@ -83,6 +83,7 @@ def load_season(year: int | None = None, *, live: bool = False,
     state.source = source
     state.rating_label = "FPI" if fpi else "SP+"
     state.ratings_updated = ratings_updated
+    carry_ratings(state)
     state.notes = notes + state.notes
     # Keep ESPN's own playoff odds to show next to ours.
     for t in state.teams:

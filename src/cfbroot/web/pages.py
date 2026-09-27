@@ -208,6 +208,12 @@ not exactly right, and their errors last, so each simulated season also draws
 one error per team and keeps it all year. A team the ratings overrate is
 overrated in September and in November, which is what makes a whole season
 plausible rather than a string of independent coin flips.</p>
+<p>FPI comes out once a day, so a Saturday result is not in it until Sunday
+morning. Until it is, every finished game the ratings have not seen moves
+both teams by the share of the surprise FPI itself would move them, worked
+out from three seasons of its weekly ratings. A team that wins in the
+afternoon is simulated on Saturday night at close to the strength it is
+about to be given, rather than the one it had on Friday.</p>
 
 <h2>Rating what happened</h2>
 <p>A simulated season is a full set of results, so it gets rated from scratch

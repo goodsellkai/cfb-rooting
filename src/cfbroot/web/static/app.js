@@ -24,6 +24,30 @@ const URLS = STATIC
   ? { state: BASE + "data/state.json", team: (t) => `${BASE}data/team/${t.idx}.json` }
   : { state: "/api/state", team: (t) => "/api/team/" + encodeURIComponent(t.name) };
 
+/** Why a request failed, whether or not the answer was JSON. */
+async function reason(resp) {
+  try {
+    return (await resp.json()).detail || resp.statusText;
+  } catch {
+    return resp.statusText || ("HTTP " + resp.status);
+  }
+}
+
+/* Every data file says which build wrote it. The site rebuilds every half
+ * hour on a Saturday, so a page left open long enough can ask for a file
+ * from a newer build, whose team numbering it does not share. Pick up the
+ * new season data and let the caller ask again. */
+async function sameBuild(body) {
+  if (!STATIC || !body || !body.build || body.build === STATE.build) return true;
+  try {
+    STATE = await (await fetch(URLS.state, { cache: "reload" })).json();
+  } catch {
+    return true;
+  }
+  renderTopMeta();
+  return body.build === STATE.build;
+}
+
 const CONF_TITLE = {
   clear: "The simulations separate the two results",
   leaning: "The direction is a lean, not a clear result",
@@ -96,11 +120,12 @@ const LINKS = {
   fpi: "https://www.espn.com/college-football/fpi",
 };
 
-function chip(text, value, href) {
+function chip(text, value, href, title) {
   const inner = `${esc(text)} <b>${esc(value)}</b>`;
+  const tip = title ? ` title="${esc(title)}"` : "";
   return href
-    ? `<a class="chip" href="${href}" target="_blank" rel="noopener">${inner}</a>`
-    : `<span class="chip">${inner}</span>`;
+    ? `<a class="chip" href="${href}" target="_blank" rel="noopener"${tip}>${inner}</a>`
+    : `<span class="chip"${tip}>${inner}</span>`;
 }
 
 const ASSETS = STATIC ? BASE + "static/" : "/static/";
@@ -115,9 +140,14 @@ function renderTopMeta() {
   const pw = STATE.poll_weeks || {};
   const poll = pw.cfp ? chip("CFP poll", "week " + pw.cfp, LINKS.poll)
     : pw.ap ? chip("AP poll", "week " + pw.ap, LINKS.poll) : "";
+  const carried = STATE.carried_games
+    ? `Published ${ago(STATE.ratings_updated)}, then carried forward through `
+      + `${STATE.carried_games} game${STATE.carried_games > 1 ? "s" : ""} `
+      + `finished since.`
+    : "";
   const rating = STATE.rating_label === "FPI"
-    ? chip("FPI", ago(STATE.ratings_updated) || "-", LINKS.fpi)
-    : chip(STATE.rating_label, ago(STATE.ratings_updated) || "-");
+    ? chip("FPI", ago(STATE.ratings_updated) || "-", LINKS.fpi, carried)
+    : chip(STATE.rating_label, ago(STATE.ratings_updated) || "-", null, carried);
   const sims = STATE.loaded_at
     ? chip("Simulated", ago(new Date(1000 * STATE.loaded_at).toISOString())) : "";
   $("topmeta").innerHTML = poll + rating + sims;
@@ -345,15 +375,16 @@ function teamNamed(name) {
 }
 
 async function loadTeam() {
-  const t = teamNamed($("team").value);
+  let t = teamNamed($("team").value);
   if (!t || (RESULT && RESULT.team === t.name && WANTED === t.name)) return;
   WANTED = t.name;
   try { localStorage.setItem("cfbroot.team", t.name); } catch { /* private mode */ }
   if (typeof onTeamChanged === "function") onTeamChanged();   // season.js
+  let rebuilt = false;
   for (;;) {
     let resp, body;
     try {
-      resp = await fetch(URLS.team(t));
+      resp = await fetch(URLS.team(t), rebuilt ? { cache: "reload" } : undefined);
       body = await resp.json();
     } catch (err) {
       showProgress(null);
@@ -370,6 +401,11 @@ async function loadTeam() {
     if (!resp.ok) {
       banner("Could not load " + t.name + ": " + (body.detail || resp.statusText), false);
       return;
+    }
+    if (!rebuilt && !(await sameBuild(body))) {
+      rebuilt = true;
+      t = teamNamed(WANTED) || t;    // a rebuild can renumber the teams
+      continue;
     }
     RESULT = body;
     render();

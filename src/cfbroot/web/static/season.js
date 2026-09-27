@@ -36,18 +36,20 @@ function showTab(name) {
 
 // Loading
 
-let UNSEEN = [];
+const UNSEEN = { now: [], fresh: [] };
 
 /** The next saved season, in a fresh random order once they run out. */
 function nextSavedSeason() {
-  if (!UNSEEN.length) {
-    UNSEEN = [...Array(STATE.sample_seasons || 1).keys()];
-    for (let i = UNSEEN.length - 1; i > 0; i--) {
+  const fresh = $("s-fresh").checked;
+  const pool = fresh ? UNSEEN.fresh : UNSEEN.now;
+  if (!pool.length) {
+    for (let i = 0; i < (STATE.sample_seasons || 1); i++) pool.push(i);
+    for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [UNSEEN[i], UNSEEN[j]] = [UNSEEN[j], UNSEEN[i]];
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
   }
-  return `data/season/${UNSEEN.pop()}.json`;
+  return `data/season/${fresh ? "fresh/" : ""}${pool.pop()}.json`;
 }
 
 async function newSeason() {
@@ -59,8 +61,11 @@ async function newSeason() {
     const url = STATIC ? BASE + nextSavedSeason()
       : "/api/sample" + ($("s-fresh").checked ? "?from_start=true" : "");
     const resp = await fetch(url, { cache: "no-store" });
-    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    if (!resp.ok) throw new Error(await reason(resp));
     SEASON = await resp.json();
+    if (!(await sameBuild(SEASON))) {
+      SEASON = await (await fetch(url, { cache: "reload" })).json();
+    }
   } catch (err) {
     banner("Could not simulate a season: " + err.message, false);
     return;
@@ -582,9 +587,6 @@ function onTeamChanged() {
   renderSeason();
 }
 
-if (STATIC) {
-  $("s-freshwrap").hidden = true;      // no server to replay a season on
-}
 try {
   if (!window.CFBROOT_INFO && localStorage.getItem("cfbroot.tab") === "season") {
     showTab("season");

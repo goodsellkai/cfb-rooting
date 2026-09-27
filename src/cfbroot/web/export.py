@@ -16,6 +16,7 @@ asking the server, and any static host can serve it.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import shutil
@@ -29,8 +30,13 @@ from . import pages
 from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
 
 # Seasons written out for the Sim a season tab, which has no server to make
-# one on demand.
+# one on demand. This many carrying the season's results, and this many
+# replayed from week 1.
 SAMPLE_SEASONS = int(os.environ.get("CFBROOT_SAMPLES") or 200)
+
+# Every file written here carries this, so a page left open across a rebuild
+# can tell that the numbering it holds is no longer the one being served.
+BUILD = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
 
 INTRO_BLOCK = pages.INTRO_BLOCK
 
@@ -128,11 +134,13 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
 
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS
+    payload["build"] = BUILD
     size = _write(out / "data" / "state.json", payload)
     teams = state.fbs_teams
     week = state.default_week() or state.current_week()
     for i, t in enumerate(teams, 1):
         guide = store.payload(t.idx)
+        guide["build"] = BUILD
         size += _write(out / "data" / "team" / f"{t.idx}.json", guide)
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
@@ -145,11 +153,16 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
             log(f"  wrote {i} / {len(teams)} teams")
 
     (out / "data" / "season").mkdir()
+    (out / "data" / "season" / "fresh").mkdir()
     ki = state.kernel_inputs()
     weekly = weekly_systems(state, ki)
     for i in range(SAMPLE_SEASONS):
-        size += _write(out / "data" / "season" / f"{i}.json",
-                       sample_season(state, SEED + i, ki=ki, weekly=weekly))
+        for fresh in (False, True):
+            blob = sample_season(state, SEED + i, from_start=fresh, ki=ki,
+                                 weekly=weekly)
+            blob["build"] = BUILD
+            name = f"fresh/{i}.json" if fresh else f"{i}.json"
+            size += _write(out / "data" / "season" / name, blob)
         if (i + 1) % 50 == 0:
             log(f"  wrote {i + 1} / {SAMPLE_SEASONS} simulated seasons")
     log(f"{out}: {size / 1e6:.0f} MB in {time.perf_counter() - t0:.0f}s")

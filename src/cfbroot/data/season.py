@@ -137,6 +137,8 @@ class SeasonState:
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
     ratings_updated: str | None = None
+    # Games already finished that the published ratings have not seen.
+    carried_games: int = 0
     notes: list[str] = field(default_factory=list)
 
     # Lookups
@@ -318,6 +320,56 @@ class SeasonState:
 
 
 # Building a SeasonState from raw payloads
+
+def _stamp(value: str | None) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        when = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=dt.timezone.utc)
+
+
+def carry_ratings(state: SeasonState) -> int:
+    """Move ratings for results the published ratings have not seen.
+
+    FPI comes out once a day, so Saturday's games are not in it until Sunday
+    morning. Until then a team that just won is still rated where it was on
+    Friday and its remaining games are simulated at that strength, which
+    holds its playoff odds down until the ratings catch up.
+
+    Each unseen game moves both teams by the share of the surprise FPI moves
+    them itself, carry_gain / (week + carry_offset) per point of margin
+    beyond what the ratings predicted. See cfbroot.carry.
+    """
+    stamp = _stamp(state.ratings_updated)
+    if stamp is None:
+        return 0
+    p = state.params
+    rating = [t.rating for t in state.teams]
+    move: dict[int, float] = {}
+    carried = 0
+    for g in state.games:
+        if g["status"] == TO_SIMULATE or g["is_ccg"]:
+            continue
+        kick = _stamp(g.get("start_date"))
+        if kick is None or kick < stamp:
+            continue
+        h, a = g["home_idx"], g["away_idx"]
+        if not (state.teams[h].is_fbs and state.teams[a].is_fbs):
+            continue
+        edge = rating[h] - rating[a] + (0.0 if g["neutral"] else p.hfa)
+        share = p.carry_gain / (g["week"] + p.carry_offset)
+        shift = share * ((g["home_points"] - g["away_points"]) - edge)
+        move[h] = move.get(h, 0.0) + shift
+        move[a] = move.get(a, 0.0) - shift
+        carried += 1
+    for idx, delta in move.items():
+        state.teams[idx].rating += delta
+    state.carried_games = carried
+    return carried
+
 
 def _pick_rating(team_id, name_key: str, fpi_by_id: dict, fpi_map: dict,
                  sp_map: dict) -> tuple[float, str]:

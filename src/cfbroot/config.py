@@ -65,6 +65,12 @@ class ModelParams:
     rating_sd: float = 7.18
     rating_scale: float = 1.0      # FPI is already in points; 0.97-1.07 measured
     fcs_rating: float = -32.0      # assumed rating for non-FBS opponents
+    # FPI is published once a day, so a Saturday result is not in it until
+    # Sunday morning. A game moves a rating by this share of the surprise,
+    # carry_gain / (week + carry_offset) per point, which is what FPI itself
+    # does. From python -m cfbroot.carry over 2023-25.
+    carry_gain: float = 1.212
+    carry_offset: float = 5.41
 
     # Simulated scores. The margin is drawn first, from the same distribution
     # the win probability came from, so no game's odds change; the total is

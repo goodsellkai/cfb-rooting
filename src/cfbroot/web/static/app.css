@@ -257,7 +257,7 @@ body.info .empty p { margin: 0 0 12px; max-width: none; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
          gap: 13px; margin-bottom: 18px; }
 .card {
-  background: var(--panel); border: 1px solid var(--line);
+  background: var(--panel); border: 1px solid var(--line); min-width: 0;
   border-radius: var(--radius); padding: 15px 17px; box-shadow: var(--shadow);
 }
 .card.is-primary { border-color: var(--accent);
@@ -361,11 +361,17 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   .field { flex: 1 1 calc(50% - 5px); }
   .field select, .field input, .field.narrow select, .field.narrow input,
   .combo input { width: 100%; min-width: 0; }
-  .cards { grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
+           margin-bottom: 14px; }
   .card { padding: 11px 12px; }
   .card .value { font-size: 22px; }
-  .topbar { min-height: 86px; padding: 14px 16px; }
-  .topbar h1 { font-size: 19px; }
+  /* the header holds its name and the link on one row, chips under them */
+  .topbar { min-height: 0; padding: 12px 16px; gap: 10px; align-items: center; }
+  .topbar h1 { font-size: 18px; }
+  .mark { width: 32px; height: 32px; }
+  .brand { flex: 1 1 auto; }
+  .howlink { order: 1; }
+  .topmeta { order: 2; flex-basis: 100%; }
   .sitefoot { padding: 12px 16px; }
   .empty { padding: 20px 16px 24px; }
 }
@@ -519,6 +525,12 @@ tr.mine td { background: var(--accent-soft); }
                    font-weight: 700; color: var(--good); }
 .champion .cname { font-size: 19px; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
 @media (max-width: 820px) { .bracket { grid-template-columns: repeat(4, 142px); } }
+/* a phone reads the rounds down the page instead of across it */
+@media (max-width: 560px) {
+  .bracket { grid-template-columns: minmax(0, 1fr); gap: 12px; overflow-x: visible; }
+  .bgame::after { display: none; }
+  .bcol .subhead { text-align: left; }
+}
 
 /* standings */
 table.standings td { padding: 6px 8px; }

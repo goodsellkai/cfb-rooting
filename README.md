@@ -42,6 +42,19 @@ starts near 7.2 points and settles near 4.7 once a few weeks are played, while
 the game noise holds between 13.5 and 14 all season. Fitted on two seasons and
 tested on the third, the curve beat a constant error in every case tried.
 
+ESPN publishes FPI once a day, so Saturday's results are not in it until
+Sunday morning. Until they are, each finished game the ratings have not seen
+moves both teams by the share of the surprise FPI itself moves them,
+
+    share(w) = 1.212 / (w + 5.41)
+
+per point of margin beyond what the ratings predicted, with w the week. That
+share is 0.147 in September and 0.071 by late November. Fitted on 2023-25 it
+put week 4 of 2026 at 0.129 against 0.129 measured, and over a full Saturday
+it cuts the gap to the ratings published the next morning from 1.6 points to
+0.6. Without it a team that just won is still simulated at the strength it
+had on Friday, and its playoff odds wait a day to catch up.
+
 Drawing the margin rather than flipping a weighted coin leaves each game's win
 probability unchanged, since it is the distribution that probability came from.
 The total is then drawn around the margin, averaging 50.2 points plus 0.18 per
@@ -137,7 +150,8 @@ tell.
 The site also plays out single simulated seasons: every score week by week,
 the standings, the title games, the committee's ranking, selection day and
 the bracket. Each one is a draw from the same distribution the odds come
-from, rated the same way.
+from, rated the same way. It can carry this season's results or replay the
+whole year from week 1.
 
 ## How well it does
 

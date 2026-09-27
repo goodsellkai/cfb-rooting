@@ -170,6 +170,7 @@ def _season_payload(s: SeasonState) -> dict:
         "games_remaining": remaining,
         "rating_label": s.rating_label,
         "ratings_updated": s.ratings_updated,
+        "carried_games": s.carried_games,
         "model": model_provenance(s.params),
         "diagnostics": diag.summary() if diag is not None else "",
         "notes": s.notes,
