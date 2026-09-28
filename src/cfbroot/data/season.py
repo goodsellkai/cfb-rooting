@@ -51,7 +51,8 @@ class TeamInfo:
     rating_source: str = "default"
     color: str | None = None
     logo: str | None = None
-    espn_playoff_prob: float | None = None   # ESPN's own number, for comparison
+    # ESPN's own odds, for comparison, keyed by the metric they match.
+    espn_odds: dict = field(default_factory=dict)
 
 
 @dataclass

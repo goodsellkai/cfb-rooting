@@ -85,11 +85,16 @@ def load_season(year: int | None = None, *, live: bool = False,
     state.ratings_updated = ratings_updated
     carry_ratings(state)
     state.notes = notes + state.notes
-    # Keep ESPN's own playoff odds to show next to ours.
+    # Keep ESPN's own odds to show next to ours, where it publishes one.
+    espn_metrics = {"make_playoff": "espn_playoff_prob",
+                    "win_conference": "espn_conf_prob",
+                    "win_national_title": "espn_title_prob"}
     for t in state.teams:
         row = espn_extra.get(int(t.team_id)) if t.team_id is not None else None
-        if row:
-            t.espn_playoff_prob = row.get("espn_playoff_prob")
+        if not row:
+            continue
+        t.espn_odds = {metric: row[key] for metric, key in espn_metrics.items()
+                       if row.get(key) is not None}
 
     # Rate the FCS opponents from their own schedules, once. They barely move
     # between simulated seasons, so the simulator can treat them as known

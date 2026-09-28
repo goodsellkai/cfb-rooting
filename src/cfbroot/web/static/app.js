@@ -712,8 +712,8 @@ function renderRootList() {
 function renderLeague() {
   const key = $("leaguemetric").value;
   const rows = RESULT.league.slice().sort((a, b) => b.p[key] - a.p[key]);
-  const showEspn = key === "make_playoff"
-    && rows.some(r => r.espn_playoff_prob !== null && r.espn_playoff_prob !== undefined);
+  // ESPN publishes its own odds on some of these, and not on others.
+  const showEspn = rows.some(r => r.espn && r.espn[key] != null);
   const polls = STATE.polls || {};
   const weeks = STATE.poll_weeks || {};
   const showAp = !!polls.ap, showCfp = !!polls.cfp;
@@ -723,7 +723,8 @@ function renderLeague() {
     <th class="num">${esc(STATE.rating_label)}</th>
     ${showCfp ? head("cfp", "CFP") : ""}${showAp ? head("ap", "AP") : ""}
     <th class="num">${esc(metricLabel(key))}</th>
-    ${showEspn ? '<th class="num">ESPN</th>' : ""}</tr></thead><tbody>`;
+    ${showEspn ? '<th class="num" title="What ESPN gives for the same thing, '
+      + 'from its FPI page">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const pr = pollRank(r.idx);
     html += `<tr><td class="num">${i + 1}</td>
@@ -733,8 +734,8 @@ function renderLeague() {
       ${showCfp ? `<td class="num muted">${pr.cfp || ""}</td>` : ""}
       ${showAp ? `<td class="num muted">${pr.ap || ""}</td>` : ""}
       <td class="num"><b>${pct(r.p[key])}</b></td>
-      ${showEspn ? `<td class="num muted">${r.espn_playoff_prob != null
-        ? pct(r.espn_playoff_prob) : "-"}</td>` : ""}</tr>`;
+      ${showEspn ? `<td class="num muted">${r.espn && r.espn[key] != null
+        ? pct(r.espn[key]) : "-"}</td>` : ""}</tr>`;
   });
   $("league").innerHTML = html + "</tbody></table></div>";
 }

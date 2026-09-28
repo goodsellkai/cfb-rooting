@@ -343,7 +343,7 @@ def league_all(state: SeasonState, res: SimResults, alpha: float = 0.05) -> list
              "p": dict(zip(names, probs[i].tolist())),
              "lo": dict(zip(names, np.asarray(lo)[i].tolist())),
              "hi": dict(zip(names, np.asarray(hi)[i].tolist())),
-             "espn_playoff_prob": getattr(t, "espn_playoff_prob", None)}
+             "espn": getattr(t, "espn_odds", None) or {}}
             for i, t in enumerate(fbs)]
 
 
