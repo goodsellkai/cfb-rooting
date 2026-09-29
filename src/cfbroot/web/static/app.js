@@ -21,8 +21,15 @@ const STATIC = !!window.CFBROOT_STATIC;
 // to the root for data and assets.
 const BASE = window.CFBROOT_BASE || "";
 const URLS = STATIC
-  ? { state: BASE + "data/state.json", team: (t) => `${BASE}data/team/${t.idx}.json` }
+  ? { state: BASE + "data/state.json",
+      team: (t) => `${BASE}data/team/${t.slug || slugOf(t.name)}.json` }
   : { state: "/api/state", team: (t) => "/api/team/" + encodeURIComponent(t.name) };
+
+/** A team's piece of the address, the same rule the build uses. */
+function slugOf(name) {
+  return String(name || "").normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+}
 
 /** Why a request failed, whether or not the answer was JSON. */
 async function reason(resp) {
@@ -37,14 +44,20 @@ async function reason(resp) {
  * hour on a Saturday, so a page left open long enough can ask for a file
  * from a newer build, whose team numbering it does not share. Pick up the
  * new season data and let the caller ask again. */
-async function sameBuild(body) {
-  if (!STATIC || !body || !body.build || body.build === STATE.build) return true;
+async function refreshState() {
+  if (!STATIC) return false;
   try {
     STATE = await (await fetch(URLS.state, { cache: "reload" })).json();
   } catch {
-    return true;
+    return false;
   }
   renderTopMeta();
+  return true;
+}
+
+async function sameBuild(body) {
+  if (!STATIC || !body || !body.build || body.build === STATE.build) return true;
+  await refreshState();
   return body.build === STATE.build;
 }
 
@@ -387,8 +400,18 @@ async function loadTeam() {
       resp = await fetch(URLS.team(t), rebuilt ? { cache: "reload" } : undefined);
       body = await resp.json();
     } catch (err) {
+      // A rebuild landing between the page loading and this request leaves
+      // the old address pointing at nothing, and the 404 page is not JSON.
+      if (!rebuilt && await refreshState()) {
+        rebuilt = true;
+        t = teamNamed(WANTED) || t;
+        continue;
+      }
       showProgress(null);
-      banner("Could not load " + t.name + ": " + err, false);
+      banner(rebuilt
+        ? "The site was rebuilt while this page was open. Reload it for the "
+          + "new numbers."
+        : "Could not load " + t.name + ": " + err, false);
       return;
     }
     if (WANTED !== t.name) return;             // a different team was picked

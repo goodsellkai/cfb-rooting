@@ -8,7 +8,7 @@ asking the server, and any static host can serve it.
       index.html
       static/app.css, static/app.js, static/season.js
       data/state.json            the season, as /api/state returns it
-      data/team/<idx>.json       one team's guide, as /api/team/<name> does
+      data/team/<slug>.json      one team's guide, as /api/team/<name> does
       data/season/<n>.json       a simulated season, as /api/sample does
       team/<school>/index.html   that team's page, which the app then takes over
       sitemap.xml, robots.txt, _headers
@@ -145,7 +145,10 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     for i, t in enumerate(teams, 1):
         guide = store.payload(t.idx)
         guide["build"] = BUILD
-        size += _write(out / "data" / "team" / f"{t.idx}.json", guide)
+        # Named for the team rather than its number, which is only stable
+        # within one build.
+        size += _write(out / "data" / "team" / f"{pages.slug(t.school)}.json",
+                       guide)
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
         (team_dir / "index.html").write_text(
