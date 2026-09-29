@@ -193,7 +193,6 @@ main { padding: 26px; max-width: 1240px; margin: 0 auto; width: 100%; flex: 1; }
 .empty p { max-width: 640px; margin: 0 auto 10px; }
 body.info .empty { text-align: left; max-width: 860px; margin: 0 auto; }
 body.info .empty .lead { margin-left: 0; }
-body.info .teamgrid { margin: 6px 0 18px; }
 body.info .empty h1 { font-size: 26px; }
 body.info .empty h2 { margin-top: 26px; }
 body.info .empty p { margin: 0 0 12px; max-width: none; }
@@ -223,15 +222,25 @@ body.info .empty p { margin: 0 0 12px; max-width: none; }
 .race img { width: 22px; height: 22px; object-fit: contain; }
 .race a { flex: 1; color: var(--ink); font-weight: 600; }
 .race b { font-variant-numeric: tabular-nums; }
-/* every team, as a way in */
-.empty ul.teamgrid { list-style: none; padding: 0; margin: 10px auto 0;
-                     max-width: 940px; display: grid; text-align: left;
-                     grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-                     gap: 2px 14px; font-size: 13.5px; }
-.teamgrid a { display: flex; align-items: center; gap: 7px; padding: 4px 6px;
-              border-radius: 6px; }
-.teamgrid a:hover { background: var(--line-2); text-decoration: none; }
-.teamgrid img { width: 20px; height: 20px; object-fit: contain; flex: none; }
+/* tables and questions on the written pages */
+body.info .empty table, .writeup table {
+  width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px;
+}
+body.info .empty th, .writeup th {
+  text-align: left; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); font-weight: 700;
+  padding: 0 10px 6px 0;
+}
+body.info .empty td, .writeup td {
+  padding: 5px 10px 5px 0; border-top: 1px solid var(--line-2);
+}
+body.info .empty td a { display: inline-flex; align-items: center; gap: 7px; }
+body.info .empty img, .writeup img { width: 20px; height: 20px;
+                                     object-fit: contain; flex: none; }
+.faq { text-align: left; max-width: 640px; margin: 6px auto 0; }
+.faq dt { font-weight: 650; color: var(--ink); margin-top: 12px; }
+.faq dd { margin: 4px 0 0; }
+.writeup .faq { max-width: none; }
 .empty li { padding: 2px 0; break-inside: avoid; }
 .empty a { color: var(--ink-2); text-decoration: none; }
 .empty a:hover { color: var(--accent); text-decoration: underline; }
@@ -375,6 +384,19 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   .sitefoot { padding: 12px 16px; }
   .empty { padding: 20px 16px 24px; }
 }
+
+/* the written page under the app, which is also what a crawler reads */
+.writeup { max-width: 860px; margin: 8px auto 0; padding: 0 26px 10px;
+           color: var(--ink-2); font-size: 15px; line-height: 1.62; }
+.writeup:empty { display: none; }
+.writeup h1 { font-size: 24px; color: var(--ink); margin: 0 0 4px; }
+.writeup h2 { font-size: 17px; color: var(--ink); margin: 26px 0 8px; }
+.writeup p { margin: 0 0 12px; }
+.writeup tr.mine td { background: var(--accent-soft); }
+.writeup ul { margin: 0 0 14px; padding-left: 20px; }
+.writeup li { margin-bottom: 4px; }
+.writeup a { color: var(--accent); }
+@media (max-width: 560px) { .writeup { padding: 0 16px 8px; font-size: 14.5px; } }
 
 /* confidence grades, used by the sample season */
 .sig { display: inline-block; font-size: 10.5px; font-weight: 700;

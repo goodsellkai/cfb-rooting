@@ -90,7 +90,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         template = template.replace(f'/static/{name}"', f'/static/{name}?v={build}"')
 
     def page(head: str, intro: str, depth: int, team: str | None = None,
-             info: bool = False) -> str:
+             info: bool = False, writeup: str = "") -> str:
         """The app's page, with what a crawler reads written in."""
         base = "../" * depth
         boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
@@ -98,6 +98,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         boot += " window.CFBROOT_INFO = true;" if info else ""
         boot += "</script>\n"
         html = (template.replace("<!--HEAD-->", head)
+                        .replace("<!--WRITEUP-->", writeup)
                         .replace(INTRO_BLOCK, intro)
                         .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
                         .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
@@ -109,14 +110,15 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     odds = made / n_sims
     standing = sorted(zip(store.league.names, odds), key=lambda r: -r[1])
     (out / "index.html").write_text(
-        page(pages.home_head(state, n_sims),
+        page(pages.home_head(state, n_sims, standing[:10]),
              pages.home_body(state, state.fbs_teams, n_sims,
                              standing[:10], standing[10:18]), 0),
         encoding="utf-8")
     everyone = out / "teams"
     everyone.mkdir()
     (everyone / "index.html").write_text(
-        page(pages.teams_head(state), pages.teams_body(state, state.fbs_teams),
+        page(pages.teams_head(state),
+             pages.teams_body(state, state.fbs_teams, standing),
              1, info=True),
         encoding="utf-8")
     how = out / "how-it-works"
@@ -126,6 +128,8 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
              info=True),
         encoding="utf-8")
     (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
+    (out / "llms.txt").write_text(
+        pages.llms_txt(state, state.fbs_teams, n_sims), encoding="utf-8")
     (out / "sitemap.xml").write_text(pages.sitemap(state.fbs_teams), encoding="utf-8")
     (out / "_headers").write_text(pages.headers(), encoding="utf-8")
     shutil.copy(HERE / "static" / "favicon.ico", out / "favicon.ico")
@@ -145,8 +149,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
         (team_dir / "index.html").write_text(
-            page(pages.team_head(state, t, guide),
-                 pages.team_body(state, t, guide, week), 2, t.school),
+            page(pages.team_head(state, t, guide, week),
+                 pages.team_body(state, t, guide, week), 2, t.school,
+                 writeup=pages.team_writeup(state, t, guide, week)),
             encoding="utf-8")
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
