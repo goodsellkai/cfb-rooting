@@ -742,8 +742,8 @@ function renderLeague() {
   const showAp = !!polls.ap, showCfp = !!polls.cfp;
   const head = (k, label) => `<th class="num" title="${label} poll, week ${weeks[k]}">${label}</th>`;
   let html = `<div class="tablewrap tall"><table><thead><tr>
-    <th class="num">#</th><th>Team</th><th>Conference</th>
-    <th class="num">${esc(STATE.rating_label)}</th>
+    <th class="num">#</th><th>Team</th><th class="conf">Conference</th>
+    <th class="num conf">${esc(STATE.rating_label)}</th>
     ${showCfp ? head("cfp", "CFP") : ""}${showAp ? head("ap", "AP") : ""}
     <th class="num">${esc(metricLabel(key))}</th>
     ${showEspn ? '<th class="num" title="What ESPN gives for the same thing, '
@@ -752,8 +752,8 @@ function renderLeague() {
     const pr = pollRank(r.idx);
     html += `<tr><td class="num">${i + 1}</td>
       <td class="teamcell" data-team="${r.idx}">${logo(r.idx, 18)}${esc(r.team)}</td>
-      <td class="muted">${esc(r.conference || "")}</td>
-      <td class="num">${num(r.rating, 1)}</td>
+      <td class="muted conf">${esc(r.conference || "")}</td>
+      <td class="num conf">${num(r.rating, 1)}</td>
       ${showCfp ? `<td class="num muted">${pr.cfp || ""}</td>` : ""}
       ${showAp ? `<td class="num muted">${pr.ap || ""}</td>` : ""}
       <td class="num"><b>${pct(r.p[key])}</b></td>

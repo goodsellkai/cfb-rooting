@@ -49,23 +49,28 @@
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; color: var(--ink);
-  /* A field running the height of the screen: an end zone at the top, one at
-     the bottom, and eight mown stripes between them. A chalk line falls on
-     every other stripe boundary, starting at each goal line. */
-  background-color: var(--turf);
-  background:
-    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 20.8334vh)
-      0 8.3333vh / 100% 83.4vh no-repeat fixed,
-    linear-gradient(180deg, var(--endzone) 0 8.3333vh, transparent 8.3333vh 91.6667vh,
-      var(--endzone) 91.6667vh 100vh) 0 0 / 100% 100vh no-repeat fixed,
-    repeating-linear-gradient(180deg, var(--turf) 0 10.4167vh,
-      var(--turf-2) 10.4167vh 20.8334vh) 0 8.3333vh / 100% 83.34vh no-repeat fixed,
-    linear-gradient(var(--turf), var(--turf)) 0 0 / 100% 100vh no-repeat fixed;
+  margin: 0; color: var(--ink); background-color: var(--turf);
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
         "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   display: flex; flex-direction: column; min-height: 100vh;
+}
+/* A field running the height of the screen: an end zone at the top, one at
+   the bottom, and eight mown stripes between them. A chalk line falls on
+   every other stripe boundary, starting at each goal line. It sits on a
+   layer pinned to the screen rather than on the page, since a phone
+   browser will not hold a background still any other way. */
+body::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; height: 100vh;
+  z-index: -1; pointer-events: none;
+  background:
+    repeating-linear-gradient(180deg, var(--chalk) 0 2px, transparent 2px 20.8334vh)
+      0 8.3333vh / 100% 83.4vh no-repeat,
+    linear-gradient(180deg, var(--endzone) 0 8.3333vh, transparent 8.3333vh 91.6667vh,
+      var(--endzone) 91.6667vh 100vh) 0 0 / 100% 100vh no-repeat,
+    repeating-linear-gradient(180deg, var(--turf) 0 10.4167vh,
+      var(--turf-2) 10.4167vh 20.8334vh) 0 8.3333vh / 100% 83.34vh no-repeat,
+    linear-gradient(var(--turf), var(--turf)) 0 0 / 100% 100vh no-repeat;
 }
 h1 { font-size: 19px; margin: 0; letter-spacing: -.02em; font-weight: 680; }
 h2 { font-size: 12px; margin: 0; letter-spacing: .06em; text-transform: uppercase;
@@ -363,17 +368,50 @@ th .hint { display: block; font-weight: 400; text-transform: none;
 
 /* phones: two cards and two controls to a row, and less space around them */
 @media (max-width: 560px) {
-  main { padding: 14px; }
-  .panel { padding: 14px 13px 16px; }
-  .controlbar { padding: 12px 14px 14px; gap: 12px; }
-  .groupfields { gap: 9px; }
-  .field { flex: 1 1 calc(50% - 5px); }
+  main { padding: 10px 10px 4px; }
+  .panel { padding: 11px 11px 13px; margin-bottom: 10px; }
+  .panel-head { margin-bottom: 10px; gap: 8px; }
+  .panel > h2 { margin-bottom: 10px; }
+  .split { gap: 10px; }
+  .controlbar { padding: 10px 12px 12px; gap: 10px; }
+  .group { gap: 6px; }
+  .groupfields { gap: 8px; }
+  .field { flex: 1 1 calc(50% - 4px); }
   .field select, .field input, .field.narrow select, .field.narrow input,
   .combo input { width: 100%; min-width: 0; }
-  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
-           margin-bottom: 14px; }
-  .card { padding: 11px 12px; }
-  .card .value { font-size: 22px; }
+  .field > span, .field > label { font-size: 10.5px; }
+  select, input, button { padding: 7px 9px; font-size: 13.5px; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+           margin-bottom: 10px; }
+  .card { padding: 9px 10px; }
+  .card .value { font-size: 20px; margin: 3px 0 2px; }
+  .card .label { font-size: 10px; letter-spacing: .04em; }
+  .cards .detail { font-size: 11px; }
+  /* tables carry the page on a phone, so they lose the padding first */
+  th { font-size: 10px; padding: 0 7px 6px; white-space: normal; }
+  td { padding: 7px 7px; font-size: 13px; }
+  .matchup .side { font-size: 13px; }
+  .when { font-size: 10.5px; }
+  .dist .b .col { height: 74px; }
+  .dist .b > span { font-size: 9.5px; }
+  .dist { gap: 3px; }
+  .tabs { padding: 0 10px; }
+  .tab { padding: 9px 10px 8px; font-size: 13.5px; }
+  .foot { font-size: 12px; margin-top: 10px; }
+  .search { font-size: 13px; }
+  /* A matchup takes two lines instead of one long one, which is what the
+     table needed the sideways scroll for. */
+  table.games { min-width: 0; }
+  .matchup { white-space: normal; }
+  .matchup .side:first-of-type { display: flex; }
+  .matchup .side { max-width: 100%; }
+  .matchup .at { margin: 0 4px 0 0; }
+  .outcome { min-width: 0; }
+  .outcome .op { font-size: 13px; }
+  .outcome .od { font-size: 10.5px; }
+  .outcome .ol { font-size: 9.5px; }
+  /* the league table keeps the rank, the team and the odds */
+  .conf { display: none; }
   /* the header holds its name and the link on one row, chips under them */
   .topbar { min-height: 0; padding: 12px 16px; gap: 10px; align-items: center; }
   .topbar h1 { font-size: 18px; }
@@ -381,22 +419,30 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   .brand { flex: 1 1 auto; }
   .howlink { order: 1; }
   .topmeta { order: 2; flex-basis: 100%; }
-  .sitefoot { padding: 12px 16px; }
-  .empty { padding: 20px 16px 24px; }
+  .sitefoot { padding: 10px 12px; font-size: 11px; }
+  .empty { padding: 16px 12px 18px; }
+  .empty h1 { font-size: 21px; }
+  .empty .lead { font-size: 14.5px; margin-bottom: 10px; }
+  .race li { padding: 5px 6px; font-size: 13.5px; }
+  .writeup h1 { font-size: 21px; }
+  .writeup h2 { font-size: 16px; margin: 20px 0 6px; }
 }
 
 /* the written page under the app, which is also what a crawler reads */
-.writeup { max-width: 860px; margin: 8px auto 0; padding: 0 26px 10px;
+.writeup { max-width: 900px; margin: 0 auto 18px; padding: 20px 24px 22px;
+           background: var(--panel); border: 1px solid var(--line);
+           border-radius: var(--radius); box-shadow: var(--shadow);
            color: var(--ink-2); font-size: 15px; line-height: 1.62; }
 .writeup:empty { display: none; }
 .writeup h1 { font-size: 24px; color: var(--ink); margin: 0 0 4px; }
-.writeup h2 { font-size: 17px; color: var(--ink); margin: 26px 0 8px; }
+.writeup h2 { font-size: 17px; color: var(--ink); margin: 26px 0 8px;
+              text-transform: none; letter-spacing: -.01em; }
 .writeup p { margin: 0 0 12px; }
 .writeup tr.mine td { background: var(--accent-soft); }
 .writeup ul { margin: 0 0 14px; padding-left: 20px; }
 .writeup li { margin-bottom: 4px; }
 .writeup a { color: var(--accent); }
-@media (max-width: 560px) { .writeup { padding: 0 16px 8px; font-size: 14.5px; } }
+@media (max-width: 560px) { .writeup { padding: 13px 13px 15px; font-size: 14.5px; } }
 
 /* confidence grades, used by the sample season */
 .sig { display: inline-block; font-size: 10.5px; font-weight: 700;
