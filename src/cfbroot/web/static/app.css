@@ -373,7 +373,9 @@ th .hint { display: block; font-weight: 400; text-transform: none;
   .panel-head { margin-bottom: 10px; gap: 8px; }
   .panel > h2 { margin-bottom: 10px; }
   .split { gap: 10px; }
-  .controlbar { padding: 10px 12px 12px; gap: 10px; }
+  /* five controls would hold a quarter of a phone screen, so they scroll
+     away with everything else */
+  .controlbar { padding: 10px 12px 12px; gap: 10px; position: static; }
   .group { gap: 6px; }
   .groupfields { gap: 8px; }
   .field { flex: 1 1 calc(50% - 4px); }

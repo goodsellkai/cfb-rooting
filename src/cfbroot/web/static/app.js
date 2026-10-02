@@ -495,9 +495,11 @@ function visibleGames() {
       || [g.home_idx, g.away_idx].some(
         i => (team(i).conference || "").toLowerCase().includes(q)));
   }
+  const byTime = $("rootsort").value === "time";
   return games.sort((a, b) => {
     const sa = a.swings[key], sb = b.swings[key];
-    return (sigOf(sb) - sigOf(sa))
+    return (byTime ? kickoffOrder(a) - kickoffOrder(b) : 0)
+      || (sigOf(sb) - sigOf(sa))
       || (sb.reliable - sa.reliable)
       || (conservative(sb) - conservative(sa))
       || (Math.abs(sb.delta) - Math.abs(sa.delta));
@@ -568,15 +570,35 @@ function renderDist(elId, dist, labelFn) {
 }
 
 /** "Sat 3:30 PM · ABC", in the reader's own time zone. */
+/** When a game starts, in the reader's own zone.
+ *
+ * A game whose time is not set yet is dated midnight Eastern, which is the
+ * evening before in half the country, so those say the day and nothing more.
+ */
+function whenText(g) {
+  if (!g.start_date) return "";
+  const t = new Date(g.start_date);
+  if (isNaN(t)) return "";
+  if (g.time_set === false) {
+    const day = t.toLocaleDateString([], { weekday: "short",
+                                           timeZone: "America/New_York" });
+    return `${day}, time TBA`;
+  }
+  return t.toLocaleString([], { weekday: "short", hour: "numeric",
+                                minute: "2-digit", timeZoneName: "short" });
+}
+
+/** Where a game falls when the list is in kickoff order. */
+function kickoffOrder(g) {
+  const t = Date.parse(g.start_date || "");
+  if (isNaN(t)) return Infinity;
+  return g.time_set === false ? t + 23 * 3600e3 : t;   // TBA ends its day
+}
+
 function kickoff(g) {
   const bits = [];
-  if (g.start_date) {
-    const t = new Date(g.start_date);
-    if (!isNaN(t)) {
-      bits.push(t.toLocaleString([], { weekday: "short", hour: "numeric",
-                                       minute: "2-digit" }));
-    }
-  }
+  const when = whenText(g);
+  if (when) bits.push(esc(when));
   if (g.broadcast) bits.push(esc(g.broadcast));
   const live = LIVE.get(gameKey(g));
   const tv = g.broadcast ? ` · ${esc(g.broadcast)}` : "";
@@ -910,7 +932,7 @@ document.addEventListener("click", (e) => {
 
 window.addEventListener("popstate", () => location.reload());
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
-for (const id of ["primary", "week", "sigfilter"]) {
+for (const id of ["primary", "week", "sigfilter", "rootsort"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });
 }
 $("leaguemetric").addEventListener("change", () => { if (RESULT) renderLeague(); });

@@ -132,6 +132,7 @@ class GameLeverage:
             "home": self.home, "away": self.away,
             "home_idx": self.home_idx, "away_idx": self.away_idx,
             "week": self.week, "start_date": self.start_date,
+            "time_set": self.game.get("time_set", True),
             "broadcast": self.game.get("broadcast", ""),
             "neutral": self.neutral,
             "p_home_win": self.p_home_win,

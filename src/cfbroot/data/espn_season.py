@@ -98,6 +98,7 @@ def _game(e: dict, week: int) -> dict:
     return {
         "id": int(e["id"]), "week": week, "season_type": "regular",
         "start_date": e.get("date"),
+        "time_set": bool(c.get("timeValid", True)),
         "home_id": hid, "home_team": hname, "home_conference": hconf,
         "away_id": aid, "away_team": aname, "away_conference": aconf,
         "home_points": points("home"), "away_points": points("away"),
