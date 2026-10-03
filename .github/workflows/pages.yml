@@ -7,16 +7,20 @@ name: Publish site
 
 on:
   schedule:
-    # Times are UTC. A build takes about an hour and a quarter and runs cannot
-    # overlap, so asking every half hour on Saturday keeps one queued and the
-    # next starts the moment the last one lands. Off the weekend, once a day
-    # is enough to pick up rating updates. Minute 5 and 35 because GitHub
-    # delays jobs queued on the hour.
+    # Times are UTC. GitHub delivers a handful of scheduled events a day
+    # whatever is asked for: on a Saturday in October it started five runs
+    # out of forty-eight, and the weekday one lands about five hours late.
+    # So the hours below are chances to be started rather than a timetable,
+    # and a run started on a game day keeps rebuilding by itself.
     - cron: "5 22,23 * * 5"      # Friday 5pm and 6pm Central
     - cron: "5,35 * * * 6"       # Friday 7pm to Saturday 6pm Central
     - cron: "5,35 0-8 * * 0"     # Saturday 7pm to Sunday 3am Central
     - cron: "5 12 * * 0-5"       # 7am Central, Sunday to Friday
   workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Keep rebuilding for this many minutes"
+        default: "0"
 
 permissions:
   contents: read
@@ -31,8 +35,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     # Two and a half million seasons, each rated with the full Massey model,
-    # is about an hour and a quarter on GitHub's four-core runners.
-    timeout-minutes: 180
+    # is about an hour on GitHub's four-core runners, and a game day run
+    # does several of them. A job may last six hours; the loop leaves room.
+    timeout-minutes: 345
     env:
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
     steps:
@@ -68,23 +73,53 @@ jobs:
           pkg="$(python -c 'import cfbroot, os; print(os.path.dirname(cfbroot.__file__))')"
           find "$pkg" -name '*.py' -exec touch -d '2000-01-01 00:00:00' {} +
 
-      - name: Simulate and export
+      # Cloudflare serves the site once its secrets are set; until then the
+      # GitHub Pages copy below is the live one.
+      #
+      # On a game day the run does not stop after one build. Scores land all
+      # afternoon and the odds move with them, so it builds, publishes, and
+      # goes round again until its time is up. A build that fails waits five
+      # minutes and tries again, since it is usually ESPN having a moment.
+      - name: Simulate and publish
         env:
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
           CFBROOT_SITE_URL: ${{ vars.SITE_URL }}
-        run: cfbroot export --out site
-
-      # Cloudflare serves the site once its secrets are set; until then the
-      # GitHub Pages copy below is the live one.
-      - name: Publish to Cloudflare Pages
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
-        env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=cfbroot --branch=main
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ASKED_FOR: ${{ github.event.inputs.minutes }}
+        run: |
+          budget="${ASKED_FOR:-0}"
+          day=$(date -u +%u); hour=$(date -u +%H)
+          if [ "$budget" = "0" ] \
+             && { [ "$day" = "6" ] || { [ "$day" = "7" ] && [ "$hour" -lt 9 ]; }; }
+          then
+            budget=285                      # Saturday, and Saturday night
+          fi
+          # A bare test that fails would end the step, since the shell stops
+          # on the first error.
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            npm install -g wrangler@3 >/dev/null
+          fi
+          start=$(date +%s); n=0
+          while :; do
+            n=$((n + 1))
+            echo "::group::build $n, $(date -u +%H:%M) UTC"
+            if cfbroot export --out site; then
+              if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+                wrangler pages deploy site --project-name=cfbroot --branch=main
+              fi
+            else
+              echo "that build did not finish; waiting before the next one"
+              sleep 300
+            fi
+            echo "::endgroup::"
+            spent=$(( ($(date +%s) - start) / 60 ))
+            # Only start another if it would be published inside the budget.
+            if [ $((spent + 75)) -gt "$budget" ]; then
+              echo "$n build(s) in $spent minutes; stopping"
+              break
+            fi
+          done
 
       # Once SITE_URL names the real domain, Cloudflare serves the site and
       # the GitHub Pages copy becomes a signpost to it, so old links and
