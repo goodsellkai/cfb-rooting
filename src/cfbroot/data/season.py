@@ -322,6 +322,31 @@ class SeasonState:
 
 # Building a SeasonState from raw payloads
 
+def last_played_week(state: SeasonState) -> int:
+    """The latest week with a result in it, or 0 before the season starts."""
+    weeks = [g["week"] for g in state.games
+             if g["completed"] and not g["is_ccg"]]
+    return max(weeks) if weeks else 0
+
+
+def before_week(state: SeasonState, week: int) -> SeasonState:
+    """The season with that week's results, and any after it, set aside.
+
+    Simulating this says what the games already played were worth, on the
+    same footing as the games still to come. The ratings are today's, so it
+    is not what anyone thought at the time.
+    """
+    games = []
+    for g in state.games:
+        g = dict(g)
+        if g["week"] >= week and g["completed"] and not g["is_ccg"]:
+            g["status"] = TO_SIMULATE
+            g["completed"] = False
+            g["home_points"] = g["away_points"] = None
+        games.append(g)
+    return dataclasses.replace(state, games=games, diagnostics=None)
+
+
 def _stamp(value: str | None) -> dt.datetime | None:
     if not value:
         return None

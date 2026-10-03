@@ -322,8 +322,6 @@ th .hint { display: block; font-weight: 400; text-transform: none;
 .when { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .when.live { color: var(--good); font-weight: 600; }
 .when.done { color: var(--ink-2); }
-.finalscore { font-family: var(--mono); font-variant-numeric: tabular-nums;
-              font-size: 13.5px; }
 .logo { width: 18px; height: 18px; object-fit: contain; vertical-align: middle; flex: none; }
 .logo.ph { display: inline-block; border-radius: 50%; background: var(--line); }
 .teamcell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
@@ -339,6 +337,18 @@ th .hint { display: block; font-weight: 400; text-transform: none;
 .outcome .od.flat { color: var(--muted); }
 .outcome .ol { font-size: 10.5px; color: var(--muted); }
 .outcome.good, tbody tr:hover .outcome.good { background: var(--good-soft); }
+/* a game that is over: the side that happened, and the one that did not */
+.outcome.happened { background: var(--accent-soft);
+                    box-shadow: inset 2px 0 0 var(--accent); }
+tbody tr:hover .outcome.happened { background: var(--accent-soft); }
+.outcome.happened .op { color: var(--ink); }
+.outcome.missed { opacity: .45; }
+.swingcell.final .amt.up { color: var(--good); }
+.swingcell.final .amt.down { color: var(--bad); }
+.swingcell.final .amt.flat { color: var(--muted); }
+.movesmall { display: none; font-variant-numeric: tabular-nums; }
+.movesmall.up { color: var(--good); }
+.movesmall.down { color: var(--bad); }
 
 /* impact: how far the two results are apart, and who it favours */
 .swingcell { width: 216px; }
@@ -362,6 +372,7 @@ th .hint { display: block; font-weight: 400; text-transform: none;
 }
 @media (max-width: 800px) {
   .swingcell { display: none; }
+  .movesmall { display: inline; }
   .key { display: none; }
   table.games { min-width: 540px; }
 }
@@ -634,6 +645,9 @@ table.standings th { padding: 0 8px 6px; }
 .tipnone, .tipfoot { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 @media (hover: none) { .teamtip { display: none; } }
 .playeropts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* a checkbox sitting among the fields keeps its label beside it */
+.field.check { flex-direction: row; align-items: center; gap: 8px;
+               padding-bottom: 8px; }
 .check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
          color: var(--ink-2); cursor: pointer; }
 .check[hidden] { display: none; }

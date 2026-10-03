@@ -68,6 +68,13 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         state, SimConfig(n_sims=n_sims, batch_size=50_000, seed=SEED),
         progress=progress)
 
+    log(f"  valuing the week's finished games "
+        f"({time.perf_counter() - t0:.0f}s in)")
+    try:
+        store.run_replay(state)
+    except Exception as exc:          # noqa: BLE001
+        log(f"  that run failed ({exc}); publishing without those numbers")
+
     # Every simulated season fills the bracket, so the playoff probabilities
     # have to add up to its size. A season loaded wrong shows up here rather
     # than on the site.

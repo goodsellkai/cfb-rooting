@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig
 from ..data.loader import default_year, load_season
-from ..data.season import SeasonState
+from ..data.season import SeasonState, before_week, last_played_week
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
 from ..sim.sample import sample_season, weekly_systems
@@ -29,6 +29,9 @@ HERE = Path(__file__).resolve().parent
 # start-up. It puts the error on a playoff probability at about 0.025
 # percentage points.
 DEFAULT_SIMS = int(os.environ.get("CFBROOT_SIMS") or 2_500_000)
+# The second run, with the week's results set aside, only has to value games
+# that are already decided, so it is a tenth the size. Zero turns it off.
+REPLAY_SIMS = int(os.environ.get("CFBROOT_REPLAY_SIMS") or 250_000)
 SEED = 12345
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")
@@ -60,6 +63,9 @@ class Store:
         self.year: int = default_year()
         self.loaded_at: float = 0.0
         self.league = None            # LeagueResults, shared by every team
+        self.replay = None            # the same, with the last week set aside
+        self.replay_state = None
+        self.replay_week = 0
         self.job: Job | None = None
         self.payloads: dict[int, dict] = {}
         self.inputs = None            # kernel inputs, reused by sample seasons
@@ -92,6 +98,7 @@ class Store:
                 league = run_league(state, cfg, progress=progress)
                 with self.lock:
                     self.league = league
+                self.run_replay(state)
                 job.status = "done"
             except Exception as exc:  # noqa: BLE001
                 job.status = "error"
@@ -99,6 +106,49 @@ class Store:
 
         threading.Thread(target=work, daemon=True, name="league").start()
         return job
+
+    def run_replay(self, state: SeasonState) -> None:
+        """Value the games already played, on the same footing as the rest."""
+        week = last_played_week(state)
+        if not REPLAY_SIMS or not week:
+            return
+        back = before_week(state, week)
+        if not back.remaining_games:
+            return
+        league = run_league(back, SimConfig(n_sims=REPLAY_SIMS,
+                                            batch_size=50_000, seed=SEED + 1))
+        with self.lock:
+            self.replay_state, self.replay, self.replay_week = back, league, week
+
+    def replay_payload(self, team_idx: int) -> dict:
+        """What the week's finished games were worth to one team."""
+        if self.replay is None:
+            return {}
+        back = self.replay_state
+        res = self.replay.for_team(team_idx)
+        guide = build_guide(back, res, primary="make_playoff", week=None)
+        done = {g["game_id"]: g for g in self.season.games
+                if g["completed"] and not g["is_ccg"]}
+
+        def finished(entries):
+            out = []
+            for lev in entries:
+                real = done.get(lev.game.get("game_id"))
+                if real is None or real["week"] < self.replay_week:
+                    continue
+                row = lev.as_dict()
+                row["home_points"] = real["home_points"]
+                row["away_points"] = real["away_points"]
+                out.append(row)
+            return out
+
+        games, own = finished(guide.games), finished(guide.own_games)
+        if not games and not own:
+            return {}
+        return {"week": self.replay_week, "n_sims": guide.n_sims,
+                "before": {k: v.p for k, v in guide.headline.items()},
+                "games": _slim(games, points=True),
+                "own_games": _slim(own, points=True)}
 
     def payload(self, team_idx: int) -> dict:
         """One team's guide, built on first request and kept."""
@@ -108,7 +158,9 @@ class Store:
             # Score every remaining game for every metric. Week and metric are
             # filters the client applies without asking again.
             guide = build_guide(s, res, primary="make_playoff", week=None)
-            self.payloads[team_idx] = _guide_payload(guide, res, s)
+            data = _guide_payload(guide, res, s)
+            data["replay"] = self.replay_payload(team_idx)
+            self.payloads[team_idx] = data
         return self.payloads[team_idx]
 
 
@@ -126,10 +178,11 @@ SWING_KEYS = ("p_if_home", "p_if_away", "delta", "lo", "hi", "home",
               "sig_week", "sig_all", "reliable")
 
 
-def _slim(games):
+def _slim(games, points=False):
     out = []
     for g in games:
-        row = {k: g[k] for k in GAME_KEYS if k in g}
+        keys = GAME_KEYS + (("home_points", "away_points") if points else ())
+        row = {k: g[k] for k in keys if k in g}
         row["swings"] = {m: {k: s[k] for k in SWING_KEYS if k in s}
                          for m, s in g["swings"].items()}
         out.append(row)

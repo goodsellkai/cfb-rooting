@@ -482,10 +482,19 @@ function conservative(s) {
   return Math.min(Math.abs(s.lo), Math.abs(s.hi));
 }
 
+/** Every game on the chosen slate, before the filters narrow it down. */
+function slateGames() {
+  const wk = selectedWeek();
+  const played = $("showplayed").checked;
+  const replay = (RESULT.replay || {}).games || [];
+  const games = RESULT.games.concat(played ? replay : [])
+    .filter(g => wk === null || g.week === wk);
+  return played ? games : games.filter(g => !finalOf(g));
+}
+
 function visibleGames() {
   const key = $("primary").value;
-  const wk = selectedWeek();
-  let games = RESULT.games.filter(g => wk === null || g.week === wk);
+  let games = slateGames();
   if ($("sigfilter").value === "sig") {
     games = games.filter(g => sigOf(g.swings[key]));
   }
@@ -508,7 +517,12 @@ function visibleGames() {
 
 function ownGames() {
   const wk = selectedWeek();
-  return RESULT.own_games.filter(g => wk === null || g.week === wk);
+  const replay = (RESULT.replay || {}).own_games || [];
+  const games = $("showplayed").checked
+    ? RESULT.own_games.concat(replay) : RESULT.own_games;
+  return games.filter(g => wk === null || g.week === wk)
+    .filter(g => $("showplayed").checked || !finalOf(g))
+    .sort((a, b) => a.week - b.week);
 }
 
 // Rendering
@@ -588,6 +602,25 @@ function whenText(g) {
                                 minute: "2-digit", timeZoneName: "short" });
 }
 
+/** The final score of a game that is over, from the build or the scoreboard. */
+function finalOf(g) {
+  if (g.home_points != null && g.away_points != null) {
+    return { home: g.home_points, away: g.away_points, fresh: false };
+  }
+  const live = LIVE.get(gameKey(g));
+  if (live && live.state === "post" && Number.isFinite(live.hp)) {
+    return { home: live.hp, away: live.ap, fresh: true };
+  }
+  return null;
+}
+
+/** The odds this game was weighed against: before its week, or right now. */
+function baseFor(g, key) {
+  const replay = RESULT.replay || {};
+  return g.home_points != null && replay.before
+    ? replay.before[key] : RESULT.headline[key].p;
+}
+
 /** Where a game falls when the list is in kickoff order. */
 function kickoffOrder(g) {
   const t = Date.parse(g.start_date || "");
@@ -621,8 +654,6 @@ function logo(idx, size) {
 /** One row per game: the side to root for, and what each result does. */
 function gameRowsHTML(games) {
   const key = $("primary").value;
-  const base = RESULT.headline[key].p;
-  const label = metricLabel(key).toLowerCase();
 
   const maxAbs = Math.max(1e-6, ...games.map(g => {
     const s = g.swings[key];
@@ -638,43 +669,73 @@ function gameRowsHTML(games) {
 
   for (const g of games) {
     const s = g.swings[key];
+    const done = finalOf(g);
+    const base = baseFor(g, key);
     const conf = confidenceOf(s);
     const rootHome = s.home;
-    const w = Math.min(100, 100 * Math.abs(s.delta) / maxAbs);
-    const dim = sigOf(s) ? "" : " dim";
     const pHome = g.p_home_win;
-    const gap = Math.abs(s.delta);
-    const impact = (100 * gap).toFixed(gap >= 0.01 ? 1 : 2) + "%";
+    const homeWon = done ? done.home > done.away : null;
 
-    // Bold the team to root for.
-    const awayCls = "side" + (rootHome ? "" : " root") + (conf === "clear" ? " strong" : "");
-    const homeCls = "side" + (rootHome ? " root" : "") + (conf === "clear" ? " strong" : "");
+    // Before the game, the team to root for is in bold; after it, the winner.
+    const mark = (isHome) => "side"
+      + ((done ? homeWon === isHome : rootHome === isHome) ? " root" : "")
+      + (!done && conf === "clear" && rootHome === isHome ? " strong" : "");
+    const side = (isHome) => {
+      const idx = isHome ? g.home_idx : g.away_idx;
+      return `<span class="${mark(isHome)}" data-team="${idx}">`
+        + `${logo(idx, 18)}${pollTag(idx)}${esc(isHome ? g.home : g.away)}</span>`;
+    };
 
-    html += `<tr>
+    let note, swing;
+    if (done) {
+      const actual = homeWon ? s.p_if_home : s.p_if_away;
+      const move = actual - base;
+      const dir = move > 0 ? "up" : (move < 0 ? "down" : "flat");
+      // The impact column is gone on a narrow screen, so the move rides
+      // along with the score there.
+      note = `<span class="when done">Final ${done.away}-${done.home}`
+        + ` <b class="movesmall ${dir}">${signed(move)}pp</b></span>`;
+      swing = `<td class="swingcell final">
+          <div class="impact"><span class="amt ${dir}">${signed(move)}pp</span></div>
+        </td>`;
+    } else {
+      const w = Math.min(100, 100 * Math.abs(s.delta) / maxAbs);
+      const gap = Math.abs(s.delta);
+      const dim = sigOf(s) ? "on" : "dim";
+      note = kickoff(g);
+      swing = `<td class="swingcell ${conf}" title="${esc(CONF_TITLE[conf])}">
+          <div class="impact">
+            <span class="amt">${(100 * gap).toFixed(gap >= 0.01 ? 1 : 2)}%</span>
+            <span class="bar"><i class="${dim}" style="width:${w}%"></i></span>
+          </div>
+        </td>`;
+    }
+
+    html += `<tr${done ? ' class="played"' : ""}>
       <td class="matchup">
-        <span class="${awayCls}" data-team="${g.away_idx}">${logo(g.away_idx, 18)}${pollTag(g.away_idx)}${esc(g.away)}</span>
+        ${side(false)}
         <span class="at">${g.neutral ? "vs" : "@"}</span>
-        <span class="${homeCls}" data-team="${g.home_idx}">${logo(g.home_idx, 18)}${pollTag(g.home_idx)}${esc(g.home)}</span>
+        ${side(true)}
         ${g.neutral ? '<span class="tag">neutral</span>' : ""}
-        ${kickoff(g)}
+        ${note}
       </td>
-      ${outcomeCell(1 - pHome, s.p_if_away, base, !rootHome)}
-      ${outcomeCell(pHome, s.p_if_home, base, rootHome)}
-      <td class="swingcell ${conf}" title="${esc(CONF_TITLE[conf])}">
-        <div class="impact">
-          <span class="amt">${impact}</span>
-          <span class="bar"><i class="${dim.trim() || "on"}" style="width:${w}%"></i></span>
-        </div>
-      </td>
+      ${outcomeCell(1 - pHome, s.p_if_away, base, !done && !rootHome,
+                    done ? !homeWon : null)}
+      ${outcomeCell(pHome, s.p_if_home, base, !done && rootHome,
+                    done ? homeWon : null)}
+      ${swing}
     </tr>`;
   }
   return html + "</tbody></table></div>";
 }
 
-function outcomeCell(likelihood, p, base, isGood) {
+/** One side of a game: the odds it leaves behind, and how likely it was. */
+function outcomeCell(likelihood, p, base, isGood, happened) {
   const d = p - base;
   const dirCls = d > 0 ? "up" : (d < 0 ? "down" : "flat");
-  return `<td class="num outcome ${isGood ? "good" : ""}">
+  const state = happened === null || happened === undefined ? ""
+    : (happened ? " happened" : " missed");
+  return `<td class="num outcome ${isGood ? "good" : ""}${state}">
       <div class="op">${pct(p)}</div>
       <div class="od ${dirCls}">${signed(d)}pp</div>
       <div class="ol">${pct(likelihood, 0)} likely</div>
@@ -689,69 +750,34 @@ function renderOwnGames() {
   $("owntable").innerHTML = gameRowsHTML(games);
 }
 
-function playedGames() {
-  const wk = selectedWeek();
-  const q = ($("rootsearch").value || "").trim().toLowerCase();
-  const done = (STATE.played || [])
-    .filter(g => !g.title_game && (wk === null || g.week === wk));
-  // Anything that finished since the last build, off the live scoreboard.
-  for (const g of (RESULT ? RESULT.games : [])) {
-    if (wk !== null && g.week !== wk) continue;
-    const live = LIVE.get(gameKey(g));
-    if (!live || live.state !== "post" || !Number.isFinite(live.hp)) continue;
-    done.push({week: g.week, home: g.home_idx, away: g.away_idx,
-               home_points: live.hp, away_points: live.ap,
-               neutral: g.neutral});
-  }
-  return done
-    .filter(g => !q || [g.home, g.away].some(
-      i => (team(i).name || "").toLowerCase().includes(q)))
-    .sort((a, b) => b.week - a.week);
-}
-
-/** What happened, for the games this week that are already over. */
-function playedRowsHTML(games) {
-  let html = `<div class="tablewrap"><table class="games"><thead><tr>
-      <th>Matchup</th><th class="num">Final</th><th>Week</th>
-    </tr></thead><tbody>`;
-  for (const g of games) {
-    const homeWon = g.home_points > g.away_points;
-    const side = (idx, won) => `<span class="side${won ? " root" : ""}"
-        data-team="${idx}">${logo(idx, 18)}${pollTag(idx)}${esc(team(idx).name)}</span>`;
-    html += `<tr>
-      <td class="matchup">${side(g.away, !homeWon)}
-        <span class="at">${g.neutral ? "vs" : "@"}</span>
-        ${side(g.home, homeWon)}</td>
-      <td class="num"><span class="finalscore">${g.away_points} - ${g.home_points}</span></td>
-      <td class="muted">Week ${g.week}</td>
-    </tr>`;
-  }
-  return html + "</tbody></table></div>";
-}
-
 function renderRootList() {
-  const key = $("primary").value;
-  const wk = selectedWeek();
-
-  if ($("sigfilter").value === "done") {
-    const done = playedGames();
-    $("rootlist").innerHTML = done.length
-      ? playedRowsHTML(done.slice(0, 80))
-      : `<p class="foot">No finished games on this slate yet.</p>`;
-    $("rootcount").textContent = `${done.length} played`;
-    return;
-  }
-
-  const slate = RESULT.games.filter(g => wk === null || g.week === wk);
   const games = visibleGames();
-  const shown = games.slice(0, 60);
+  const shown = games.slice(0, 80);
+  const slate = slateGames().length;
+  const over = shown.filter(g => finalOf(g)).length;
 
-  $("rootlist").innerHTML = shown.length
-    ? gameRowsHTML(shown)
-    : `<p class="foot">No games here move your odds enough to call. `
-      + `Switch Show to all games to see the rest.</p>`;
+  // Only the latest week's results get a value put on them, so say so
+  // when an older slate is on screen.
+  const replay = RESULT.replay || {};
+  const wk = selectedWeek();
+  const old = $("showplayed").checked && replay.week && wk !== null
+    && wk < replay.week
+    ? `<p class="foot">Week ${wk} is in the books. What each result was `
+      + `worth is worked out for week ${replay.week}.</p>` : "";
 
-  $("rootcount").textContent = `${shown.length} of ${slate.length} games`;
+  let body;
+  if (shown.length) {
+    body = gameRowsHTML(shown) + old;
+  } else if (!slate) {
+    body = old || `<p class="foot">No games left on this slate.</p>`;
+  } else {
+    body = `<p class="foot">No games here move your odds enough to call. `
+      + `Switch Show to all games to see the rest.</p>` + old;
+  }
+  $("rootlist").innerHTML = body;
+
+  $("rootcount").textContent = `${shown.length} of ${slate} games`
+    + (over ? `, ${over} played` : "");
 }
 
 function renderLeague() {
@@ -932,7 +958,7 @@ document.addEventListener("click", (e) => {
 
 window.addEventListener("popstate", () => location.reload());
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
-for (const id of ["primary", "week", "sigfilter", "rootsort"]) {
+for (const id of ["primary", "week", "sigfilter", "rootsort", "showplayed"]) {
   $(id).addEventListener("change", () => { if (RESULT) render(); });
 }
 $("leaguemetric").addEventListener("change", () => { if (RESULT) renderLeague(); });
