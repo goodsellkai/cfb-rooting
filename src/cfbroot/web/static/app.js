@@ -40,10 +40,41 @@ async function reason(resp) {
   }
 }
 
-/* Every data file says which build wrote it. The site rebuilds every half
- * hour on a Saturday, so a page left open long enough can ask for a file
- * from a newer build, whose team numbering it does not share. Pick up the
- * new season data and let the caller ask again. */
+/* A page kept open long enough asks for files from a build that has been
+ * replaced. The answer is the 404 page, which is not JSON, and every browser
+ * says so in its own words. One reload puts the page back in step; the flag
+ * means it happens once, so a site that really is broken says so instead. */
+function staleReload() {
+  try {
+    if (sessionStorage.getItem("cfbroot.reloaded")) return false;
+    sessionStorage.setItem("cfbroot.reloaded", "1");
+  } catch {
+    return false;                      // private mode: say something instead
+  }
+  location.reload();
+  return true;
+}
+
+/** Back after a while: if the site has been rebuilt, start again on the new one. */
+async function checkBuild() {
+  if (!STATIC || !STATE || !STATE.build) return;
+  try {
+    const fresh = await (await fetch(URLS.state, { cache: "reload" })).json();
+    if (!fresh.build || fresh.build === STATE.build) return;
+    // Once per build, so a held copy of the season data cannot start a loop.
+    try {
+      if (sessionStorage.getItem("cfbroot.build") === fresh.build) return;
+      sessionStorage.setItem("cfbroot.build", fresh.build);
+    } catch {
+      return;
+    }
+    location.reload();
+  } catch { /* offline; what is on screen still works */ }
+}
+
+/* Every data file says which build wrote it, so a page holding one build's
+ * team numbering can tell when the files have moved on. Pick up the new
+ * season data and let the caller ask again. */
 async function refreshState() {
   if (!STATIC) return false;
   try {
@@ -71,9 +102,12 @@ const CONF_TITLE = {
 
 async function boot() {
   try {
-    STATE = await (await fetch(URLS.state)).json();
-  } catch (err) {
-    banner("Could not load season data: " + err, false);
+    // Everything else is keyed off this, so it is checked rather than taken
+    // from the browser's copy.
+    STATE = await (await fetch(URLS.state, { cache: "no-cache" })).json();
+  } catch {
+    if (staleReload()) return;
+    banner("Could not load the season. Reload the page to try again.", false);
     return;
   }
   setHeaderImage();
@@ -247,7 +281,14 @@ function watchLive() {
   };
   tick();
   setInterval(() => { if (!document.hidden) tick(); }, 180000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+  let away = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { away = Date.now(); return; }
+    tick();
+    // Half an hour away is long enough for the site to have been rebuilt.
+    if (away && Date.now() - away > 1800000) checkBuild();
+    away = 0;
+  });
 }
 
 // Team picker
@@ -408,10 +449,9 @@ async function loadTeam() {
         continue;
       }
       showProgress(null);
-      banner(rebuilt
-        ? "The site was rebuilt while this page was open. Reload it for the "
-          + "new numbers."
-        : "Could not load " + t.name + ": " + err, false);
+      if (staleReload()) return;
+      banner("The site was rebuilt while this page was open. Reload it for "
+             + "the new numbers.", false);
       return;
     }
     if (WANTED !== t.name) return;             // a different team was picked

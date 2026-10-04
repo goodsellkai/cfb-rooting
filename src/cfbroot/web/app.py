@@ -145,10 +145,12 @@ class Store:
         games, own = finished(guide.games), finished(guide.own_games)
         if not games and not own:
             return {}
-        return {"week": self.replay_week, "n_sims": guide.n_sims,
-                "before": {k: v.p for k, v in guide.headline.items()},
-                "games": _slim(games, points=True),
-                "own_games": _slim(own, points=True)}
+        # A game nobody lost in any season leaves a NaN behind, which no
+        # amount of JSON will carry.
+        return _clean({"week": self.replay_week, "n_sims": guide.n_sims,
+                       "before": {k: v.p for k, v in guide.headline.items()},
+                       "games": _slim(games, points=True),
+                       "own_games": _slim(own, points=True)})
 
     def payload(self, team_idx: int) -> dict:
         """One team's guide, built on first request and kept."""
