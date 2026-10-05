@@ -102,6 +102,9 @@ h2 { font-size: 12px; margin: 0; letter-spacing: .06em; text-transform: uppercas
 }
 .chip b { color: #fff; font-weight: 600; }
 a.chip:hover { border-color: rgba(255, 255, 255, .55); color: #fff; }
+/* the numbers have stopped being rebuilt */
+.chip.old { border-color: var(--bad); color: #fff; }
+.chip.old b { color: var(--bad); }
 .howlink {
   font-size: 12px; font-weight: 600; color: #fff; text-decoration: none;
   border-bottom: 1px solid rgba(255, 255, 255, .5); padding-bottom: 1px;

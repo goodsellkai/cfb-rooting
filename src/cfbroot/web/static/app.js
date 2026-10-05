@@ -167,12 +167,13 @@ const LINKS = {
   fpi: "https://www.espn.com/college-football/fpi",
 };
 
-function chip(text, value, href, title) {
+function chip(text, value, href, title, cls) {
   const inner = `${esc(text)} <b>${esc(value)}</b>`;
   const tip = title ? ` title="${esc(title)}"` : "";
+  const kind = "chip" + (cls ? " " + cls : "");
   return href
-    ? `<a class="chip" href="${href}" target="_blank" rel="noopener"${tip}>${inner}</a>`
-    : `<span class="chip"${tip}>${inner}</span>`;
+    ? `<a class="${kind}" href="${href}" target="_blank" rel="noopener"${tip}>${inner}</a>`
+    : `<span class="${kind}"${tip}>${inner}</span>`;
 }
 
 const ASSETS = STATIC ? BASE + "static/" : "/static/";
@@ -195,8 +196,14 @@ function renderTopMeta() {
   const rating = STATE.rating_label === "FPI"
     ? chip("FPI", ago(STATE.ratings_updated) || "-", LINKS.fpi, carried)
     : chip(STATE.rating_label, ago(STATE.ratings_updated) || "-", null, carried);
+  const age = STATE.loaded_at ? Date.now() / 1000 - STATE.loaded_at : 0;
+  const stale = age > 86400;
   const sims = STATE.loaded_at
-    ? chip("Simulated", ago(new Date(1000 * STATE.loaded_at).toISOString())) : "";
+    ? chip("Simulated", ago(new Date(1000 * STATE.loaded_at).toISOString()),
+           null,
+           stale ? "The numbers have not been rebuilt for a day. Results "
+                   + "since then are not in them." : "",
+           stale ? "old" : "") : "";
   $("topmeta").innerHTML = poll + rating + sims;
 }
 
@@ -260,7 +267,8 @@ function liveState(ev) {
 
 async function refreshLive() {
   try {
-    const resp = await fetch(SCOREBOARD, { cache: "no-store" });
+    const resp = await fetch(SCOREBOARD,
+      { cache: "no-store", signal: AbortSignal.timeout(8000) });
     if (!resp.ok) return;
     const data = await resp.json();
     LIVE.clear();

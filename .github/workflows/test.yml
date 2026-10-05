@@ -1,0 +1,45 @@
+# Runs the test suite on every push, so a broken change is caught in a
+# minute rather than an hour into a publish.
+
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install . pytest
+
+      - name: Identify CPU
+        id: cpu
+        run: echo "model=$(grep -m1 'model name' /proc/cpuinfo | md5sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the compiled simulator
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: .numba-cache
+          key: numba-${{ runner.os }}-${{ steps.cpu.outputs.model }}-${{ hashFiles('src/cfbroot/**/*.py', 'pyproject.toml') }}
+
+      - name: Fix source time stamps
+        run: |
+          pkg="$(python -c 'import cfbroot, os; print(os.path.dirname(cfbroot.__file__))')"
+          find "$pkg" -name '*.py' -exec touch -d '2000-01-01 00:00:00' {} +
+
+      # The tests use fabricated seasons, so nothing here calls ESPN.
+      - name: Test
+        run: pytest -q

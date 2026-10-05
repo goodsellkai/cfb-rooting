@@ -565,6 +565,12 @@ picked. Where the two disagree, it is usually the same way: the model rates
 teams with fewer losses from weaker leagues higher than the committee does.
 Settings were tuned on those seasons and checked by leaving one season out.</p>
 
+<h2>What it keeps</h2>
+<p>No accounts, no sign in, no cookies. The team you picked and which tab you
+were on are remembered by your own browser and never leave it. Visits are
+counted by Cloudflare\'s analytics, which does not use cookies and does not
+identify anyone. Nothing is asked for and nothing is stored anywhere else.</p>
+
 <h2>What it is not</h2>
 <p>The odds are the output of a model, not a prediction anyone should bet on.
 It does not know about injuries, suspensions, weather, or a quarterback
@@ -599,9 +605,20 @@ def sitemap(teams) -> str:
 
 
 def headers() -> str:
-    """How long each kind of file may be held, for hosts that read _headers."""
+    """How long each kind of file may be held, for hosts that read _headers.
+
+    The security headers are the ones a site with no accounts and no cookies
+    can usefully set: where images, styles and scripts may come from, who may
+    frame it, and https from here on. Scripts are the page's own, except for
+    the few lines the build writes into the head, which is what the inline
+    allowance covers.
+    """
     # One rule per path, since a host that matches several applies them all.
-    return """/data/*
+    return """/*
+  Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\'; connect-src \'self\' https://site.api.espn.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
+  Strict-Transport-Security: max-age=31536000
+  X-Frame-Options: DENY
+/data/*
   Cache-Control: public, max-age=600
 /static/header/*
   Cache-Control: public, max-age=604800
