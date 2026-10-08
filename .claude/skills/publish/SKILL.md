@@ -1,10 +1,12 @@
 ---
 name: publish
-description: Commit, push and trigger a site build.
-disable-model-invocation: true
+description: Commit, push and trigger a site build for cfbroot. Use when Kai asks to publish, ship, deploy, push the site, or build and release the changes.
 ---
 
 # Publish
+
+Only run this when Kai has asked for it. Finishing a change is not a request to
+publish it; say what is ready and wait.
 
 Run the tests first. `pytest -q` takes about a minute and the published numbers
 depend on it.

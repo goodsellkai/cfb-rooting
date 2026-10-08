@@ -13,9 +13,9 @@ import numpy as np
 
 from ..config import (MAX_CONF_SIZE, NO_CCG_CONFERENCES, POWER_CONFERENCES,
                       ModelParams)
-from ..massey import MasseyParams, sim_system
+from ..massey import MasseyParams, SimSystem, sim_system
 from . import conference_rules as CR
-from ..model import evaluate, win_probability
+from ..model import Diagnostics, evaluate, win_probability
 
 # status codes on the unified game table
 TO_SIMULATE = 0
@@ -111,7 +111,7 @@ class KernelInputs:
     conf_tbm: np.ndarray               # (n_conf, CR.N_STEPS): three or more
     conf_tbflags: np.ndarray           # (n_conf,): CR flags
 
-    massey: object                  # cfbroot.massey.SimSystem for this schedule
+    massey: SimSystem               # the rating system fitted to this schedule
 
     n_teams: int
     n_conf: int
@@ -134,7 +134,7 @@ class SeasonState:
     poll_weeks: dict = field(default_factory=dict)
     # Where the games came from: "ESPN", "CFBD", or "demo" for fake data.
     source: str = "demo"
-    diagnostics: object = None
+    diagnostics: Diagnostics | None = None
     as_of: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     rating_label: str = "FPI"
     ratings_updated: str | None = None

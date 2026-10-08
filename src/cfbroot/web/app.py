@@ -17,9 +17,11 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import DEFAULT_METRICS, METRIC_LABELS, METRIC_NAMES, SimConfig
 from ..data.loader import default_year, load_season
-from ..data.season import SeasonState, before_week, last_played_week
+from ..data.season import (KernelInputs, SeasonState, before_week,
+                           last_played_week)
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
+from ..sim.engine import LeagueResults
 from ..sim.sample import sample_season, weekly_systems
 from .pages import slug
 
@@ -62,14 +64,14 @@ class Store:
         self.season: SeasonState | None = None
         self.year: int = default_year()
         self.loaded_at: float = 0.0
-        self.league = None            # LeagueResults, shared by every team
-        self.replay = None            # the same, with the last week set aside
-        self.replay_state = None
+        self.league: LeagueResults | None = None   # shared by every team
+        self.replay: LeagueResults | None = None   # the same, last week set aside
+        self.replay_state: SeasonState | None = None
         self.replay_week = 0
         self.job: Job | None = None
         self.payloads: dict[int, dict] = {}
-        self.inputs = None            # kernel inputs, reused by sample seasons
-        self.weekly = None            # a rating system per committee poll week
+        self.inputs: KernelInputs | None = None    # reused by sample seasons
+        self.weekly: dict | None = None            # a system per poll week
         self.sample_ready = threading.Event()   # set once warm-up has tried
 
     def get_season(self) -> SeasonState:

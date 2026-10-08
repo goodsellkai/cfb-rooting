@@ -1,0 +1,15 @@
+{
+  "include": ["src", "tests"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+
+  "reportMissingTypeStubs": false,
+  "reportPrivateImportUsage": "none",
+  "reportArgumentType": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalOperand": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportIndexIssue": "warning"
+}

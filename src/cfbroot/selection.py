@@ -36,7 +36,8 @@ POWER = ("ACC", "Big Ten", "Big 12", "SEC")
 
 
 def head_to_head_pairs(state, include_ccg: bool = False,
-                       through_week: int | None = None) -> dict:
+                       through_week: int | None = None
+                       ) -> set[tuple[str, str]]:
     """Who beat whom, as a set of (winner, loser) school pairs."""
     out = set()
     for g in state.games:
