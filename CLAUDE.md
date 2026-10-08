@@ -108,3 +108,6 @@ section that stays on screen after the app loads and is what crawlers read.
 - **Model parameters** live in `config.py` and are measured, not guessed. Each
   one names the module that produces it. Changing one means re-running that
   module and reporting what moved.
+- **The site already has a look**: a dark field, one accent, dense tables, no
+  decoration. Several installed design skills will offer to replace it. Keep
+  the palette and the type scale unless Kai asks for a redesign.
