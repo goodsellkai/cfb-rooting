@@ -1,10 +1,11 @@
-"""Draw the site mark: a football on a field-green tile, lying on the yellow
-first-down line the site uses for the side to root for.
+"""Draw the site mark: a yellow football on a field-green tile. The yellow is
+the first-down line the site uses for the side to root for.
 
 Run ``python tools/icons.py`` to rewrite logo.svg and every icon the pages
 ask for. Needs Pillow, which the site itself does not. The SVG and the PNGs
-come from the same numbers, so they match. A favicon is drawn without the
-stripes or the laces, which at that size only muddy it.
+come from the same numbers, so they match. Each PNG is drawn at eight times
+its size and shrunk, so edges stay clean. Below 32 pixels the laces are left
+off, since at that size they only muddy the ball.
 """
 import math
 import sys
@@ -15,26 +16,27 @@ from PIL import Image, ImageDraw
 OUT = Path(__file__).resolve().parents[1] / "src" / "cfbroot" / "web" / "static"
 
 # Geometry, in a 64 unit square.
-R = 14.0            # corner radius
-BALL_A = 17.9       # half length
-BALL_B = 10.9       # half height
+R = 14.0            # corner radius of the tile
+BALL_A = 23.0       # half length
+BALL_B = 13.44      # half height
 TILT = -22.0        # degrees
-SEAM = 6.1          # half length of the seam line
-TICK = 2.3          # half height of a lace tick
-TICK_GAP = 3.1
-STROKE = 2.05
+SEAM = 8.0          # half length of the seam line
+TICK = 3.2          # half height of a lace tick
+TICK_GAP = 4.0
+STROKE = 3.0
+# A maskable icon is cropped to a circle by the phone, so the ball shrinks to
+# stay inside the middle 80% and the tile runs to the edges.
+MASKABLE_SCALE = 0.86
 
-TOP = (0x35, 0x8a, 0x58)
-BOTTOM = (0x1c, 0x53, 0x36)
-STRIPE = (0x00, 0x00, 0x00, 11)
-WHITE = (0xf7, 0xfa, 0xf8)
-LINE = (0xff, 0xd2, 0x1f)
-LINE_W = 5.2        # the first-down line's thickness
-LINE_W_SMALL = 8.0  # thicker in a favicon, or it vanishes
-LACE = (0x1c, 0x53, 0x36)
+TURF = (0x1c, 0x53, 0x36)
+YELLOW = (0xff, 0xd2, 0x1f)
 
 
-def lens(a, b, steps=140):
+def hexof(c):
+    return "#%02x%02x%02x" % c
+
+
+def lens(a, b, steps=240):
     """An American football outline: two circular arcs meeting at the points."""
     r = (a * a + b * b) / (2 * b)
     cy = r - b
@@ -54,102 +56,44 @@ def turn(pts, deg):
     return [(x * c - y * s, x * s + y * c) for x, y in pts]
 
 
-def draw(size, rounded=True):
-    """The tile at ``size`` pixels, drawn big and shrunk down.
+def laces():
+    """The seam and its four ticks, as line segments before the tilt."""
+    out = [((-SEAM, 0.0), (SEAM, 0.0))]
+    for i in (-1.5, -0.5, 0.5, 1.5):
+        x = i * TICK_GAP
+        out.append(((x, -TICK), (x, TICK)))
+    return out
 
-    A favicon is mostly ball: at that size the margin is wasted and the
-    stripes and laces only muddy it.
-    """
-    small = size <= 48
-    a, b = (BALL_A * 1.15, BALL_B * 1.15) if small else (BALL_A, BALL_B)
+
+def draw(size, rounded=True, maskable=False):
+    """The mark at ``size`` pixels, drawn big and shrunk down."""
     k = 8                                           # supersampling
     px = size * k
     unit = px / 64.0
+    scale = MASKABLE_SCALE if maskable else 1.0
     img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
-
-    field = Image.new("RGBA", (px, px))
-    d = ImageDraw.Draw(field)
-    for y in range(px):                             # top to bottom gradient
-        f = y / (px - 1)
-        d.line([(0, y), (px, y)],
-               fill=tuple(round(TOP[i] + (BOTTOM[i] - TOP[i]) * f) for i in range(3))
-               + (255,))
-    if size > 32:
-        stripes = Image.new("RGBA", (px, px), (0, 0, 0, 0))
-        ds = ImageDraw.Draw(stripes)
-        band = px / 8.0                             # the mown stripes, faintly
-        for i in range(0, 8, 2):
-            ds.rectangle([0, round(i * band), px, round((i + 1) * band)],
-                         fill=STRIPE)
-        field = Image.alpha_composite(field, stripes)
-    d = ImageDraw.Draw(field)
-    half = (LINE_W_SMALL if small else LINE_W) * unit / 2
-    d.rectangle([0, round(px / 2 - half), px, round(px / 2 + half)], fill=LINE + (255,))
-
-    mask = Image.new("L", (px, px), 0)
-    md = ImageDraw.Draw(mask)
-    if rounded:
-        md.rounded_rectangle([0, 0, px - 1, px - 1], radius=R * unit, fill=255)
-    else:
-        md.rectangle([0, 0, px - 1, px - 1], fill=255)
-    img.paste(field, (0, 0), mask)
-
     d = ImageDraw.Draw(img)
+    if rounded and not maskable:
+        d.rounded_rectangle([0, 0, px - 1, px - 1], radius=R * unit, fill=TURF + (255,))
+    else:
+        d.rectangle([0, 0, px - 1, px - 1], fill=TURF + (255,))
+
     mid = px / 2.0
 
     def place(pts):
-        return [(mid + x * unit, mid + y * unit) for x, y in pts]
+        return [(mid + x * unit * scale, mid + y * unit * scale)
+                for x, y in turn(pts, TILT)]
 
-    d.polygon(place(turn(lens(a, b), TILT)), fill=WHITE + (255,))
-
-    def capsule(x1, y1, x2, y2, width):
-        (ax, ay), (bx, by) = place(turn([(x1, y1), (x2, y2)], TILT))
-        w = width * unit
-        d.line([(ax, ay), (bx, by)], fill=LACE + (255,), width=round(w))
-        for cx, cy in ((ax, ay), (bx, by)):
-            d.ellipse([cx - w / 2, cy - w / 2, cx + w / 2, cy + w / 2],
-                      fill=LACE + (255,))
-
-    if size > 40:
-        capsule(-SEAM, 0, SEAM, 0, STROKE)
-        for i in (-1.5, -0.5, 0.5, 1.5):
-            x = i * TICK_GAP
-            capsule(x, -TICK, x, TICK, STROKE)
-
-    return img.resize((size, size), Image.LANCZOS)
-
-
-SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
-     aria-label="CFB Rooting Guide">
-  <defs>
-    <linearGradient id="turf" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#{TOP[0]:02x}{TOP[1]:02x}{TOP[2]:02x}"/>
-      <stop offset="1" stop-color="#{BOTTOM[0]:02x}{BOTTOM[1]:02x}{BOTTOM[2]:02x}"/>
-    </linearGradient>
-    <clipPath id="tile"><rect width="64" height="64" rx="{R:g}"/></clipPath>
-  </defs>
-  <g clip-path="url(#tile)">
-    <rect width="64" height="64" fill="url(#turf)"/>
-    <g fill="#000" opacity="{STRIPE[3] / 255:.3f}">
-      <rect y="0" width="64" height="8"/><rect y="16" width="64" height="8"/>
-      <rect y="32" width="64" height="8"/><rect y="48" width="64" height="8"/>
-    </g>
-    <rect y="{32 - LINE_W / 2:g}" width="64" height="{LINE_W:g}"
-          fill="#{LINE[0]:02x}{LINE[1]:02x}{LINE[2]:02x}"/>
-  </g>
-  <g transform="translate(32 32) rotate({TILT:g})">
-    <path d="{{ball}}" fill="#{WHITE[0]:02x}{WHITE[1]:02x}{WHITE[2]:02x}"/>
-    <g stroke="#{LACE[0]:02x}{LACE[1]:02x}{LACE[2]:02x}" stroke-width="{STROKE:g}"
-       stroke-linecap="round">
-      <line x1="{-SEAM:g}" y1="0" x2="{SEAM:g}" y2="0"/>
-      <line x1="{-1.5 * TICK_GAP:g}" y1="{-TICK:g}" x2="{-1.5 * TICK_GAP:g}" y2="{TICK:g}"/>
-      <line x1="{-0.5 * TICK_GAP:g}" y1="{-TICK:g}" x2="{-0.5 * TICK_GAP:g}" y2="{TICK:g}"/>
-      <line x1="{0.5 * TICK_GAP:g}" y1="{-TICK:g}" x2="{0.5 * TICK_GAP:g}" y2="{TICK:g}"/>
-      <line x1="{1.5 * TICK_GAP:g}" y1="{-TICK:g}" x2="{1.5 * TICK_GAP:g}" y2="{TICK:g}"/>
-    </g>
-  </g>
-</svg>
-"""
+    d.polygon(place(lens(BALL_A, BALL_B)), fill=YELLOW + (255,))
+    if size >= 32:
+        w = STROKE * unit * scale
+        for a, b in laces():
+            (ax, ay), (bx, by) = place([a, b])
+            d.line([(ax, ay), (bx, by)], fill=TURF + (255,), width=round(w))
+            for cx, cy in ((ax, ay), (bx, by)):     # round caps
+                d.ellipse([cx - w / 2, cy - w / 2, cx + w / 2, cy + w / 2],
+                          fill=TURF + (255,))
+    return img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def ball_path():
@@ -158,15 +102,33 @@ def ball_path():
             f"A {r:.3f} {r:.3f} 0 0 1 {-BALL_A:g} 0 Z")
 
 
+def svg():
+    lines = "\n".join(
+        f'      <line x1="{a[0]:g}" y1="{a[1]:g}" x2="{b[0]:g}" y2="{b[1]:g}"/>'
+        for a, b in laces())
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
+     aria-label="CFB Rooting Guide">
+  <rect width="64" height="64" rx="{R:g}" fill="{hexof(TURF)}"/>
+  <g transform="translate(32 32) rotate({TILT:g})">
+    <path d="{ball_path()}" fill="{hexof(YELLOW)}"/>
+    <g stroke="{hexof(TURF)}" stroke-width="{STROKE:g}" stroke-linecap="round">
+{lines}
+    </g>
+  </g>
+</svg>
+"""
+
+
 def main():
     where = Path(sys.argv[1]) if len(sys.argv) > 1 else OUT
     where.mkdir(parents=True, exist_ok=True)
-    (where / "logo.svg").write_text(SVG.replace("{ball}", ball_path()),
-                                    encoding="utf-8")
+    (where / "logo.svg").write_text(svg(), encoding="utf-8")
     for size in (32, 48, 96, 180, 192, 512):
-        draw(size).save(where / f"icon-{size}.png")
+        draw(size).save(where / f"icon-{size}.png", optimize=True)
+    draw(512, maskable=True).save(where / "icon-maskable-512.png", optimize=True)
     # iOS puts its own mask on, so that one is square and opaque.
-    draw(180, rounded=False).convert("RGB").save(where / "apple-touch-icon.png")
+    draw(180, rounded=False).convert("RGB").save(where / "apple-touch-icon.png",
+                                                 optimize=True)
     small = [draw(s) for s in (16, 32)]
     draw(48).save(where / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)],
                   append_images=small)
