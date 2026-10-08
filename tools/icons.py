@@ -1,4 +1,5 @@
-"""Draw the site mark: a football on a field-green tile.
+"""Draw the site mark: a football on a field-green tile, lying on the yellow
+first-down line the site uses for the side to root for.
 
 Run ``python tools/icons.py`` to rewrite logo.svg and every icon the pages
 ask for. Needs Pillow, which the site itself does not. The SVG and the PNGs
@@ -27,6 +28,9 @@ TOP = (0x35, 0x8a, 0x58)
 BOTTOM = (0x1c, 0x53, 0x36)
 STRIPE = (0x00, 0x00, 0x00, 11)
 WHITE = (0xf7, 0xfa, 0xf8)
+LINE = (0xff, 0xd2, 0x1f)
+LINE_W = 5.2        # the first-down line's thickness
+LINE_W_SMALL = 8.0  # thicker in a favicon, or it vanishes
 LACE = (0x1c, 0x53, 0x36)
 
 
@@ -78,6 +82,9 @@ def draw(size, rounded=True):
             ds.rectangle([0, round(i * band), px, round((i + 1) * band)],
                          fill=STRIPE)
         field = Image.alpha_composite(field, stripes)
+    d = ImageDraw.Draw(field)
+    half = (LINE_W_SMALL if small else LINE_W) * unit / 2
+    d.rectangle([0, round(px / 2 - half), px, round(px / 2 + half)], fill=LINE + (255,))
 
     mask = Image.new("L", (px, px), 0)
     md = ImageDraw.Draw(mask)
@@ -127,6 +134,8 @@ SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
       <rect y="0" width="64" height="8"/><rect y="16" width="64" height="8"/>
       <rect y="32" width="64" height="8"/><rect y="48" width="64" height="8"/>
     </g>
+    <rect y="{32 - LINE_W / 2:g}" width="64" height="{LINE_W:g}"
+          fill="#{LINE[0]:02x}{LINE[1]:02x}{LINE[2]:02x}"/>
   </g>
   <g transform="translate(32 32) rotate({TILT:g})">
     <path d="{{ball}}" fill="#{WHITE[0]:02x}{WHITE[1]:02x}{WHITE[2]:02x}"/>

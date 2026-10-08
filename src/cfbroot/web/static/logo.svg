@@ -13,6 +13,8 @@
       <rect y="0" width="64" height="8"/><rect y="16" width="64" height="8"/>
       <rect y="32" width="64" height="8"/><rect y="48" width="64" height="8"/>
     </g>
+    <rect y="29.4" width="64" height="5.2"
+          fill="#ffd21f"/>
   </g>
   <g transform="translate(32 32) rotate(-22)">
     <path d="M -17.9 0 A 20.148 20.148 0 0 1 17.9 0 A 20.148 20.148 0 0 1 -17.9 0 Z" fill="#f7faf8"/>
