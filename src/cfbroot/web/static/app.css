@@ -10,21 +10,14 @@
 
 :root {
   color-scheme: light dark;
-  --bg-base: #f3f5f2;
-  --raise-base: #ffffff;
-  /* A trace of the picked team's colour in the page, little enough that it
-     reads as a cast, not a colour. app.js sets --team-tint on the root. */
-  --tint: 6%;
-  --bg: color-mix(in oklab, var(--team-tint, var(--bg-base)) var(--tint), var(--bg-base));
-  --raise: color-mix(in oklab, var(--team-tint, var(--raise-base)) calc(var(--tint) / 2),
-                     var(--raise-base));
-  --sel: color-mix(in oklab, var(--team-tint, var(--sel-base)) var(--tint), var(--sel-base));
+  --bg: #f3f5f2;
+  --raise: #ffffff;
   --ink: #0f1712;
   --ink-2: #39443d;
   --muted: #5b675f;
   --rule: #d5dcd6;
   --rule-2: #e6ebe7;
-  --sel-base: #e4ebe5;
+  --sel: #e4ebe5;
   --turf: #1c5336;
   /* the first-down line: the side to root for, and the measure chosen */
   --mark: #ffd21f;
@@ -45,15 +38,14 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-base: #19221d;
-    --raise-base: #212c26;
-    --tint: 8%;
+    --bg: #19221d;
+    --raise: #212c26;
     --ink: #eaf0eb;
     --ink-2: #c6d0c9;
     --muted: #9eaba3;
     --rule: #364339;
     --rule-2: #28332d;
-    --sel-base: #2c3832;
+    --sel: #2c3832;
     --turf: #1b4f33;
     --mark: #f2cc2e;
     --mark-ink: #0f1712;
@@ -65,6 +57,22 @@
     --pick-ink: #ffffff;
     --chart: #8fd0aa;
     --shadow: 0 14px 34px -14px rgba(0, 0, 0, .7), 0 1px 2px rgba(0, 0, 0, .4);
+  }
+}
+/* With a team picked, the page takes that team's hue and nothing else: the
+   lightness of every surface stays where it is, so contrast does not move,
+   and the strength is capped so no team turns the page muddy. app.js (and
+   the build, for team pages) sets --team-h and --team-c and the class. */
+:root.tinted {
+  --bg: oklch(0.968 var(--team-c) var(--team-h));
+  --raise: oklch(0.996 calc(var(--team-c) * .45) var(--team-h));
+  --sel: oklch(0.933 calc(var(--team-c) * 1.6) var(--team-h));
+}
+@media (prefers-color-scheme: dark) {
+  :root.tinted {
+    --bg: oklch(0.241 calc(var(--team-c) * .75) var(--team-h));
+    --raise: oklch(0.281 calc(var(--team-c) * .75) var(--team-h));
+    --sel: oklch(0.328 calc(var(--team-c) * .9) var(--team-h));
   }
 }
 

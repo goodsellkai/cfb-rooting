@@ -113,7 +113,8 @@ section that stays on screen after the app loads and is what crawlers read.
   with one of the header photos greyed and blended into it; one self-hosted
   typeface (Archivo, condensed for numbers, normal for prose); and yellow, the
   first-down line, used only for the side to root for and the measure chosen
-  (the logo carries the same line). Each game is one row led by the side to
-  root for; the biggest swings open with both sides, the rest stay one line.
+  (the logo is a yellow ball on the turf green). Each game is one row led by
+  the side to root for; the biggest swings open with both sides, the rest
+  stay one line.
   Keep it unless Kai asks for a redesign. Several installed design skills will
   offer to replace it.

@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import html as htmlesc
 import json
+import math
 import os
 import re
 import shutil
@@ -61,6 +62,30 @@ def _band_style(color: str | None, photo: int = 3) -> str:
     blend = "screen" if light else "multiply"
     return (f' data-photo="{photo}" style="--team:#{hexa};--team-fg:{fg};'
             f'--team-mark:{mark};--photo-blend:{blend}"')
+
+
+def _team_tint(color: str | None) -> tuple[float, float] | None:
+    """The hue and strength the page takes from a team's colour, in OKLCH:
+    a tenth of its chroma, capped, and less for golds and yellows. The same
+    sum as teamTint() in app.js."""
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", color or "")
+    if not m:
+        return None
+
+    def lin(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (lin(int(m.group(1)[i:i + 2], 16) / 255) for i in (0, 2, 4))
+    l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+    mm = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+    s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+    a = 1.9779984951 * l - 2.4285922050 * mm + 0.4505937099 * s
+    bb = 0.0259040371 * l + 0.7827717662 * mm - 0.8086757660 * s
+    h = math.degrees(math.atan2(bb, a)) % 360
+    c = min(math.hypot(a, bb) * 0.11, 0.013)
+    if 65 <= h <= 115:
+        c *= 0.55
+    return h, c
 
 
 def _write(path: Path, obj) -> int:
@@ -132,9 +157,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         if team:
             picker = f'value="{htmlesc.escape(team)}" {picker}'
         # The page's tint too, so it does not shift once the script runs.
-        tint = re.fullmatch(r"#?([0-9a-fA-F]{6})", color or "")
-        root = (f'<html lang="en" style="--team-tint:#{tint.group(1)}">'
-                if tint else '<html lang="en">')
+        tint = _team_tint(color)
+        root = (f'<html lang="en" class="tinted" style="--team-h:{tint[0]:.1f};'
+                f'--team-c:{tint[1]:.4f}">' if tint else '<html lang="en">')
         html = (template.replace("<!--HEAD-->", head)
                         .replace('<html lang="en">', root)
                         .replace('placeholder="Pick your team"', picker)

@@ -134,7 +134,11 @@ async function boot() {
   watchToolbar();
   let saved = window.CFBROOT_TEAM || null;
   if (!saved) {
-    try { saved = localStorage.getItem("cfbroot.team"); } catch { /* private mode */ }
+    try {
+      // Arriving from the logo means the front page, not the team last seen.
+      if (sessionStorage.getItem("cfbroot.home")) sessionStorage.removeItem("cfbroot.home");
+      else saved = localStorage.getItem("cfbroot.team");
+    } catch { /* private mode */ }
   }
   if (saved && teamNamed(saved)) {
     $("team").value = saved;
@@ -455,6 +459,24 @@ function luminance([r, g, b]) {
   return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
 }
 
+/** The hue and strength the page takes from a team's colour, in OKLCH.
+ * A tenth of the colour's own chroma, capped, and less again for golds and
+ * yellows, which otherwise read as cream or olive. Black and grey teams
+ * come out all but neutral. The build does the same sum in export.py. */
+function teamTint([r, g, b]) {
+  const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [R, G, B] = [lin(r), lin(g), lin(b)];
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+  const Bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+  const h = ((Math.atan2(Bb, A) * 180 / Math.PI) + 360) % 360;
+  let c = Math.min(Math.hypot(A, Bb) * 0.11, 0.013);
+  if (h >= 65 && h <= 115) c *= 0.55;
+  return [h, c];
+}
+
 /** The band in the team's colour, with whichever text reads on it. */
 function setBand(idx) {
   const band = $("band");
@@ -468,9 +490,13 @@ function setBand(idx) {
     // On a yellow or near-white band the marker has to be dark to show.
     band.style.setProperty("--team-mark", light ? "#0f1712" : "var(--mark)");
     band.style.setProperty("--photo-blend", light ? "screen" : "multiply");
-    document.documentElement.style.setProperty("--team-tint", `rgb(${rgb.join(",")})`);
+    const [h, c] = teamTint(rgb);
+    const root = document.documentElement;
+    root.style.setProperty("--team-h", h.toFixed(1));
+    root.style.setProperty("--team-c", c.toFixed(4));
+    root.classList.add("tinted");
   } else {
-    document.documentElement.style.removeProperty("--team-tint");
+    document.documentElement.classList.remove("tinted");
     for (const v of ["--team", "--team-fg", "--team-mark", "--photo-blend"]) {
       band.style.removeProperty(v);
     }
@@ -1309,6 +1335,13 @@ function segmented(id, set, redraw = renderRootList) {
 }
 
 window.addEventListener("popstate", () => location.reload());
+// The logo goes to the front page itself, on the guide.
+document.querySelector(".brand").addEventListener("click", () => {
+  try {
+    sessionStorage.setItem("cfbroot.home", "1");
+    localStorage.setItem("cfbroot.tab", "guide");
+  } catch { /* private mode: the saved team comes back, which is all */ }
+});
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
 for (const id of ["week", "showplayed"]) {
   $(id).addEventListener("change", () => {

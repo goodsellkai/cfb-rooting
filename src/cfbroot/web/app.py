@@ -305,7 +305,7 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
 # Files the page names with a version on them, so a browser holding last
 # build's copy fetches the new one.
 VERSIONED = ("app.css", "app.js", "season.js", "logo.svg", "favicon.ico",
-             "icon-192.png", "apple-touch-icon.png")
+             "icon-192.png", "apple-touch-icon.png", "site.webmanifest")
 
 
 def _asset_token() -> str:
