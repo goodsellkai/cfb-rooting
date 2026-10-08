@@ -401,7 +401,7 @@ def _team_row(school, logo, odds=None, best=1.0, pos=None):
         width = max(2, round(100 * odds / best)) if best else 2
         bar = (f'<span class="odds"><span class="barline">'
                f'<i style="width:{width}%"></i></span>'
-               f'<b>{_pct(odds)}</b></span>')
+               f'<b>{_pct(odds, 2)}</b></span>')
     rank = f'<span class="pos">{pos}</span>' if pos else ""
     return (f'<li>{rank}{art}<a href="team/{slug(school)}/">'
             f'{html.escape(school)}</a>{bar}</li>')
@@ -415,14 +415,21 @@ def home_body(state, teams, n_sims, race=(), bubble=()):
                     for i, (s, o) in enumerate(race, 1))
     edge = "\n".join(_team_row(s, logos.get(s), o, best)
                      for s, o in bubble)
-    return f"""<h1>Root for the right team</h1>
+    return f"""<div class="hero">
+<div>
+<h1>Root for the right team</h1>
 <p class="lead">Your team has games left, and so does everyone chasing the
 same playoff spot. Pick a team and every game left in the {state.year} season
 is sorted by how much each result moves that team's odds, out of
 {_sims(n_sims)} simulated seasons.</p>
 <p class="lead">Some weeks the game that matters most does not involve your
 team at all.</p>
+<p>Each simulated season plays out every game left, rates the teams on the
+results the way the real ones are rated, ranks them the way the selection
+committee does, and fills the bracket.
+<a href="how-it-works/">How that works</a>.</p>
 <p class="cta"><a href="#team">Pick your team</a> or take one of these.</p>
+</div>
 
 <div class="boards">
   <div>
@@ -439,11 +446,7 @@ team at all.</p>
     <p class="foot"><a href="teams/">All {len(teams)} teams</a></p>
   </div>
 </div>
-
-<p class="lead">Each simulated season plays out every game left, rates the
-teams on the results the way the real ones are rated, ranks them the way the
-selection committee does, and fills the bracket.
-<a href="how-it-works/">How that works</a>.</p>
+</div>
 
 {_faq_html(home_questions(state, n_sims, race))}"""
 
@@ -475,16 +478,17 @@ def teams_body(state, teams, odds=()):
             p = chance.get(t.school)
             rows += (f'<tr><td><a href="../team/{slug(t.school)}/">{art}'
                      f'{html.escape(t.school)}</a></td>'
-                     f'<td>{_pct(p) if p is not None else "-"}</td></tr>\n')
-        out += (f'<h2>{html.escape(conf)}</h2>\n<table><thead><tr>'
-                f'<th>Team</th><th>Makes the playoff</th></tr></thead>\n'
-                f'<tbody>{rows}</tbody></table>\n')
+                     f'<td class="num">{_pct(p, 2) if p is not None else "-"}</td></tr>\n')
+        out += (f'<section>\n<h2>{html.escape(conf)}</h2>\n<table><thead><tr>'
+                f'<th>Team</th><th class="num">Makes the playoff</th></tr></thead>\n'
+                f'<tbody>{rows}</tbody></table>\n</section>\n')
     return f"""<h1>Playoff odds for every FBS team</h1>
 <p class="lead">All {len(teams)} teams, by conference, with how often each one
 reaches the College Football Playoff across the simulations. Each team's page
 has its conference and title odds, its remaining schedule and the games
 elsewhere that move its number most.</p>
-{out}
+<div class="confs">
+{out}</div>
 <p><a href="../">Back to the guide</a></p>"""
 
 

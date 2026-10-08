@@ -81,7 +81,8 @@ section that stays on screen after the app loads and is what crawlers read.
   just won is simulated at the strength it had on Friday.
 - **A second, smaller run values games already played.** `before_week()` sets the
   latest week's results aside and `run_replay()` simulates from there, so a
-  finished game gets the same two numbers an upcoming one has.
+  finished game gets the same two numbers an upcoming one has. Older weeks are
+  not replayed; with Include played on, the page shows their scores only.
 - **The kernel is compiled and cached by source hash.** Editing anything under
   `sim/` invalidates it and costs a minute and a half on the next run.
 - **Every published number passes a guard.** `export.py` refuses to publish if the
@@ -108,6 +109,11 @@ section that stays on screen after the app loads and is what crawlers read.
 - **Model parameters** live in `config.py` and are measured, not guessed. Each
   one names the module that produces it. Changing one means re-running that
   module and reporting what moved.
-- **The site already has a look**: a dark field, one accent, dense tables, no
-  decoration. Several installed design skills will offer to replace it. Keep
-  the palette and the type scale unless Kai asks for a redesign.
+- **The site already has a look**: the picked team's colour across the band,
+  with one of the header photos greyed and blended into it; one self-hosted
+  typeface (Archivo, condensed for numbers, normal for prose); and yellow, the
+  first-down line, used only for the side to root for and the measure chosen
+  (the logo carries the same line). Each game is one row led by the side to
+  root for; the biggest swings open with both sides, the rest stay one line.
+  Keep it unless Kai asks for a redesign. Several installed design skills will
+  offer to replace it.

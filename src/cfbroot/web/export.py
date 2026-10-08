@@ -17,8 +17,10 @@ asking the server, and any static host can serve it.
 from __future__ import annotations
 
 import datetime as dt
+import html as htmlesc
 import json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -27,7 +29,7 @@ from ..config import METRIC_NAMES, SimConfig
 from ..sim import run_league
 from ..sim.sample import sample_season, weekly_systems
 from . import pages
-from .app import DEFAULT_SIMS, HERE, SEED, _season_payload, store
+from .app import DEFAULT_SIMS, HERE, SEED, VERSIONED, _season_payload, store
 
 # Seasons written out for the Sim a season tab, which has no server to make
 # one on demand. This many carrying the season's results, and this many
@@ -39,6 +41,26 @@ SAMPLE_SEASONS = int(os.environ.get("CFBROOT_SAMPLES") or 200)
 BUILD = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
 
 INTRO_BLOCK = pages.INTRO_BLOCK
+
+
+def _band_style(color: str | None, photo: int = 3) -> str:
+    """A team page's band in its colours and photo, by the same rules app.js
+    uses, so the page does not open green and then change."""
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", color or "")
+    if not m:
+        return f' data-photo="{photo}"'
+    hexa = m.group(1)
+
+    def lin(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (lin(int(hexa[i:i + 2], 16) / 255) for i in (0, 2, 4))
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    light = 1.05 / (lum + 0.05) < (lum + 0.05) / 0.0587
+    fg, mark = ("#0f1712", "#0f1712") if light else ("#ffffff", "var(--mark)")
+    blend = "screen" if light else "multiply"
+    return (f' data-photo="{photo}" style="--team:#{hexa};--team-fg:{fg};'
+            f'--team-mark:{mark};--photo-blend:{blend}"')
 
 
 def _write(path: Path, obj) -> int:
@@ -93,23 +115,40 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     # Tag the assets with the build, so a browser holding last build's copy
     # of the script or stylesheet fetches the new one.
     build = str(int(time.time()))
-    for name in ("app.css", "app.js", "season.js"):
+    for name in VERSIONED:
         template = template.replace(f'/static/{name}"', f'/static/{name}?v={build}"')
 
     def page(head: str, intro: str, depth: int, team: str | None = None,
-             info: bool = False, writeup: str = "") -> str:
+             info: bool = False, writeup: str = "", color: str | None = None,
+             photo: int = 3) -> str:
         """The app's page, with what a crawler reads written in."""
         base = "../" * depth
         boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
         boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
         boot += " window.CFBROOT_INFO = true;" if info else ""
         boot += "</script>\n"
+        # A team page names its team before the script runs.
+        picker = 'placeholder="Pick your team"'
+        if team:
+            picker = f'value="{htmlesc.escape(team)}" {picker}'
+        # The page's tint too, so it does not shift once the script runs.
+        tint = re.fullmatch(r"#?([0-9a-fA-F]{6})", color or "")
+        root = (f'<html lang="en" style="--team-tint:#{tint.group(1)}">'
+                if tint else '<html lang="en">')
         html = (template.replace("<!--HEAD-->", head)
+                        .replace('<html lang="en">', root)
+                        .replace('placeholder="Pick your team"', picker)
+                        .replace('<section id="band" class="band home" data-photo="3">',
+                                 '<section id="band" class="band"'
+                                 + _band_style(color, photo) + '>')
                         .replace("<!--WRITEUP-->", writeup)
                         .replace(INTRO_BLOCK, intro)
                         .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
                         .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
                         .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
+                        .replace('href="/teams/"', f'href="{base}teams/"')
+                        .replace('class="brand" href="/"',
+                                 f'class="brand" href="{base or "./"}"')
                         .replace('href="/static/', f'href="{base}static/')
                         .replace('src="/static/', f'src="{base}static/'))
         return html
@@ -161,7 +200,8 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         (team_dir / "index.html").write_text(
             page(pages.team_head(state, t, guide, week),
                  pages.team_body(state, t, guide, week), 2, t.school,
-                 writeup=pages.team_writeup(state, t, guide, week)),
+                 writeup=pages.team_writeup(state, t, guide, week),
+                 color=t.color, photo=t.idx % 4 + 1),
             encoding="utf-8")
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):

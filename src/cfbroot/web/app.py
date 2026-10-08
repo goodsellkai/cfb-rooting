@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import threading
@@ -266,7 +267,8 @@ def _season_payload(s: SeasonState) -> dict:
         "played": [
             {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
              "home_points": g["home_points"], "away_points": g["away_points"],
-             "neutral": g["neutral"], "title_game": g["is_ccg"]}
+             "neutral": g["neutral"], "title_game": g["is_ccg"],
+             "conference": bool(g["conference_game"])}
             for g in sorted(s.games, key=lambda g: g["week"])
             if g["status"] != 0
         ],
@@ -300,11 +302,17 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
 
 # Routes
 
+# Files the page names with a version on them, so a browser holding last
+# build's copy fetches the new one.
+VERSIONED = ("app.css", "app.js", "season.js", "logo.svg", "favicon.ico",
+             "icon-192.png", "apple-touch-icon.png")
+
+
 def _asset_token() -> str:
-    """Changes when the CSS or JS changes, so browsers don't use a stale copy."""
+    """Changes when any versioned file changes, so browsers don't use a stale copy."""
     stamps = []
-    for name in ("static/app.js", "static/season.js", "static/app.css"):
-        f = HERE / name
+    for name in VERSIONED:
+        f = HERE / "static" / name
         stamps.append(str(int(f.stat().st_mtime)) if f.exists() else "0")
     return "-".join(stamps)
 
@@ -314,8 +322,26 @@ def index() -> HTMLResponse:
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
     html = html.replace("<!--HEAD-->", "<title>CFB Rooting Guide</title>")
     token = _asset_token()
-    for name in ("app.css", "app.js", "season.js"):
+    for name in VERSIONED:
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/team/{name}/", response_class=HTMLResponse)
+def team_page(name: str) -> HTMLResponse:
+    """A team's address, as the hosted site has one, opening on that team."""
+    state = store.get_season()
+    team = next((t for t in state.fbs_teams if slug(t.school) == name), None)
+    if team is None:
+        raise HTTPException(status_code=404, detail=f"unknown team: {name}")
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = html.replace("<!--HEAD-->", f"<title>{team.school} | CFB Rooting Guide</title>")
+    html = html.replace('<script src="/static/app.js',
+                        f'<script>window.CFBROOT_TEAM = {json.dumps(team.school)};</script>'
+                        '<script src="/static/app.js')
+    token = _asset_token()
+    for asset in VERSIONED:
+        html = html.replace(f"/static/{asset}", f"/static/{asset}?v={token}")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
@@ -330,7 +356,28 @@ def how_it_works() -> HTMLResponse:
                         '<script>window.CFBROOT_INFO = true;</script>'
                         '<script src="/static/app.js')
     token = _asset_token()
-    for name in ("app.css", "app.js", "season.js"):
+    for name in VERSIONED:
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/teams/", response_class=HTMLResponse)
+def teams_page() -> HTMLResponse:
+    from . import pages
+    state = store.get_season()
+    odds = ()
+    if store.league is not None:
+        made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
+        odds = list(zip(store.league.names, made / store.league.n_sims))
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("<!--HEAD-->", pages.teams_head(state))
+                .replace(pages.INTRO_BLOCK,
+                         pages.teams_body(state, state.fbs_teams, odds)))
+    html = html.replace('<script src="/static/app.js',
+                        '<script>window.CFBROOT_INFO = true;</script>'
+                        '<script src="/static/app.js')
+    token = _asset_token()
+    for name in VERSIONED:
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 

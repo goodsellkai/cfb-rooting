@@ -2,7 +2,7 @@
 
 /* Sim a season: one simulated season, played back stage by stage.
  *
- * Uses app.js's globals: $, esc, num, team, logo, STATE, STATIC, WANTED.
+ * Uses app.js's globals: $, esc, num, team, logo, ratingOf, STATE, STATIC, WANTED.
  * The local app simulates a fresh season on request. The hosted site has no
  * server, so it draws from the seasons written out at build time.
  */
@@ -95,11 +95,10 @@ function buildStages() {
                                            games: r.games }));
   $("s-stage").max = String(STAGES.length - 1);
   $("s-meta").textContent = S.from_start
-    ? `${S.year} · season #${S.seed} · replayed from week 1, all `
-      + `${S.games.length} games simulated on current ${STATE.rating_label}`
-    : `${S.year} · season #${S.seed} · `
-      + `${S.games.filter(g => !g.real).length} games simulated, `
-      + `${S.games.filter(g => g.real).length} already played`;
+    ? `Season ${S.seed}, replayed from week 1: all ${S.games.length} games `
+      + `simulated on current ${STATE.rating_label}.`
+    : `Season ${S.seed}: ${S.games.filter(g => !g.real).length} games `
+      + `simulated, ${S.games.filter(g => g.real).length} already played.`;
 }
 
 // Playback
@@ -171,11 +170,6 @@ const winP = (g) => (g.p_home == null ? null
 function myIdx() {
   const t = WANTED && STATE.teams.find(x => x.name === WANTED);
   return t ? t.idx : null;
-}
-
-function ratingOf(idx) {
-  const r = team(idx).rating;
-  return r == null ? -40 : r;
 }
 
 /** The team's FPI, shown next to its name. */
@@ -273,7 +267,7 @@ function rankTagPre(idx) {
 function renderSeason() {
   if (!SEASON) return;
   const stage = STAGES[STAGE];
-  $("s-label").textContent = `${stage.label}  (${STAGE + 1}/${STAGES.length})`;
+  $("s-label").innerHTML = `${esc(stage.label)}<small>${STAGE + 1} of ${STAGES.length}</small>`;
   $("s-prev").disabled = STAGE === 0;
   $("s-next").disabled = STAGE === STAGES.length - 1;
   const games = resultsSoFar();
@@ -286,13 +280,12 @@ function renderSeason() {
   renderMine(games, recs);
   renderBoard(stage, recs);
   renderRight(recs);
-  $("footmeta").textContent = `sample season #${SEASON.seed}`;
+  $("footmeta").textContent = `Simulated season ${SEASON.seed}`;
 }
 
 function statCard(label, value, detail) {
-  return `<div class="card"><div class="label">${esc(label)}</div>
-    <div class="value">${value}</div>
-    <div class="detail">${detail || "&nbsp;"}</div></div>`;
+  return `<div><dt>${esc(label)}</dt><dd>${value}</dd>
+    <dd class="detail">${detail || "&nbsp;"}</dd></div>`;
 }
 
 function matchText(g) {
@@ -344,7 +337,8 @@ function renderMine(games, recs) {
     const where = g.neutral ? "vs" : (g.home === me ? "vs" : "@");
     const mp = g.home === me ? g.home_points : g.away_points;
     const op = g.home === me ? g.away_points : g.home_points;
-    return `<span class="res ${won ? "w" : "l"}${g.real ? "" : " sim"}" data-team="${opp}">${won ? "W" : "L"} ${mp}-${op}
+    return `<span class="res ${won ? "w" : "l"}${g.real ? "" : " sim"}" data-team="${opp}"
+      title="${g.real ? "Played" : "Simulated"}"><i>${won ? "W" : "L"}</i>${mp}-${op}
       ${where} ${esc(team(opp).abbr || team(opp).name)}</span>`;
   }).join("");
 
@@ -352,17 +346,17 @@ function renderMine(games, recs) {
   if (STAGE >= stageIndex("selection")) {
     const rank = SEASON.ranking.findIndex(x => x.team === me) + 1;
     const f = SEASON.field.find(x => x.team === me);
-    status = f ? `Ranked ${rank} · seed ${f.seed}${f.bye ? " with a bye" : ""}`
-               : `Ranked ${rank} · missed the playoff`;
+    status = f ? `Ranked ${rank}, seed ${f.seed}${f.bye ? " with a bye" : ""}`
+               : `Ranked ${rank}, missed the playoff`;
     const po = playoffSoFar().filter(g => g.home === me || g.away === me);
     const out = po.find(g => winner(g) !== me);
-    if (out) status += ` · out in the ${roundName(out).toLowerCase()}`;
-    else if (SEASON.champion === me && STAGE === STAGES.length - 1) status += " · national champion";
+    if (out) status += `, out in the ${roundName(out).toLowerCase()}`;
+    else if (SEASON.champion === me && STAGE === STAGES.length - 1) status += ", national champion";
   }
-  el.innerHTML = `<div class="minehead"><span class="teamcell" data-team="${me}">${logo(me, 22)}
-      ${rankTag(me)}<b>${esc(team(me).name)}</b>${fpi(me)}</span> <span class="muted">${rec(r)}
-      (${r ? r.cw : 0}-${r ? r.cl : 0} ${esc(team(me).conference || "")})</span>
-      <span class="minestatus">${status}</span></div>
+  el.innerHTML = `<div class="minehead" data-team="${me}">${logo(me, 30)}
+      ${rankTag(me)}<b>${esc(team(me).name)}</b> <span class="muted">${rec(r)}
+      (${r ? r.cw : 0}-${r ? r.cl : 0} ${esc(team(me).conference || "")})</span></div>
+      <span class="minestatus">${status}</span>
     <div class="reslist">${chips || '<span class="muted">No games yet.</span>'}</div>`;
 }
 
@@ -398,7 +392,7 @@ function tile(g, recs, isTitle) {
     isTitle ? `<span>${esc(g.conference)}</span>` : "",
     g.real ? '<span class="chipmini real">Final</span>' : '<span class="chipmini">Simulated</span>',
     g.neutral && !isTitle ? "<span>neutral</span>" : "",
-    upset ? `<span class="chipmini upset">Upset · ${Math.round(100 * p)}%</span>` : "",
+    upset ? `<span class="chipmini upset">Upset, given ${Math.round(100 * p)}%</span>` : "",
   ].join("");
   return `<div class="gt${g.home === me || g.away === me ? " mine" : ""}">
     ${row(g.away, g.away_points, false)}${row(g.home, g.home_points, true)}
@@ -413,20 +407,20 @@ function renderSelection(recs) {
   const top = SEASON.ranking.slice(0, 25).map((r, i) => {
     const f = seedOf[r.team];
     return `<tr class="${r.team === me ? "mine" : ""}"><td class="num">${i + 1}</td>
-      <td class="teamcell" data-team="${r.team}">${logo(r.team, 18)}${esc(team(r.team).name)}${fpi(r.team)}</td>
+      <td class="teamcell" data-team="${r.team}">${logo(r.team, 18)}<span class="tn">${esc(team(r.team).name)}</span>${fpi(r.team)}</td>
       <td class="num">${rec(recs[r.team])}</td>
       <td class="num">${num(r.rating, 3)}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
   const field = SEASON.field.map(f => `<tr class="${f.team === me ? "mine" : ""}">
       <td class="num">${f.seed}</td>
-      <td class="teamcell" data-team="${f.team}">${logo(f.team, 18)}${esc(team(f.team).name)}${fpi(f.team)}</td>
+      <td class="teamcell" data-team="${f.team}">${logo(f.team, 18)}<span class="tn">${esc(team(f.team).name)}</span>${fpi(f.team)}</td>
       <td class="muted">${esc(f.how)}${f.bye ? " · bye" : ""}</td></tr>`).join("");
   $("s-board").innerHTML = `<div class="twocol">
-    <div><h3 class="subhead">Top 25</h3><div class="tablewrap"><table>
+    <div><h3 class="subhead">Top 25</h3><div class="tablewrap"><table class="stand">
       <thead><tr><th class="num">#</th><th>Team</th><th class="num">Record</th>
       <th class="num">Rating</th><th>Seed</th></tr></thead><tbody>${top}</tbody></table></div></div>
-    <div><h3 class="subhead">The field</h3><div class="tablewrap"><table>
+    <div><h3 class="subhead">The field</h3><div class="tablewrap"><table class="stand">
       <thead><tr><th class="num">Seed</th><th>Team</th><th>How</th></tr></thead>
       <tbody>${field}</tbody></table></div></div></div>`;
 }
@@ -501,7 +495,7 @@ function renderTop25(recs) {
     const f = final ? seedOf[t] : null;
     return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
       <td class="num">${moveTag(was, t, i + 1)}</td>
-      <td class="teamcell" data-team="${t}">${logo(t, 16)}${esc(team(t).name)}${fpi(t)}</td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}<span class="tn">${esc(team(t).name)}</span>${fpi(t)}</td>
       <td class="num">${rec(recs[t])}</td>
       <td>${f ? `<span class="seedchip${f.bye ? " bye" : ""}">${f.seed}</span>` : ""}</td></tr>`;
   }).join("");
@@ -513,7 +507,7 @@ function renderTop25(recs) {
     ? `<p class="dropped">Dropped out: ${gone.map(t =>
         `<span data-team="${t}">${was.get(t)} ${esc(team(t).name)}</span>`).join(", ")}</p>`
     : "";
-  $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
+  $("s-standings").innerHTML = `<div class="tablewrap"><table class="stand">
     <thead><tr><th class="num">#</th><th class="num">+/-</th><th>Team</th>
     <th class="num">Record</th>
     <th>${final ? "Seed" : ""}</th></tr></thead><tbody>${rows}</tbody></table></div>${out}`;
@@ -550,12 +544,12 @@ function renderStandings(recs) {
     const tag = settled && c.champion === t ? '<span class="seedchip bye">Champion</span>'
       : tg && (tg.home === t || tg.away === t) ? '<span class="seedchip">Title game</span>' : "";
     return `<tr class="${t === me ? "mine" : ""}"><td class="num">${i + 1}</td>
-      <td class="teamcell" data-team="${t}">${logo(t, 16)}${rankTag(t)}${esc(team(t).name)}${fpi(t)} ${tag}</td>
+      <td class="teamcell" data-team="${t}">${logo(t, 16)}${rankTag(t)}<span class="tn">${esc(team(t).name)}</span>${fpi(t)} ${tag}</td>
       <td class="num">${c.crowns ? `${r ? r.cw : 0}-${r ? r.cl : 0}` : "-"}</td>
       <td class="num">${rec(r)}</td>
       <td class="num muted">${r ? r.pf : 0}-${r ? r.pa : 0}</td></tr>`;
   }).join("");
-  $("s-standings").innerHTML = `<div class="tablewrap"><table class="standings">
+  $("s-standings").innerHTML = `<div class="tablewrap"><table class="stand">
     <thead><tr><th class="num">#</th><th>Team</th><th class="num">Conf</th>
     <th class="num">All</th><th class="num">PF-PA</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${settled ? "" : '<p class="foot">Order by conference record so far; tiebreakers apply at the end.</p>'}`;

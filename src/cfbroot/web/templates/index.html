@@ -10,170 +10,175 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
 <meta name="theme-color" content="#1c5336">
-<link rel="preconnect" href="https://cdn.collegefootballdata.com">
+<link rel="preload" href="/static/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <img class="mark" src="/static/logo.svg" alt="" width="34" height="34">
-    <h1>CFB Rooting Guide</h1>
+<header class="mast">
+  <div class="mast-in">
+    <a class="brand" href="/">
+      <img class="mark" src="/static/logo.svg" alt="" width="28" height="28">
+      <span>CFB Rooting Guide</span>
+    </a>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button id="tab-guide" class="tab active" role="tab" aria-selected="true">Rooting guide</button>
+      <button id="tab-season" class="tab" role="tab" aria-selected="false">Sim a season</button>
+    </nav>
+    <div id="topmeta" class="topmeta"></div>
+    <a id="howlink" class="howlink" href="/how-it-works/">How it works</a>
   </div>
-  <div id="topmeta" class="topmeta"></div>
-  <a id="howlink" class="howlink" href="/how-it-works/">How does this work?</a>
 </header>
 
 <div id="banner" class="banner" hidden></div>
 
-<nav class="tabs" role="tablist">
-  <button id="tab-guide" class="tab active" role="tab" aria-selected="true">Rooting guide</button>
-  <button id="tab-season" class="tab" role="tab" aria-selected="false">Sim a season</button>
-</nav>
-
-<section class="controlbar">
-  <div class="group">
-    <div class="groupfields">
-      <div class="field combo">
-        <label for="team">Your team</label>
-        <input id="team" role="combobox" aria-autocomplete="list"
-               aria-expanded="false" aria-controls="teammenu"
-               placeholder="Search teams&hellip;" autocomplete="off" spellcheck="false">
-        <ul id="teammenu" class="menu" role="listbox" hidden></ul>
+<section id="band" class="band home" data-photo="3">
+  <div class="band-in">
+    <div class="who">
+      <span id="teamlogo" class="plate" hidden></span>
+      <div class="whotext">
+        <div class="combo">
+          <label for="team" class="sr">Your team</label>
+          <input id="team" class="teaminput" role="combobox" aria-autocomplete="list"
+                 aria-expanded="false" aria-controls="teammenu"
+                 placeholder="Pick your team" autocomplete="off" spellcheck="false">
+          <ul id="teammenu" class="menu" role="listbox" hidden></ul>
+        </div>
+        <p id="teamline" class="teamline"></p>
       </div>
-      <label class="field guideonly">
-        <span>Measure success by</span>
-        <select id="primary"></select>
-      </label>
-      <label class="field narrow guideonly">
-        <span>Slate</span>
-        <select id="week"></select>
-      </label>
-      <label class="field narrow guideonly">
-        <span>Sort by</span>
-        <select id="rootsort">
-          <option value="impact" selected>Biggest impact</option>
-          <option value="time">Kickoff time</option>
-        </select>
-      </label>
-      <label class="field narrow guideonly">
-        <span>Show</span>
-        <select id="sigfilter">
-          <option value="sig" selected>Statistically significant</option>
-          <option value="all">All games</option>
-        </select>
-      </label>
-      <label class="field check guideonly" id="playedwrap"
-             title="Mix in the games that are over, with what each result was worth">
-        <input id="showplayed" type="checkbox"> Include played games
-      </label>
     </div>
+    <div id="path" class="path guideonly" role="group" aria-label="Measure success by"></div>
   </div>
 </section>
 
 <main>
  <div id="guideview">
+  <div id="toolbar" class="toolbar">
+    <div class="toolbar-in">
+      <span id="tbctx" class="tbctx" aria-hidden="true"></span>
+      <label class="fld">
+        <span>Slate</span>
+        <select id="week"></select>
+      </label>
+      <div id="sortseg" class="seg" role="group" aria-label="Sort by">
+        <button type="button" data-v="impact" aria-pressed="true">Impact</button>
+        <button type="button" data-v="time" aria-pressed="false">Kickoff</button>
+      </div>
+      <div id="showseg" class="seg" role="group" aria-label="Which games">
+        <button type="button" data-v="sig" aria-pressed="true"
+                title="Games whose swing the simulations can tell from noise">Significant</button>
+        <button type="button" data-v="all" aria-pressed="false">All games</button>
+      </div>
+      <label class="tog" id="playedwrap"
+             title="Mix in the games that are over, with what each result was worth">
+        <input id="showplayed" type="checkbox"> Include played
+      </label>
+      <input id="rootsearch" class="search" type="search" autocomplete="off"
+             placeholder="Filter teams" aria-label="Filter games by team or conference">
+    </div>
+  </div>
+
   <section id="progress" class="progress" hidden>
     <div class="bar"><div id="progressfill"></div></div>
     <p id="progresstext">simulating&hellip;</p>
   </section>
 
-  <section id="empty" class="empty">
+  <section id="empty" class="intro">
     <!--INTRO--><h2>Choose a team</h2><!--/INTRO-->
   </section>
 
-  <section id="results" hidden>
-    <div id="headline" class="cards"></div>
-
-    <div class="split">
-      <div class="panel">
-        <h2>Win total</h2>
-        <div id="winsdist" class="dist"></div>
-      </div>
-      <div class="panel">
-        <h2>Playoff seed</h2>
-        <div id="seeddist" class="dist"></div>
-      </div>
-    </div>
-
-    <div id="owngames" class="panel" hidden>
-      <div class="panel-head"><h2>Your own games</h2></div>
-      <div id="owntable"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Who to root for <span id="weeklabel" class="muted"></span></h2>
-        <div class="headfields">
-          <input id="rootsearch" class="search" type="search" autocomplete="off"
-                 placeholder="Search teams" aria-label="Search this table">
-          <span class="key"><i class="on"></i>significant<i class="off"></i>not</span>
+  <div id="results" class="guide" hidden>
+    <div class="maincol">
+      <section id="owngames" class="block" hidden>
+        <div class="blockhead"><h2 id="ownhead">Your team's games</h2></div>
+        <div id="owntable"></div>
+      </section>
+      <section class="block">
+        <div class="blockhead">
+          <h2><span id="roottitle">Who to root for</span> <span id="weeklabel" class="muted"></span></h2>
           <span id="rootcount" class="muted"></span>
         </div>
-      </div>
-      <div id="rootlist"></div>
+        <div id="rootlist"></div>
+      </section>
     </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>League-wide odds</h2>
-        <select id="leaguemetric" class="inline"
-                aria-label="Which odds the league table shows"></select>
+    <aside class="rail">
+      <div class="dists">
+        <section class="block">
+          <div class="blockhead"><h2>Wins</h2><span id="winsnote" class="muted"></span></div>
+          <div id="winsdist" class="dist"></div>
+        </section>
+        <section class="block">
+          <div class="blockhead"><h2>Playoff seed</h2><span id="seednote" class="muted"></span></div>
+          <div id="seeddist" class="dist"></div>
+        </section>
       </div>
-      <div id="league"></div>
-    </div>
-  </section>
+      <section class="block league">
+        <div class="blockhead">
+          <h2 id="leaguehead">Every team</h2>
+          <div id="leagueseg" class="seg small" role="group" aria-label="Which teams">
+            <button type="button" data-v="all" aria-pressed="true">All</button>
+            <button type="button" data-v="conf" aria-pressed="false">Conference</button>
+          </div>
+        </div>
+        <div id="league" class="leaguewrap"></div>
+      </section>
+    </aside>
+  </div>
  </div>
 
  <div id="seasonview" hidden>
-  <section class="panel player">
-    <div class="playerhead">
-      <div>
-        <h2>One simulated season</h2>
-        <p id="s-meta" class="sub"></p>
+  <div id="transport" class="transport">
+    <div class="transport-in">
+      <div class="tp-keys">
+        <button id="s-prev" type="button" aria-label="Previous stage">&#8249;</button>
+        <button id="s-play" type="button" class="primary">Play</button>
+        <button id="s-next" type="button" aria-label="Next stage">&#8250;</button>
       </div>
-      <div class="playeropts">
-        <label id="s-freshwrap" class="check"
+      <div class="tp-track">
+        <span id="s-label" class="stagelabel"></span>
+        <input id="s-stage" type="range" min="0" max="0" value="0" aria-label="Stage">
+      </div>
+    </div>
+  </div>
+
+  <div class="seasonwrap">
+    <div class="s-top">
+      <p id="s-meta" class="s-meta"></p>
+      <div class="tp-opts">
+        <label id="s-freshwrap" class="tog"
                title="Set aside this season's real results and play every game">
-          <input id="s-fresh" type="checkbox"> Replay from week 1
+          <input id="s-fresh" type="checkbox"> From week 1
         </label>
-        <button id="s-new">New season</button>
+        <button id="s-new" type="button">New season</button>
       </div>
     </div>
-    <div class="playerbar">
-      <button id="s-prev" aria-label="Previous stage">&#8249;</button>
-      <button id="s-play" class="primary">Play</button>
-      <button id="s-next" aria-label="Next stage">&#8250;</button>
-      <input id="s-stage" type="range" min="0" max="0" value="0" aria-label="Stage">
-      <span id="s-label" class="stagelabel"></span>
-    </div>
-  </section>
 
-  <section id="s-loading" class="progress" hidden>
-    <div class="bar"><div class="indeterminate"></div></div>
-    <p>Simulating a season&hellip;</p>
-  </section>
+    <section id="s-loading" class="progress" hidden>
+      <div class="bar"><div class="indeterminate"></div></div>
+      <p>Simulating a season&hellip;</p>
+    </section>
 
-  <div id="s-body" hidden>
-    <div id="s-stats" class="cards"></div>
-    <div id="s-mine" class="panel mine" hidden></div>
-    <div class="seasongrid">
-      <div class="panel">
-        <div class="panel-head"><h2 id="s-boardtitle"></h2><span id="s-boardnote" class="muted"></span></div>
-        <div id="s-board"></div>
-      </div>
-      <div class="panel">
-        <div class="panel-head">
-          <h2 id="s-righttitle">Standings</h2>
-          <div class="headfields">
-            <select id="s-right" class="inline" aria-label="Panel">
-              <option value="standings" selected>Standings</option>
-              <option value="top25">Committee top 25</option>
-            </select>
-            <select id="s-conf" class="inline" aria-label="Conference"></select>
+    <div id="s-body" hidden>
+      <div id="s-mine" class="s-mine" hidden></div>
+      <dl id="s-stats" class="s-stats"></dl>
+      <div class="seasongrid">
+        <section class="block">
+          <div class="blockhead"><h2 id="s-boardtitle"></h2><span id="s-boardnote" class="muted"></span></div>
+          <div id="s-board"></div>
+        </section>
+        <section class="block">
+          <div class="blockhead">
+            <h2 id="s-righttitle">Standings</h2>
+            <div class="headfields">
+              <select id="s-right" aria-label="Panel">
+                <option value="standings" selected>Standings</option>
+                <option value="top25">Committee top 25</option>
+              </select>
+              <select id="s-conf" aria-label="Conference"></select>
+            </div>
           </div>
-        </div>
-        <div id="s-standings"></div>
+          <div id="s-standings"></div>
+        </section>
       </div>
     </div>
   </div>
@@ -183,12 +188,16 @@
 </main>
 
 <footer class="sitefoot">
-  <span>Built by Kai Goodsell &middot;
-    <a href="https://github.com/goodsellkai/cfb-rooting" target="_blank"
-       rel="noopener">Source on GitHub</a>
-    &middot; Not affiliated with the College Football Playoff, the NCAA or any
-    school. Odds are model output, not betting advice.</span>
-  <span id="footmeta"></span>
+  <div class="sitefoot-in">
+    <p>Built by Kai Goodsell.
+      <a href="https://github.com/goodsellkai/cfb-rooting" target="_blank"
+         rel="noopener">Source on GitHub</a>.
+      Not affiliated with the College Football Playoff, the NCAA or any school.
+      Odds are model output, not betting advice.</p>
+    <p class="footlinks"><a href="/teams/">All teams</a>
+      <a href="/how-it-works/">How it works</a>
+      <span id="footmeta"></span></p>
+  </div>
 </footer>
 
 <div id="teamtip" class="teamtip" role="tooltip" hidden></div>
