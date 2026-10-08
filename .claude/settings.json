@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/guard-env.sh",
+            "timeout": 15,
+            "statusMessage": "Checking the file is not a secret"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-js.sh",
+            "timeout": 30,
+            "statusMessage": "Parsing the page script"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/sim-tests.sh",
+            "timeout": 300,
+            "asyncRewake": true,
+            "statusMessage": "Running the simulation tests"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Browser__get_page_text",
+      "mcp__Claude_Browser__read_console_messages",
+      "mcp__Claude_Browser__preview_logs",
+      "mcp__Claude_Browser__read_network_requests",
+      "mcp__Claude_Browser__read_page",
+      "mcp__terminal__read_terminal",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run list *)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run view *)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" workflow list *)"
+    ]
+  }
+}

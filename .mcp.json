@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "cloudflare": {
+      "type": "sse",
+      "url": "https://observability.mcp.cloudflare.com/sse"
+    }
+  }
+}

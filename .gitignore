@@ -3,6 +3,7 @@ cache/
 .env
 .env.*
 *.env
+!.env.example
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -11,3 +12,4 @@ runs/
 build/
 dist/
 site/
+.claude/settings.local.json
