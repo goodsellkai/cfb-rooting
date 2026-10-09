@@ -104,7 +104,7 @@ section that stays on screen after the app loads and is what crawlers read.
   tree mid-deploy would mix two builds; and published numbers are rounded to six
   decimals, so a figure on a display boundary can land a hundredth of a point
   either way of a fresh build. A model change still goes through `export`.
-- **`pages.py` only reads seven things off a season** and eight off a team, which
+- **`pages.py` only reads seven things off a season** and nine off a team, which
   is what makes the republish possible. `tests/test_republish.py` pins that list.
   Reading something new there means adding it to `republish.Season` too, or the
   republished page quietly loses a sentence.

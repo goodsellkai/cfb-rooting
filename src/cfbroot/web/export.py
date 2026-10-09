@@ -11,6 +11,7 @@ asking the server, and any static host can serve it.
       data/team/<slug>.json      one team's guide, as /api/team/<name> does
       data/season/<n>.json       a simulated season, as /api/sample does
       team/<school>/index.html   that team's page, which the app then takes over
+      card/<name>-<time>.jpg     the picture a shared link shows
       sitemap.xml, robots.txt, _headers
 """
 
@@ -29,7 +30,7 @@ from pathlib import Path
 from ..config import METRIC_NAMES, SimConfig
 from ..sim import run_league
 from ..sim.sample import sample_season, weekly_systems
-from . import pages
+from . import cards, pages
 from .app import DEFAULT_SIMS, HERE, SEED, VERSIONED, _season_payload, store
 
 # Seasons written out for the Sim a season tab, which has no server to make
@@ -158,23 +159,23 @@ def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
 
 
 def write_front(out: Path, state, teams, n_sims: int, standing,
-                template: str) -> None:
+                template: str, card: str | None = None) -> None:
     """The home page, the full table and how it works."""
     (out / "index.html").write_text(
-        render(template, pages.home_head(state, n_sims, standing[:10]),
+        render(template, pages.home_head(state, n_sims, standing[:10], card),
                pages.home_body(state, teams, n_sims,
                                standing[:10], standing[10:18]), 0),
         encoding="utf-8")
     everyone = out / "teams"
     everyone.mkdir(exist_ok=True)
     (everyone / "index.html").write_text(
-        render(template, pages.teams_head(state),
+        render(template, pages.teams_head(state, n_sims, card),
                pages.teams_body(state, teams, standing), 1, info=True),
         encoding="utf-8")
     how = out / "how-it-works"
     how.mkdir(exist_ok=True)
     (how / "index.html").write_text(
-        render(template, pages.how_head(state, n_sims),
+        render(template, pages.how_head(state, n_sims, card),
                pages.how_body(state, n_sims), 1, info=True),
         encoding="utf-8")
 
@@ -232,7 +233,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     # too.
     standing = sorted(zip(store.league.names, odds),
                       key=lambda r: (-r[1], r[0]))
-    write_front(out, state, state.fbs_teams, n_sims, standing, template)
+    shares = cards.Cards(out, state, log)
+    write_front(out, state, state.fbs_teams, n_sims, standing, template,
+                shares.site(state.current_week(), standing))
     write_meta(out, state, state.fbs_teams, n_sims, template)
 
     payload = _season_payload(state)
@@ -251,7 +254,8 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
         (team_dir / "index.html").write_text(
-            page(pages.team_head(state, t, guide, week),
+            page(pages.team_head(state, t, guide, week,
+                                 shares.team(state, t, guide, week)),
                  pages.team_body(state, t, guide, week), 2, t.school,
                  writeup=pages.team_writeup(state, t, guide, week),
                  color=t.color, photo=t.idx % 4 + 1),

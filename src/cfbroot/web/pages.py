@@ -83,9 +83,17 @@ def _faq_html(pairs) -> str:
     return out + "</dl>"
 
 
-def _head(title, description, url, extra="", ld=None):
+# Who writes the pages, for the markup that asks for an author.
+AUTHOR = {"@type": "Person", "name": "Kai Goodsell",
+          "url": "https://github.com/goodsellkai"}
+
+
+def _head(title, description, url, extra="", ld=None, card=None, card_alt=""):
     t, d = html.escape(title), html.escape(description)
-    card = f"{SITE_URL}/static/header/1.jpg"
+    # A drawn share card when the build made one; the header photo otherwise.
+    size = (1200, 630) if card else (1280, 720)
+    card = card or f"{SITE_URL}/static/header/1.jpg"
+    alt = html.escape(card_alt or title)
     blocks = ld if ld is not None else [_page_ld(title, description, url)]
     scripts = "".join(
         '\n<script type="application/ld+json">'
@@ -101,10 +109,12 @@ def _head(title, description, url, extra="", ld=None):
 <meta property="og:description" content="{d}">
 <meta property="og:url" content="{url}">
 <meta property="og:image" content="{card}">
-<meta property="og:image:width" content="1280">
-<meta property="og:image:height" content="720">
+<meta property="og:image:width" content="{size[0]}">
+<meta property="og:image:height" content="{size[1]}">
+<meta property="og:image:alt" content="{alt}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{card}">{scripts}{extra}"""
+<meta name="twitter:image" content="{card}">
+<meta name="twitter:image:alt" content="{alt}">{scripts}{extra}"""
 
 
 def home_questions(state, n_sims, race=()):
@@ -132,7 +142,7 @@ def home_questions(state, n_sims, race=()):
     ]
 
 
-def home_head(state, n_sims, race=()):
+def home_head(state, n_sims, race=(), card=None):
     week = state.current_week()
     desc = (f"College Football Playoff odds for all 138 teams, and which "
             f"week {week} games move them. Every remaining {state.year} game "
@@ -142,7 +152,8 @@ def home_head(state, n_sims, race=()):
     site = dict(_site())
     site["@context"] = "https://schema.org"
     site["description"] = desc
-    return _head(title, desc, SITE_URL + "/",
+    return _head(title, desc, SITE_URL + "/", card=card,
+                 card_alt=f"Who to root for, week {week}",
                  ld=[site, page, _faq_ld(home_questions(state, n_sims, race))])
 
 
@@ -192,7 +203,7 @@ def _root_lines(payload, week, fbs):
     return out
 
 
-def team_head(state, team, payload, week):
+def team_head(state, team, payload, week, card=None):
     h = payload["headline"]
     w, l, _, _, _ = record(state, team.idx)
     p = _pct(h["make_playoff"]["p"])
@@ -206,10 +217,113 @@ def team_head(state, team, payload, week):
     crumbs = _crumbs([(SITE_NAME, SITE_URL + "/"),
                       ("Teams", SITE_URL + "/teams/"),
                       (team.school, url)])
+    fbs = {t.school for t in state.fbs_teams}
+    about = {"@type": "SportsTeam", "name": team.school,
+             "sport": "American football", "url": url}
+    if team.conference and "independent" not in team.conference.lower():
+        about["memberOf"] = {"@type": "SportsOrganization",
+                             "name": team.conference}
+    events = [_event(g, fbs) for g in sorted(payload["own_games"],
+                                             key=lambda g: g["week"])]
+    if events:
+        about["event"] = events
     page = _page_ld(title, desc, url)
-    page["about"] = {"@type": "SportsTeam", "name": team.school,
-                     "sport": "College football"}
-    return _head(title, desc, url, ld=[page, crumbs, faq])
+    page["about"] = about
+    # The writeup is an article that is rewritten every build, so it says
+    # when, and who by. No first-published date: the site does not keep one.
+    article = {"@context": "https://schema.org", "@type": "Article",
+               "headline": title, "description": desc, "url": url,
+               "mainEntityOfPage": url, "dateModified": _now(),
+               "author": AUTHOR, "publisher": _publisher(),
+               "about": {"@type": "SportsTeam", "name": team.school}}
+    if card:
+        article["image"] = [card]
+    story = card_story(state, team, payload, week)
+    return _head(title, desc, url, card=card, card_alt=story["alt"],
+                 ld=[page, article, crumbs, faq])
+
+
+def _event(g, fbs):
+    """One of a team's games still to play, as a scheduled sports event."""
+    def side(name):
+        out = {"@type": "SportsTeam", "name": name}
+        if name in fbs:
+            out["url"] = f"{SITE_URL}/team/{slug(name)}/"
+        return out
+    ev = {"@type": "SportsEvent",
+          "name": f"{g['away']} {'vs' if g.get('neutral') else 'at'} {g['home']}",
+          "sport": "American football",
+          "homeTeam": side(g["home"]), "awayTeam": side(g["away"]),
+          "eventStatus": "https://schema.org/EventScheduled"}
+    start = g.get("start_date")
+    if start:
+        # A kickoff time not yet set is stored as midnight; the day is all
+        # that is known.
+        ev["startDate"] = start if g.get("time_set", True) else start[:10]
+    return ev
+
+
+def card_story(state, team, payload, week):
+    """What a team's share card says, and the same in words for its alt text.
+
+    One number, for the race the team is really in: the playoff, or failing a
+    real chance of that, its conference title, then a place in the title
+    game. A team with none of those gets its expected wins rather than a
+    0.00%. Then this week's call for that same number: the game to root for,
+    or failing one worth calling, the team's own game.
+    """
+    h = payload["headline"]
+    conf = team.conference or ""
+    indie = not conf or "independent" in conf.lower()
+    races = [("make_playoff", ["to make the", "playoff"])]
+    if not indie:
+        races += [("win_conference", ["to win the", conf]),
+                  ("make_conf_title_game", ["to reach the", f"{conf} title game"])]
+    key, label = next(((k, lab) for k, lab in races if h[k]["p"] >= 0.005),
+                      (None, ["wins expected", "this season"]))
+    if key:
+        number, unit = f"{100 * h[key]['p']:.2f}", "%"
+    else:
+        number, unit = f"{payload['expected_wins']:.1f}", ""
+
+    w, l, cw, cl, _ = record(state, team.idx)
+    rec = f"{w}-{l}" + (f" ({cw}-{cl} {conf})" if cw + cl and not indie else "")
+    for kind, name in (("cfp", "CFP"), ("ap", "AP")):
+        rank = state.polls.get(kind, {}).get(team.idx)
+        if rank:
+            rec += f", {name} No. {rank}"
+            break
+
+    games = [g for g in payload["games"] if key and g["week"] == week
+             and g["swings"][key].get("sig_week")]
+    games.sort(key=lambda g: -abs(g["swings"][key]["delta"]))
+    own = [g for g in payload["own_games"] if g["week"] == week]
+    if games:
+        g = games[0]
+        home = g["swings"][key]["home"]
+        root, other = (g["home"], g["away"]) if home else (g["away"], g["home"])
+        ri, oi = ((g["home_idx"], g["away_idx"]) if home
+                  else (g["away_idx"], g["home_idx"]))
+        line = [("t", f"Week {week}: root for "), ("logo", ri), ("hl", root),
+                ("t", " over "), ("logo", oi), ("t", other)]
+        said = f"Week {week}: root for {root} over {other}."
+    elif own:
+        g = own[0]
+        at_home = g["home"] == team.school
+        opp = g["away"] if at_home else g["home"]
+        oi = g["away_idx"] if at_home else g["home_idx"]
+        chance = g["p_home_win"] if at_home else 1 - g["p_home_win"]
+        where = "vs " if at_home or g.get("neutral") else "at "
+        line = [("t", f"Week {week}: {where}"), ("logo", oi),
+                ("t", f"{opp}, {100 * chance:.0f}% to win")]
+        said = f"Week {week}: {where}{opp}, {100 * chance:.0f}% to win."
+    else:
+        line = [("t", "Who to root for, week by week")]
+        said = ""
+    alt = f"{team.school}, {rec}: {number}{unit} {' '.join(label)}. {said}"
+    return {"abbr": team.abbreviation or team.school[:3].upper(),
+            "record": rec, "number": number, "unit": unit, "label": label,
+            "line": line, "alt": alt.strip()}
 
 
 def team_questions(state, team, payload, week, plain=False):
@@ -451,14 +565,32 @@ committee does, and fills the bracket.
 {_faq_html(home_questions(state, n_sims, race))}"""
 
 
-def teams_head(state):
+def teams_head(state, n_sims=None, card=None):
     desc = (f"Playoff odds and a rooting guide for all 138 FBS teams, "
             f"updated through week {state.current_week()} of the {state.year} "
             f"season.")
     url = f"{SITE_URL}/teams/"
     title = f"Playoff odds for every FBS team | {SITE_NAME}"
-    return _head(title, desc, url,
-                 ld=[_page_ld(title, desc, url),
+    sims = f"{_sims(n_sims)} simulated" if n_sims else "simulated"
+    dataset = {"@context": "https://schema.org", "@type": "Dataset",
+               "name": f"{state.year} College Football Playoff odds for every "
+                       f"FBS team",
+               "description": (
+                   f"How often each FBS team reaches the College Football "
+                   f"Playoff across {sims} {state.year} seasons, as of week "
+                   f"{state.current_week()}, by conference. Each simulated "
+                   f"season is rated and ranked by a model of the selection "
+                   f"committee, which picks the field."),
+               "url": url, "creator": AUTHOR, "dateModified": _now(),
+               "temporalCoverage": str(state.year), "isAccessibleForFree": True,
+               "keywords": ["college football", "College Football Playoff",
+                            "playoff odds", "simulation", "FBS"],
+               "variableMeasured": "Chance of making the College Football "
+                                   "Playoff"}
+    return _head(title, desc, url, card=card,
+                 card_alt=f"Playoff odds for every team, week "
+                          f"{state.current_week()}",
+                 ld=[_page_ld(title, desc, url), dataset,
                      _crumbs([(SITE_NAME, SITE_URL + "/"), ("Teams", url)])])
 
 
@@ -492,13 +624,14 @@ elsewhere that move its number most.</p>
 <p><a href="../">Back to the guide</a></p>"""
 
 
-def how_head(state, n_sims):
+def how_head(state, n_sims, card=None):
     desc = (f"How the rooting guide works: {_sims(n_sims)} simulated seasons, "
             f"a rating fitted to every one of them, a model of the selection "
             f"committee, and a test for which swings are real.")
     url = f"{SITE_URL}/how-it-works/"
     title = f"How the playoff odds are worked out | {SITE_NAME}"
-    return _head(title, desc, url,
+    return _head(title, desc, url, card=card,
+                 card_alt=f"{SITE_NAME}: College Football Playoff odds",
                  ld=[_page_ld(title, desc, url),
                      _crumbs([(SITE_NAME, SITE_URL + "/"),
                               ("How this works", url)])])
@@ -630,6 +763,8 @@ def headers() -> str:
   Cache-Control: public, max-age=600
 /static/header/*
   Cache-Control: public, max-age=604800
+/card/*
+  Cache-Control: public, max-age=604800, immutable
 /static/*
   Cache-Control: public, max-age=86400
 /

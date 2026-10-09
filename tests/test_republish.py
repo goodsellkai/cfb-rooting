@@ -95,12 +95,12 @@ def test_the_writeup_can_quote_espn():
 def test_every_attribute_pages_reads_exists():
     """A new read in pages.py should fail here, not silently on the live site."""
     s = Season(published(GAMES, TEAMS))
-    for name in ("year", "games", "fbs_teams", "teams"):
+    for name in ("year", "games", "fbs_teams", "teams", "polls"):
         assert hasattr(s, name), name
     for name in ("current_week", "default_week"):
         assert callable(getattr(s, name)), name
     for name in ("school", "logo", "conference", "color", "idx", "rating",
-                 "is_fbs", "espn_odds"):
+                 "is_fbs", "espn_odds", "abbreviation"):
         assert hasattr(s.fbs_teams[0], name), name
     # The keys `record` indexes, which are not the keys the site is served.
     for key in ("week", "completed", "is_ccg", "home_idx", "away_idx", "home",

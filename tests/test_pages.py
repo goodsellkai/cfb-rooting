@@ -67,9 +67,86 @@ def test_a_team_page_carries_its_structured_data(season, payload):
     team = season.fbs_teams[0]
     head = pages.team_head(season, team, payload, season.current_week())
     kinds = {b["@type"] for b in blocks(head)}
-    assert kinds == {"WebPage", "BreadcrumbList", "FAQPage"}
+    assert kinds == {"WebPage", "Article", "BreadcrumbList", "FAQPage"}
     assert f"<title>{team.school} playoff odds" in head
     assert 'name="robots"' in head
+
+
+def test_a_team_page_lists_the_games_it_has_left(season, payload):
+    team = season.fbs_teams[0]
+    head = pages.team_head(season, team, payload, season.current_week())
+    page = next(b for b in blocks(head) if b["@type"] == "WebPage")
+    events = page["about"]["event"]
+    assert len(events) == len(payload["own_games"])
+    for ev in events:
+        assert team.school in (ev["homeTeam"]["name"], ev["awayTeam"]["name"])
+
+
+def test_a_card_replaces_the_header_photo(season, payload):
+    team = season.fbs_teams[0]
+    week = season.current_week()
+    plain = pages.team_head(season, team, payload, week)
+    assert 'content="1280"' in plain
+    card = "https://cfbroot.com/card/x-202610091200.jpg"
+    head = pages.team_head(season, team, payload, week, card)
+    assert f'<meta property="og:image" content="{card}">' in head
+    assert f'<meta name="twitter:image" content="{card}">' in head
+    assert 'content="1200"' in head and 'content="630"' in head
+    article = next(b for b in blocks(head) if b["@type"] == "Article")
+    assert article["image"] == [card]
+
+
+def test_the_card_says_one_number_and_one_call(season, payload):
+    team = season.fbs_teams[0]
+    week = season.current_week()
+    story = pages.card_story(season, team, payload, week)
+    assert story["number"] + story["unit"] in story["alt"]
+    if story["label"][1] == "playoff":
+        p = payload["headline"]["make_playoff"]["p"]
+        assert story["number"] == f"{100 * p:.2f}"
+    kinds = [k for k, _ in story["line"]]
+    assert set(kinds) <= {"t", "hl", "logo"}
+    # The side to root for is the one in yellow, and it is a real game.
+    if "hl" in kinds:
+        root = next(v for k, v in story["line"] if k == "hl")
+        assert any(root in (g["home"], g["away"]) for g in payload["games"]
+                   if g["week"] == week)
+
+
+def test_a_team_out_of_every_race_gets_its_wins(season, payload):
+    team = season.fbs_teams[0]
+    nothing = dict(payload, headline={k: dict(v, p=0.0) for k, v
+                                      in payload["headline"].items()})
+    story = pages.card_story(season, team, nothing, season.current_week())
+    assert story["unit"] == ""
+    assert story["number"] == f"{payload['expected_wins']:.1f}"
+    assert story["label"] == ["wins expected", "this season"]
+
+
+def test_a_card_draws(season, payload, tmp_path):
+    from PIL import Image
+    from cfbroot.web import cards
+
+    class NoLogos(cards.Logos):
+        def get(self, url):
+            return None
+
+    team = season.fbs_teams[0]
+    week = season.current_week()
+    story = pages.card_story(season, team, payload, week)
+    path = tmp_path / "card.jpg"
+    cards.draw_team(story, team, "#bf5700", NoLogos(), {}, path)
+    with Image.open(path) as img:
+        assert img.size == (1200, 630)
+    cards.draw_site(week, [("Alpha", 0.9)], {}, NoLogos(), tmp_path / "s.jpg")
+    assert (tmp_path / "s.jpg").stat().st_size > 10_000
+
+
+def test_the_table_of_every_team_is_a_dataset(season):
+    head = pages.teams_head(season, 4000)
+    data = next(b for b in blocks(head) if b["@type"] == "Dataset")
+    assert str(season.year) in data["name"]
+    assert data["isAccessibleForFree"] is True
 
 
 def test_the_questions_asked_are_the_ones_answered(season, payload):

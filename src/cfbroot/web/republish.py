@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .app import HERE
-from . import pages
+from . import cards, pages
 from .export import load_template, render, write_front, write_meta
 
 # The published site is the input, so a republish of a site that has never
@@ -50,6 +50,7 @@ class Team:
     logo: str
     color: str | None
     is_fbs: bool
+    abbreviation: str = ""
     # The writeup puts the model's playoff number next to ESPN's. A real
     # SeasonState gets this from FPI; here it comes out of the league table.
     espn_odds: dict | None = None
@@ -59,7 +60,8 @@ class Season:
     """A stand-in for `SeasonState`, built from the published state file.
 
     `pages.py` reads seven things off a season: the year, the current week,
-    the default week, the FBS teams and the games. Everything else a real
+    the default week, every team, the FBS teams, the games and the polls.
+    Everything else a real
     `SeasonState` carries exists to run the simulation, which is the part
     being skipped.
     """
@@ -74,7 +76,7 @@ class Season:
         self.teams = [
             Team(idx=int(i), school=t["name"], conference=t["conference"],
                  rating=t["rating"], logo=t["logo"] or "", color=t["color"],
-                 is_fbs=bool(t["fbs"]))
+                 is_fbs=bool(t["fbs"]), abbreviation=t.get("abbr") or "")
             for i, t in sorted(index.items(), key=lambda kv: int(kv[0]))
         ]
         by_idx = {t.idx: t for t in self.teams}
@@ -91,6 +93,10 @@ class Season:
              "neutral": g["neutral"], "conference_game": g["conference"]}
             for g in payload["played"]
         ]
+
+        # The share cards put the team's poll rank next to its record.
+        self.polls = {k: {int(i): r for i, r in v.items()}
+                      for k, v in (payload.get("polls") or {}).items()}
 
     def current_week(self) -> int:
         return self._week
@@ -178,7 +184,9 @@ def republish(out: Path, source: str, log=print) -> None:
 
     shutil.copytree(HERE / "static", out / "static")
     template = load_template(str(int(time.time())))
-    write_front(out, state, teams, n_sims, standing, template)
+    shares = cards.Cards(out, state, log)
+    write_front(out, state, teams, n_sims, standing, template,
+                shares.site(state.current_week(), standing))
     write_meta(out, state, teams, n_sims, template)
 
     week = state.default_week() or state.current_week()
@@ -189,7 +197,8 @@ def republish(out: Path, source: str, log=print) -> None:
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
         (team_dir / "index.html").write_text(
-            render(template, pages.team_head(state, t, guide, week),
+            render(template, pages.team_head(state, t, guide, week,
+                                             shares.team(state, t, guide, week)),
                    pages.team_body(state, t, guide, week), 2, t.school,
                    writeup=pages.team_writeup(state, t, guide, week),
                    color=t.color, photo=t.idx % 4 + 1),
