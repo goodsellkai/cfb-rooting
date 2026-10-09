@@ -121,3 +121,15 @@ def test_robots_lets_the_assistants_in_and_keeps_them_out_of_the_data():
     assert "User-agent: GPTBot" in txt and "User-agent: Googlebot" in txt
     assert txt.count("Disallow: /data/") >= 2
     assert "Sitemap: " in txt
+
+
+def test_csp_lets_the_analytics_beacon_through():
+    """Cloudflare injects its beacon, and a CSP that blocks it counts nobody.
+
+    This happened: the header shipped without these two origins and the site
+    recorded zero visits for four days while serving normally.
+    """
+    csp = next(line for line in pages.headers().splitlines()
+               if "Content-Security-Policy" in line)
+    assert "https://static.cloudflareinsights.com" in csp
+    assert "https://cloudflareinsights.com" in csp

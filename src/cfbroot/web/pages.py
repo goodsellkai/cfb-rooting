@@ -616,10 +616,14 @@ def headers() -> str:
     frame it, and https from here on. Scripts are the page's own, except for
     the few lines the build writes into the head, which is what the inline
     allowance covers.
+
+    Cloudflare injects its analytics beacon into the served HTML, so the two
+    cloudflareinsights origins have to be allowed or the page blocks it and
+    every visit goes uncounted.
     """
     # One rule per path, since a host that matches several applies them all.
     return """/*
-  Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\'; connect-src \'self\' https://site.api.espn.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
+  Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\' https://static.cloudflareinsights.com; connect-src \'self\' https://site.api.espn.com https://cloudflareinsights.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
   Strict-Transport-Security: max-age=31536000
   X-Frame-Options: DENY
 /data/*
