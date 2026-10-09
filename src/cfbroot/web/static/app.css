@@ -352,9 +352,9 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .foot { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
 
 /* The slate. Each game is one row whose first line is the side to root for,
-   over the other one; opening it adds the other side's own line. */
+   with the other side's own line under it. */
 .slate {
-  --cols: 6.5rem minmax(0, 1fr) 3rem 4.6rem 4rem 7.5rem 1.1rem;
+  --cols: 6.5rem minmax(0, 1fr) 3rem 4.6rem 4rem 7.5rem;
   font-stretch: 88%; font-variant-numeric: tabular-nums;
 }
 .slatehead, .game {
@@ -364,7 +364,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
   padding: 8px 0 7px; border-bottom: 1px solid var(--rule);
   font-size: 12px; font-weight: 650; color: var(--muted); line-height: 1.2;
 }
-.slatehead .h-imp { grid-column: 6 / 8; }
+.slatehead .h-imp { grid-column: 6; }
 /* kickoff order: each time slot heads its games, and stays in view */
 .slot {
   position: sticky; top: 53px; z-index: 2; margin-top: 8px; padding: 7px 0 5px;
@@ -376,7 +376,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .slate.byslot .game .when .tv { display: block; }
 .game {
   grid-template-rows: auto auto; align-items: center; padding: 6px 0;
-  border-bottom: 1px solid var(--rule-2); cursor: pointer;
+  border-bottom: 1px solid var(--rule-2);
 }
 .game:hover { background: color-mix(in srgb, var(--sel) 60%, transparent); }
 .game .when {
@@ -406,7 +406,6 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .vs { white-space: nowrap; }
 .vs .rk { margin-right: 3px; }
 .vs[data-team]:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-.game.unvalued { cursor: default; }
 .game.unvalued:hover { background: none; }
 .side .score { color: var(--ink-2); font-weight: 650; white-space: nowrap; }
 .more {
@@ -444,18 +443,20 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .game.leaning .imp .bar i { background: none; box-shadow: inset 0 0 0 1.5px var(--bar); }
 .game.thin .imp .bar i { background: none; border: 1.5px dashed var(--muted); }
 .game.thin .imp b, .game.leaning .imp b { color: var(--ink-2); }
-.chev {
-  grid-column: 7; grid-row: 1 / span 2; position: relative; justify-self: end;
-  width: 18px; height: 22px; padding: 0; border: 0; background: none;
-  color: var(--muted); cursor: pointer;
+/* The slate's heading folds the whole list away. */
+.fold {
+  display: inline-flex; align-items: baseline; gap: 0 .35em; flex-wrap: wrap;
+  padding: 0; border: 0; background: none; color: inherit; cursor: pointer;
+  font: inherit; text-align: left;
 }
-.chev::before {
-  content: ""; position: absolute; left: 5px; top: 5px; width: 7px; height: 7px;
-  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
-  transform: rotate(45deg); transition: transform .15s ease;
+.fold::after {
+  content: ""; align-self: center; width: 7px; height: 7px; margin: 0 4px 0 6px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s ease;
 }
-.game.open .chev::before { transform: translateY(4px) rotate(-135deg); }
-.game:hover .chev { color: var(--ink); }
+.fold[aria-expanded="true"]::after { transform: translateY(2px) rotate(-135deg); }
+.fold:hover::after { border-color: var(--ink); }
+#rootlist[hidden] { display: none; }
 .key { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 12px 0 0;
        font-size: 12.5px; color: var(--muted); font-stretch: 90%; }
 .key b { font-weight: 780; color: var(--ink); margin-right: 5px; }
@@ -473,6 +474,8 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .dist .col i { display: block; width: 100%; min-height: 1px; background: var(--chart); opacity: .3; }
 .dist .b.hi i { opacity: 1; }
 .dist .b.hi .pv { color: var(--ink); font-weight: 700; }
+.dist .pv small { font-size: inherit; }
+.dist.bare .pv small { display: none; }
 .dist .lb { font-size: 11px; text-align: center; color: var(--muted); margin-top: 4px;
             font-stretch: 80%; font-variant-numeric: tabular-nums; }
 
@@ -802,10 +805,10 @@ body.season .guideonly { display: none; }
   .block { margin-bottom: 24px; }
   h2 { font-size: 16px; }
 
-  .slate { --cols: minmax(0, 1fr) 2.2rem 3.6rem 3.1rem 2.9rem 1rem; font-stretch: 80%; }
+  .slate { --cols: minmax(0, 1fr) 2.2rem 3.6rem 3.1rem 2.9rem; font-stretch: 80%; }
   .slatehead, .game { column-gap: 7px; }
   .slatehead .h-when { display: none; }
-  .slatehead .h-imp { grid-column: 5 / 7; }
+  .slatehead .h-imp { grid-column: 5; }
   .slatehead { font-size: 11px; }
   .slot { top: 0; font-size: 13.5px; }
   .game { padding: 6px 0 5px; }
@@ -817,7 +820,6 @@ body.season .guideonly { display: none; }
   .game.clear .side.root .who b { padding: 1px 4px; }
   .side .who b { font-stretch: 74%; }
   .game .imp { grid-column: 5; }
-  .chev { grid-column: 6; }
   .imp b { min-width: 0; width: 100%; font-size: 15.5px; }
   .imp .bar { display: none; }
   .game .when { grid-column: 1 / -2; grid-row: 3; margin: 1px 0 0 15px; font-size: 12px; }
@@ -855,12 +857,11 @@ body.season .guideonly { display: none; }
 /* Below this the names need the room more than the odds column does; the
    change beside each team says the same thing against the band's number. */
 @media (max-width: 440px) {
-  .slate { --cols: minmax(0, 1fr) 2.2rem 3.1rem 2.9rem 1rem; }
+  .slate { --cols: minmax(0, 1fr) 2.2rem 3.1rem 2.9rem; }
   .slatehead .h-od, .side .od { display: none; }
-  .slatehead .h-imp { grid-column: 4 / 6; }
+  .slatehead .h-imp { grid-column: 4; }
   .game .side { grid-column: 1 / 4; }
   .game .imp { grid-column: 4; }
-  .chev { grid-column: 5; }
 }
 
 @media (prefers-reduced-motion: reduce) {

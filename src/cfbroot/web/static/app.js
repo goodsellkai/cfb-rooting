@@ -682,9 +682,28 @@ async function loadTeam() {
     // is on screen goes to the same place.
     if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
       history.pushState({ team: t.name }, "", `${BASE}team/${t.slug}/`);
+      loadWriteup(t);
     }
     return;
   }
+}
+
+/** The written section under the guide is the team page's own, so a team
+ * picked in place takes its page's text and title with it. */
+async function loadWriteup(t) {
+  let doc;
+  try {
+    const resp = await fetch(`${BASE}team/${t.slug}/`);
+    if (!resp.ok) throw new Error(resp.statusText);
+    doc = new DOMParser().parseFromString(await resp.text(), "text/html");
+  } catch {
+    if (WANTED === t.name) $("writeup").innerHTML = "";   // none beats another team's
+    return;
+  }
+  if (WANTED !== t.name) return;
+  const w = doc.getElementById("writeup");
+  $("writeup").innerHTML = w ? w.innerHTML : "";
+  if (doc.title) document.title = doc.title;
 }
 
 function showProgress(job) {
@@ -842,11 +861,19 @@ function renderDist(elId, dist, labelFn) {
     const b = document.createElement("div");
     b.className = "b" + (dist[i] === max ? " hi" : "");
     b.title = `${labelFn(i)}: ${pct(dist[i])}`;
-    b.innerHTML = `<span class="pv">${num(100 * dist[i])}</span>`
+    b.innerHTML = `<span class="pv">${num(100 * dist[i])}<small>%</small></span>`
       + `<span class="col"><i style="height:${(100 * dist[i] / max).toFixed(2)}%"></i></span>`
       + `<span class="lb">${labelFn(i)}</span>`;
     el.appendChild(b);
   }
+  fitDist(el);
+}
+
+/** A chart says "%" on every bar, or, where one would be cut off, on none. */
+function fitDist(el) {
+  el.classList.remove("bare");
+  const cut = [...el.querySelectorAll(".pv")].some(v => v.scrollWidth > v.clientWidth + 0.5);
+  el.classList.toggle("bare", cut);
 }
 
 /** When a game starts, in the reader's own zone.
@@ -925,31 +952,12 @@ function logo(idx, size) {
 // The slate
 //
 // Every game is one row, and its first line is the answer: the side to root
-// for, over the other one. With 2.5 million seasons most games clear the bar,
-// so a slate runs to dozens of rows. The biggest swings open with both sides'
-// numbers; the rest stay one line until opened.
+// for, with the other side's numbers under it. With 2.5 million seasons most
+// games clear the bar, so a slate runs to dozens of rows; the whole list
+// folds away rather than each game.
 
-const OPENED = new Map();     // a game's key -> opened or closed by hand
-
-function rowKey(g) { return `${g.week}|${gameKey(g)}`; }
-
-/** The games that open by themselves. As many as are worth 40% of the
- * biggest, never fewer than three or more than ten. In impact order they are
- * the top of the list, so the open rows sit together; in kickoff order they
- * are the big ones, wherever they fall. */
-function featured(games) {
-  const gap = (g) => Math.abs(g.swings[METRIC].delta || 0);
-  const live = games.filter(g => !finalOf(g));
-  const top = Math.max(0, ...live.map(gap));
-  const big = live.filter(g => gap(g) >= 0.4 * top).length;
-  const n = Math.min(10, Math.max(3, big));
-  const pick = SORT === "time" ? live.slice().sort((a, b) => gap(b) - gap(a)) : live;
-  return new Set(pick.slice(0, n).map(rowKey));
-}
-
-/** A list of games. ``open`` says which start opened; ``slots`` groups them
- * under their kickoff time. */
-function gameRowsHTML(games, open, slots) {
+/** A list of games. ``slots`` groups them under their kickoff time. */
+function gameRowsHTML(games, slots) {
   const key = METRIC;
   // A list of finished games has nothing to root for: it is results.
   const over = games.length && games.every(g => finalOf(g));
@@ -974,7 +982,7 @@ function gameRowsHTML(games, open, slots) {
         body += `<div class="slot">${esc(label)}</div>`;
       }
     }
-    body += g.unvalued ? resultHTML(g) : gameHTML(g, key, maxAbs, open.has(rowKey(g)));
+    body += g.unvalued ? resultHTML(g) : gameHTML(g, key, maxAbs);
   }
   return `<div class="slate${slots ? " byslot" : ""}">${head}${body}</div>`;
 }
@@ -1006,7 +1014,7 @@ function resultHTML(g) {
 
 /** One game. Before it, the first line is the side to root for; after it,
  * the winner. */
-function gameHTML(g, key, maxAbs, startOpen) {
+function gameHTML(g, key, maxAbs) {
   const s = g.swings[key];
   const done = finalOf(g);
   const base = baseFor(g, key);
@@ -1014,8 +1022,6 @@ function gameHTML(g, key, maxAbs, startOpen) {
   const pHome = g.p_home_win;
   const homeWon = done ? done.home > done.away : null;
   const firstHome = done ? homeWon : s.home;
-  const k = rowKey(g);
-  const open = OPENED.has(k) ? OPENED.get(k) : startOpen;
 
   const side = (isHome, first) => {
     const idx = isHome ? g.home_idx : g.away_idx;
@@ -1052,18 +1058,8 @@ function gameHTML(g, key, maxAbs, startOpen) {
   }
   const opp = `${done ? "beat" : "over"} `
     + vsName(firstHome ? g.away_idx : g.home_idx, firstHome ? g.away : g.home);
-  return `<article class="game ${done ? "played" : conf}${open ? " open" : ""}" data-key="${esc(k)}">
-      ${whenHTML(g, done, opp)}${side(firstHome, true)}${side(!firstHome, false)}${imp}
-      <button type="button" class="chev" aria-expanded="${open}"
-        aria-label="Both sides of ${esc(g.away)} at ${esc(g.home)}"></button></article>`;
-}
-
-/** Open or close a game, and remember it through the next redraw. */
-function toggleGame(row) {
-  const open = !row.classList.contains("open");
-  row.classList.toggle("open", open);
-  row.querySelector(".chev").setAttribute("aria-expanded", String(open));
-  OPENED.set(row.dataset.key, open);
+  return `<article class="game open ${done ? "played" : conf}">
+      ${whenHTML(g, done, opp)}${side(firstHome, true)}${side(!firstHome, false)}${imp}</article>`;
 }
 
 function renderOwnGames() {
@@ -1072,7 +1068,7 @@ function renderOwnGames() {
   if (!games.length) { panel.hidden = true; return; }
   panel.hidden = false;
   $("ownhead").textContent = `${RESULT.team} game${games.length > 1 ? "s" : ""}`;
-  $("owntable").innerHTML = gameRowsHTML(games, new Set(games.map(rowKey)), false);
+  $("owntable").innerHTML = gameRowsHTML(games, false);
 }
 
 const KEY_HTML = `<p class="key">
@@ -1102,7 +1098,7 @@ function renderRootList() {
 
   let body;
   if (shown.length) {
-    body = gameRowsHTML(shown, featured(shown), SORT === "time") + more + KEY_HTML + old;
+    body = gameRowsHTML(shown, SORT === "time") + more + KEY_HTML + old;
   } else if (!slate) {
     body = old || (!$("showplayed").checked && wk !== null && wk < STATE.current_week
       ? `<p class="foot">Week ${wk} is over. Turn on Include played to see its results.</p>`
@@ -1307,12 +1303,6 @@ document.addEventListener("click", (e) => {
     pickTeam(Number(el.dataset.team));
     return;
   }
-  // Anywhere else on a game opens or closes it.
-  const row = e.target.closest(".game[data-key]");
-  if (row && !String(getSelection())) {
-    toggleGame(row);
-    return;
-  }
   // The intro's link to the picker puts the cursor in it.
   if (e.target.closest('a[href="#team"]')) {
     e.preventDefault();
@@ -1343,6 +1333,16 @@ document.querySelector(".brand").addEventListener("click", () => {
   } catch { /* private mode: the saved team comes back, which is all */ }
 });
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
+$("roottoggle").addEventListener("click", () => {
+  const open = $("roottoggle").getAttribute("aria-expanded") !== "true";
+  $("roottoggle").setAttribute("aria-expanded", String(open));
+  $("rootlist").hidden = !open;
+});
+let refit = 0;
+window.addEventListener("resize", () => {
+  cancelAnimationFrame(refit);
+  refit = requestAnimationFrame(() => ["winsdist", "seeddist"].forEach(id => fitDist($(id))));
+});
 for (const id of ["week", "showplayed"]) {
   $(id).addEventListener("change", () => {
     LIMIT = 120;
