@@ -30,6 +30,14 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_republish(args) -> int:
+    from pathlib import Path
+
+    from .web.republish import republish
+    republish(Path(args.out), args.source)
+    return 0
+
+
 def cmd_check(args) -> int:
     from .config import has_api_key
     from .data.cfbd_source import CFBDSource
@@ -209,6 +217,13 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--out", default="site")
     e.add_argument("--sims", type=int, default=2_500_000)
     e.set_defaults(func=cmd_export)
+
+    rp = sub.add_parser("republish",
+                        help="rebuild the pages from the published numbers")
+    rp.add_argument("--out", default="site")
+    rp.add_argument("--source", default="https://cfbroot.com",
+                    help="the live site to read the numbers from")
+    rp.set_defaults(func=cmd_republish)
 
     g = sub.add_parser("guide", help="print a rooting guide in the terminal")
     g.add_argument("--team", required=True)

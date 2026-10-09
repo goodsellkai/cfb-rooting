@@ -94,6 +94,91 @@ def _write(path: Path, obj) -> int:
     return len(data)
 
 
+def load_template(build: str) -> str:
+    """The page shell, with the assets tagged so a browser fetches the new ones.
+
+    A republish passes a fresh stamp even though the numbers have not moved:
+    the stylesheet and script are what changed, and a held copy of either is
+    what a visitor would otherwise keep seeing.
+    """
+    template = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    for name in VERSIONED:
+        template = template.replace(f'/static/{name}"',
+                                    f'/static/{name}?v={build}"')
+    return template
+
+
+def render(template: str, head: str, intro: str, depth: int,
+           team: str | None = None, info: bool = False, writeup: str = "",
+           color: str | None = None, photo: int = 3) -> str:
+    """The app's page, with what a crawler reads written in."""
+    base = "../" * depth
+    boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
+    boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
+    boot += " window.CFBROOT_INFO = true;" if info else ""
+    boot += "</script>\n"
+    # A team page names its team before the script runs.
+    picker = 'placeholder="Pick your team"'
+    if team:
+        picker = f'value="{htmlesc.escape(team)}" {picker}'
+    # The page's tint too, so it does not shift once the script runs.
+    tint = _team_tint(color)
+    root = (f'<html lang="en" class="tinted" style="--team-h:{tint[0]:.1f};'
+            f'--team-c:{tint[1]:.4f}">' if tint else '<html lang="en">')
+    html = (template.replace("<!--HEAD-->", head)
+                    .replace('<html lang="en">', root)
+                    .replace('placeholder="Pick your team"', picker)
+                    .replace('<section id="band" class="band home" data-photo="3">',
+                             '<section id="band" class="band"'
+                             + _band_style(color, photo) + '>')
+                    .replace("<!--WRITEUP-->", writeup)
+                    .replace(INTRO_BLOCK, intro)
+                    .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
+                    .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
+                    .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
+                    .replace('href="/teams/"', f'href="{base}teams/"')
+                    .replace('class="brand" href="/"',
+                             f'class="brand" href="{base or "./"}"')
+                    .replace('href="/static/', f'href="{base}static/')
+                    .replace('src="/static/', f'src="{base}static/'))
+    return html
+
+
+def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
+    """Everything that is not a page and not a number."""
+    (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
+    (out / "llms.txt").write_text(
+        pages.llms_txt(state, teams, n_sims), encoding="utf-8")
+    (out / "sitemap.xml").write_text(pages.sitemap(teams), encoding="utf-8")
+    (out / "_headers").write_text(pages.headers(), encoding="utf-8")
+    shutil.copy(HERE / "static" / "favicon.ico", out / "favicon.ico")
+    (out / "404.html").write_text(
+        render(template, pages.not_found_head(), pages.not_found(), 0),
+        encoding="utf-8")
+
+
+def write_front(out: Path, state, teams, n_sims: int, standing,
+                template: str) -> None:
+    """The home page, the full table and how it works."""
+    (out / "index.html").write_text(
+        render(template, pages.home_head(state, n_sims, standing[:10]),
+               pages.home_body(state, teams, n_sims,
+                               standing[:10], standing[10:18]), 0),
+        encoding="utf-8")
+    everyone = out / "teams"
+    everyone.mkdir(exist_ok=True)
+    (everyone / "index.html").write_text(
+        render(template, pages.teams_head(state),
+               pages.teams_body(state, teams, standing), 1, info=True),
+        encoding="utf-8")
+    how = out / "how-it-works"
+    how.mkdir(exist_ok=True)
+    (how / "index.html").write_text(
+        render(template, pages.how_head(state, n_sims),
+               pages.how_body(state, n_sims), 1, info=True),
+        encoding="utf-8")
+
+
 def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
            log=print) -> None:
     if year:
@@ -136,76 +221,19 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     (out / "data" / "team").mkdir(parents=True)
     shutil.copytree(HERE / "static", out / "static")
 
-    template = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
-    # Tag the assets with the build, so a browser holding last build's copy
-    # of the script or stylesheet fetches the new one.
-    build = str(int(time.time()))
-    for name in VERSIONED:
-        template = template.replace(f'/static/{name}"', f'/static/{name}?v={build}"')
+    template = load_template(str(int(time.time())))
 
-    def page(head: str, intro: str, depth: int, team: str | None = None,
-             info: bool = False, writeup: str = "", color: str | None = None,
-             photo: int = 3) -> str:
-        """The app's page, with what a crawler reads written in."""
-        base = "../" * depth
-        boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
-        boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
-        boot += " window.CFBROOT_INFO = true;" if info else ""
-        boot += "</script>\n"
-        # A team page names its team before the script runs.
-        picker = 'placeholder="Pick your team"'
-        if team:
-            picker = f'value="{htmlesc.escape(team)}" {picker}'
-        # The page's tint too, so it does not shift once the script runs.
-        tint = _team_tint(color)
-        root = (f'<html lang="en" class="tinted" style="--team-h:{tint[0]:.1f};'
-                f'--team-c:{tint[1]:.4f}">' if tint else '<html lang="en">')
-        html = (template.replace("<!--HEAD-->", head)
-                        .replace('<html lang="en">', root)
-                        .replace('placeholder="Pick your team"', picker)
-                        .replace('<section id="band" class="band home" data-photo="3">',
-                                 '<section id="band" class="band"'
-                                 + _band_style(color, photo) + '>')
-                        .replace("<!--WRITEUP-->", writeup)
-                        .replace(INTRO_BLOCK, intro)
-                        .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
-                        .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
-                        .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
-                        .replace('href="/teams/"', f'href="{base}teams/"')
-                        .replace('class="brand" href="/"',
-                                 f'class="brand" href="{base or "./"}"')
-                        .replace('href="/static/', f'href="{base}static/')
-                        .replace('src="/static/', f'src="{base}static/'))
-        return html
+    def page(*a, **k):
+        return render(template, *a, **k)
 
     odds = made / n_sims
-    standing = sorted(zip(store.league.names, odds), key=lambda r: -r[1])
-    (out / "index.html").write_text(
-        page(pages.home_head(state, n_sims, standing[:10]),
-             pages.home_body(state, state.fbs_teams, n_sims,
-                             standing[:10], standing[10:18]), 0),
-        encoding="utf-8")
-    everyone = out / "teams"
-    everyone.mkdir()
-    (everyone / "index.html").write_text(
-        page(pages.teams_head(state),
-             pages.teams_body(state, state.fbs_teams, standing),
-             1, info=True),
-        encoding="utf-8")
-    how = out / "how-it-works"
-    how.mkdir()
-    (how / "index.html").write_text(
-        page(pages.how_head(state, n_sims), pages.how_body(state, n_sims), 1,
-             info=True),
-        encoding="utf-8")
-    (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
-    (out / "llms.txt").write_text(
-        pages.llms_txt(state, state.fbs_teams, n_sims), encoding="utf-8")
-    (out / "sitemap.xml").write_text(pages.sitemap(state.fbs_teams), encoding="utf-8")
-    (out / "_headers").write_text(pages.headers(), encoding="utf-8")
-    shutil.copy(HERE / "static" / "favicon.ico", out / "favicon.ico")
-    (out / "404.html").write_text(
-        page(pages.not_found_head(), pages.not_found(), 0), encoding="utf-8")
+    # Name breaks a tie, so two teams with the same odds do not swap
+    # places between builds, and a republish puts them in that order
+    # too.
+    standing = sorted(zip(store.league.names, odds),
+                      key=lambda r: (-r[1], r[0]))
+    write_front(out, state, state.fbs_teams, n_sims, standing, template)
+    write_meta(out, state, state.fbs_teams, n_sims, template)
 
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS

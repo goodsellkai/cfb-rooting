@@ -18,6 +18,7 @@ pytest tests/test_selection.py -q     # one file
 pytest -q -k tiebreak                 # one pattern
 cfbroot serve                         # local app on 127.0.0.1:8000
 cfbroot export --out site --sims 50000   # a static build, small
+cfbroot republish --out site             # the pages again, numbers as published
 cfbroot guide --team "Texas Tech"     # a rooting guide in the terminal
 cfbroot massey --top 25               # the model's ratings
 cfbroot refresh                       # re-pull scores and ratings into the cache
@@ -93,6 +94,20 @@ section that stays on screen after the app loads and is what crawlers read.
 - **Data files are named for the team, not its index.** Indices only mean
   something within one build, and a page open across a rebuild would ask for a
   file that no longer exists.
+- **A template or stylesheet change does not need a simulation.** `republish.py`
+  reads the live site instead: `data/state.json` carries the season and every
+  finished game, and any team's file carries the whole league's table, which is
+  everything `pages.py` reads. It writes the pages again from current code and
+  copies the numbers through. Twenty seconds against seventy-five minutes, and
+  the `Republish site` workflow is manual only. Two things to respect: it shares
+  the `pages` concurrency group with the full build, because reading the data
+  tree mid-deploy would mix two builds; and published numbers are rounded to six
+  decimals, so a figure on a display boundary can land a hundredth of a point
+  either way of a fresh build. A model change still goes through `export`.
+- **`pages.py` only reads seven things off a season** and eight off a team, which
+  is what makes the republish possible. `tests/test_republish.py` pins that list.
+  Reading something new there means adding it to `republish.Season` too, or the
+  republished page quietly loses a sentence.
 
 ## Conventions
 
