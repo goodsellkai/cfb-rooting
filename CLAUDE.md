@@ -104,6 +104,16 @@ section that stays on screen after the app loads and is what crawlers read.
   tree mid-deploy would mix two builds; and published numbers are rounded to six
   decimals, so a figure on a display boundary can land a hundredth of a point
   either way of a fresh build. A model change still goes through `export`.
+- **Live scores never touch the build.** The browser reads ESPN's scoreboard
+  itself: every fifteen seconds while a game is on, every three minutes
+  otherwise, paused in a hidden tab. `liveOf()` turns ESPN's home and away to
+  match the build's, which can differ at a neutral site. The clock is built
+  from ESPN's period and clock fields, not its summary line. A live game's win
+  chance is the random-walk model of a score (Stern, 1994) on the build's own
+  pregame chance and measured `sigma`, so at kickoff it equals the build's.
+  "Odds with today's scores" moves the build's number by each started game's
+  change in that chance times its swing; it adds games' effects, so it is an
+  estimate, and the next build replaces it.
 - **`pages.py` only reads seven things off a season** and nine off a team, which
   is what makes the republish possible. `tests/test_republish.py` pins that list.
   Reading something new there means adding it to `republish.Season` too, or the
@@ -129,7 +139,6 @@ section that stays on screen after the app loads and is what crawlers read.
   typeface (Archivo, condensed for numbers, normal for prose); and yellow, the
   first-down line, used only for the side to root for and the measure chosen
   (the logo is a yellow ball on the turf green). Each game is one row led by
-  the side to root for; the biggest swings open with both sides, the rest
-  stay one line.
+  the side to root for, with the other side under it marked @ or vs.
   Keep it unless Kai asks for a redesign. Several installed design skills will
   offer to replace it.

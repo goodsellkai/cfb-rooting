@@ -249,10 +249,11 @@ const LIVE = new Map();
 const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/"
   + "college-football/scoreboard?groups=80&limit=400";
 
+const plainName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /** Two teams, in a fixed order, as one string. */
 function gameKey(g) {
-  const name = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  return [name(g.home ?? g.home_name), name(g.away ?? g.away_name)].sort().join("|");
+  return [plainName(g.home ?? g.home_name), plainName(g.away ?? g.away_name)].sort().join("|");
 }
 
 function liveState(ev) {
@@ -263,16 +264,148 @@ function liveState(ev) {
   for (const x of c.competitors || []) side[x.homeAway] = x;
   const home = side.home, away = side.away;
   if (!home || !away || !st) return null;
-  const score = `${away.team.abbreviation} ${away.score}, `
-    + `${home.team.abbreviation} ${home.score}`;
+  const one = (x) => ({
+    id: String(x.team.id || ""),
+    abbr: x.team.abbreviation || "",
+    score: Number(x.score),
+    lines: (x.linescores || []).map(l => Number(l.value)),
+  });
+  const sit = c.situation || {};
+  const tv = c.broadcast || ((c.broadcasts || [])[0] || {}).names?.[0] || "";
   return {
     state: st.state,                       // pre, in or post
-    detail: st.shortDetail || st.detail,   // "Q3 4:12" or a kickoff time
-    score,
+    status: st.name || "",                 // STATUS_IN_PROGRESS, STATUS_HALFTIME...
+    detail: st.shortDetail || st.detail,   // ESPN's own wording, for the odd cases
+    period: Number(c.status.period) || 0,
+    clock: c.status.displayClock || "",
     hp: Number(home.score), ap: Number(away.score),
     home: (home.team.location || ""), away: (away.team.location || ""),
+    h: one(home), a: one(away),
+    poss: sit.possession ? String(sit.possession) : "",
+    down: sit.downDistanceText || sit.shortDownDistanceText || "",
+    redzone: !!sit.isRedZone,
+    last: (sit.lastPlay && sit.lastPlay.text) || "",
+    tv,
   };
 }
+
+/** The scoreboard's entry for a game, turned to match our home and away.
+ * ESPN and the build can disagree about which side is home at a neutral site. */
+function liveOf(g) {
+  const l = LIVE.get(gameKey(g));
+  if (!l) return null;
+  if (plainName(g.home) === plainName(l.home)) return l;
+  return { ...l, hp: l.ap, ap: l.hp, h: l.a, a: l.h, home: l.away, away: l.home };
+}
+
+/** The clock as the broadcast shows it: the quarter and the time left in it,
+ * built from ESPN's own period and clock rather than its summary line. */
+function liveClock(l) {
+  const q = (p) => (p <= 4 ? `Q${p}` : (p === 5 ? "OT" : `${p - 4}OT`));
+  if (l.status === "STATUS_HALFTIME") return "Halftime";
+  if (l.status === "STATUS_END_PERIOD") return `End of ${q(l.period)}`;
+  if (l.status === "STATUS_IN_PROGRESS" && l.period) {
+    return l.period > 4 ? q(l.period) : `${q(l.period)} ${l.clock}`;
+  }
+  return l.detail || "Live";
+}
+
+const isLive = (l) => !!l && l.state === "in";
+
+// Live win chance
+//
+// How likely each side is to win from where the game stands: the margin now,
+// plus the share of the pregame edge still to be played, against the scatter
+// left in the game. That scatter shrinks with the square root of the time
+// left, the random-walk model of a football score (Stern, 1994). Sigma is the
+// one the build measured (python -m cfbroot.spread), so a game at kickoff
+// gets back exactly the build's own chance. Possession and field position
+// are not in it.
+
+/** The normal distribution's CDF (Abramowitz and Stegun 7.1.26). */
+function normCdf(x) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+  const tail = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t
+    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x / 2);
+  return x >= 0 ? 1 - tail / 2 : tail / 2;
+}
+
+/** Its inverse (Acklam's rational approximation). */
+function normInv(p) {
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687,
+             138.3577518672690, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866,
+             66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838,
+             -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996,
+             3.754408661907416];
+  const tail = (q) => (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
+    / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  if (p < 0.02425) return tail(Math.sqrt(-2 * Math.log(p)));
+  if (p > 0.97575) return -tail(Math.sqrt(-2 * Math.log(1 - p)));
+  const q = p - 0.5, r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q
+    / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+/** The share of regulation still to play, 0 at the end. */
+function timeLeft(l) {
+  if (l.state === "post") return 0;
+  if (l.status === "STATUS_HALFTIME") return 0.5;
+  const p = l.period || 1;
+  if (p > 4) return 0.02;            // overtime: a possession or two each
+  const [m, s] = String(l.clock || "0:00").split(":").map(Number);
+  const inQuarter = l.status === "STATUS_END_PERIOD" ? 0 : ((m || 0) * 60 + (s || 0)) / 900;
+  return Math.max(0, Math.min(1, (4 - p + inQuarter) / 4));
+}
+
+/** The home side's chance of winning from here, or null without a sigma. */
+function liveWin(g, l) {
+  const sigma = STATE.params && STATE.params.sigma;
+  if (!sigma || g.p_home_win == null) return null;
+  const margin = l.hp - l.ap;
+  const f = timeLeft(l);
+  if (f <= 0) return margin > 0 ? 1 : margin < 0 ? 0 : 0.5;
+  const edge = sigma * normInv(Math.min(Math.max(g.p_home_win, 1e-4), 1 - 1e-4));
+  return normCdf((margin + edge * f) / (sigma * Math.sqrt(f)));
+}
+
+/** Every game the build left to play that has started since, once each. */
+function startedGames() {
+  const seen = new Set(), out = [];
+  for (const [g, own] of RESULT.own_games.map(g => [g, true])
+         .concat(RESULT.games.map(g => [g, false]))) {
+    const k = gameKey(g);
+    const l = liveOf(g);
+    if (seen.has(k) || !l || l.state === "pre") continue;
+    seen.add(k);
+    out.push({ g, own, l });
+  }
+  return out;
+}
+
+/** Your odds with today's scores. Each started game moves the build's number
+ * by how far its live chance has moved from the pregame one, times what it
+ * is worth to you. Exact for one game; for several it adds their effects,
+ * which holds closely while their results do not lean on each other. */
+function liveOdds() {
+  const key = METRIC;
+  const base = RESULT.headline[key].p;
+  let p = base, n = 0;
+  for (const { g, l } of startedGames()) {
+    const q = liveWin(g, l);
+    if (q == null) continue;
+    const s = g.swings[key];
+    p += (q - g.p_home_win) * (s.p_if_home - s.p_if_away);
+    n++;
+  }
+  return n ? { p: Math.min(1, Math.max(0, p)), base, n } : null;
+}
+
+// The teams whose score changed on the last poll, by plain name, so the
+// scoreboard can mark that score once.
+let SCORED = new Set();
 
 async function refreshLive() {
   try {
@@ -280,22 +413,40 @@ async function refreshLive() {
       { cache: "no-store", signal: AbortSignal.timeout(8000) });
     if (!resp.ok) return;
     const data = await resp.json();
+    const before = new Map(LIVE);
     LIVE.clear();
+    SCORED = new Set();
     for (const ev of data.events || []) {
       const s = liveState(ev);
-      if (s) LIVE.set(gameKey(s), s);
+      if (!s) continue;
+      const k = gameKey(s);
+      LIVE.set(k, s);
+      const was = before.get(k);
+      if (was && was.hp !== s.hp) SCORED.add(plainName(s.home));
+      if (was && was.ap !== s.ap) SCORED.add(plainName(s.away));
     }
   } catch { /* offline, or ESPN is having a day; the page still works */ }
 }
 
-/** Every few minutes while a tab is open, and again when it comes back. */
+/** Every fifteen seconds while a game is on, so the clock on screen is never
+ * far behind the one on TV; every few minutes otherwise. ESPN holds the
+ * scoreboard for two seconds, so asking more often than this buys nothing
+ * a reader would see. Paused while the tab is hidden. */
+const LIVE_EVERY = 15000;
+const IDLE_EVERY = 180000;
+
 function watchLive() {
+  let timer = 0;
   const tick = async () => {
+    clearTimeout(timer);
     await refreshLive();
-    if (RESULT) { renderOwnGames(); renderRootList(); }
+    if (RESULT) renderLive();
+    SCORED = new Set();
+    const busy = [...LIVE.values()].some(isLive);
+    timer = setTimeout(() => { if (!document.hidden) tick(); },
+                       busy ? LIVE_EVERY : IDLE_EVERY);
   };
   tick();
-  setInterval(() => { if (!document.hidden) tick(); }, 180000);
   let away = 0;
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { away = Date.now(); return; }
@@ -517,16 +668,33 @@ function setBand(idx) {
   }
 }
 
-/** Wins and losses so far, overall and in conference. */
+/** Wins and losses so far, overall and in conference. Worked out once for
+ * every team, since a slate asks for over a hundred of them at a time. */
+let RECORDS = null, RECORDS_FROM = null;
+
 function recordOf(idx) {
-  const r = { w: 0, l: 0, cw: 0, cl: 0 };
-  for (const g of STATE.played || []) {
-    if (g.home !== idx && g.away !== idx) continue;
-    const won = (g.home === idx) === (g.home_points > g.away_points);
-    won ? r.w++ : r.l++;
-    if (g.conference && !g.title_game) won ? r.cw++ : r.cl++;
+  if (RECORDS_FROM !== STATE.played) {
+    RECORDS = new Map();
+    RECORDS_FROM = STATE.played;
+    for (const g of STATE.played || []) {
+      for (const me of [g.home, g.away]) {
+        if (!RECORDS.has(me)) RECORDS.set(me, { w: 0, l: 0, cw: 0, cl: 0 });
+        const r = RECORDS.get(me);
+        const won = (g.home === me) === (g.home_points > g.away_points);
+        won ? r.w++ : r.l++;
+        if (g.conference && !g.title_game) won ? r.cw++ : r.cl++;
+      }
+    }
   }
-  return r;
+  return RECORDS.get(idx) || { w: 0, l: 0, cw: 0, cl: 0 };
+}
+
+/** A team's record beside its name. Not for FCS sides: the build only holds
+ * their games against FBS teams, so the count would be wrong. */
+function recTag(idx) {
+  if (!team(idx).fbs) return "";
+  const r = recordOf(idx);
+  return `<span class="rec">${r.w}-${r.l}</span>`;
 }
 
 function renderTeamLine(idx) {
@@ -542,6 +710,8 @@ function renderTeamLine(idx) {
     bits.push(`<span><b>${num(RESULT.expected_wins)}</b> wins expected</span>`);
   }
   $("teamline").innerHTML = bits.join(" &nbsp; ");
+  if (RESULT && RESULT.team === t.name) renderSeasonRow();
+  else $("season").innerHTML = "";
 }
 
 // The road: every measure, in the order a season reaches them
@@ -557,6 +727,12 @@ const PATH = [
   ["reach_title_game", "National title game", "Final"],
   ["win_national_title", "Win national title", "Title"],
 ];
+
+/** A measure's short name, as the bars say it on a phone. */
+function shortLabel(key) {
+  const step = PATH.find(([k]) => k === key);
+  return step ? step[2] : metricLabel(key);
+}
 
 function pathSteps() {
   const conf = team(teamIdx()).conference || "";
@@ -840,6 +1016,7 @@ function render(newTeam) {
   $("seeddist").hidden = inField < 0.002;
   if (inField >= 0.002) renderDist("seeddist", seeds.map((v, i) => (i ? v : 0)), String);
   $("winsnote").textContent = `${num(RESULT.expected_wins)} expected`;
+  renderScoreboard();
   renderOwnGames();
   renderRootList();
   renderLeague();
@@ -907,7 +1084,7 @@ function finalOf(g) {
   if (g.home_points != null && g.away_points != null) {
     return { home: g.home_points, away: g.away_points, fresh: false };
   }
-  const live = LIVE.get(gameKey(g));
+  const live = liveOf(g);
   if (live && live.state === "post" && Number.isFinite(live.hp)) {
     return { home: live.hp, away: live.ap, fresh: true };
   }
@@ -932,12 +1109,12 @@ function kickoffOrder(g) {
  * ``opp`` is the "over Utah" a phone shows here, where it has room. */
 function whenHTML(g, done, opp = "") {
   const tv = g.broadcast ? esc(g.broadcast) : "";
-  const live = LIVE.get(gameKey(g));
+  const live = liveOf(g);
   const o = opp ? `<span class="opp">${opp}</span>` : "";
   if (done) return `<div class="when">${o}<b>Final</b></div>`;
-  if (live && live.state === "in") {
-    return `<div class="when">${o}<b class="live">${esc(live.detail)}</b>`
-      + `<span class="tv">${esc(live.score)}${tv ? ", " + tv : ""}</span></div>`;
+  if (isLive(live)) {
+    return `<div class="when">${o}<b class="live">${esc(liveClock(live))}</b>`
+      + `<span class="tv">${tv}</span></div>`;
   }
   return `<div class="when">${o}<b>${esc(whenText(g, false))}</b><span class="tv">${tv}</span></div>`;
 }
@@ -1005,7 +1182,7 @@ function resultHTML(g) {
   return `<article class="game played unvalued">
       <div class="when"><span class="opp">${opp}</span><b>${label}</b></div>
       <div class="side root won">
-        <span class="nm"><i class="at">${at}</i><span class="who" data-team="${w}">${logo(w, 18)}${pollTag(w)}<b>${esc(homeWon ? g.home : g.away)}</b></span><span class="over">${opp}</span></span>
+        <span class="nm"><i class="at">${at}</i><span class="who" data-team="${w}">${logo(w, 18)}${pollTag(w)}<b>${esc(homeWon ? g.home : g.away)}</b>${recTag(w)}</span><span class="over">${opp}</span></span>
         <span class="num pr score">${score}</span>
       </div>
       <div class="imp"></div>
@@ -1022,6 +1199,7 @@ function gameHTML(g, key, maxAbs) {
   const pHome = g.p_home_win;
   const homeWon = done ? done.home > done.away : null;
   const firstHome = done ? homeWon : s.home;
+  const live = done ? null : liveOf(g);
 
   const side = (isHome, first) => {
     const idx = isHome ? g.home_idx : g.away_idx;
@@ -1029,15 +1207,19 @@ function gameHTML(g, key, maxAbs) {
     const d = p - base;
     const cls = !first ? "side other" + (done ? " lost" : "")
       : done ? "side root won" : "side root";
-    const at = isHome ? (g.neutral ? "vs" : "@") : "";
+    // The two lines read as one fixture, "Kansas @ Utah" or "Utah vs
+    // Kansas", so only the second line says where.
+    const at = first ? "" : (isHome && !g.neutral ? "@" : "vs");
     const otherIdx = isHome ? g.away_idx : g.home_idx;
     const over = first ? `<span class="over">${done ? "beat" : "over"} `
       + `${vsName(otherIdx, isHome ? g.away : g.home)}</span>` : "";
     const lead = done
       ? `<span class="num pr" title="Final score">${isHome ? done.home : done.away}</span>`
-      : `<span class="num pr">${pct(isHome ? pHome : 1 - pHome, 0)}</span>`;
+      : isLive(live)
+        ? `<span class="num pr now" title="Score now">${isHome ? live.hp : live.ap}</span>`
+        : `<span class="num pr">${pct(isHome ? pHome : 1 - pHome, 0)}</span>`;
     return `<div class="${cls}">
-      <span class="nm"><i class="at">${at}</i><span class="who" data-team="${idx}">${logo(idx, 18)}${pollTag(idx)}<b>${esc(isHome ? g.home : g.away)}</b></span>${over}</span>
+      <span class="nm"><i class="at">${at}</i><span class="who" data-team="${idx}">${logo(idx, 18)}${pollTag(idx)}<b>${esc(isHome ? g.home : g.away)}</b>${recTag(idx)}</span>${over}</span>
       ${lead}
       <span class="num od">${pct(p)}</span>
       <span class="num dd ${dirOf(d)}">${signed(d)}</span>
@@ -1069,6 +1251,170 @@ function renderOwnGames() {
   panel.hidden = false;
   $("ownhead").textContent = `${RESULT.team} game${games.length > 1 ? "s" : ""}`;
   $("owntable").innerHTML = gameRowsHTML(games, false);
+}
+
+// Live now
+//
+// While games are on, a scoreboard for this team. The games that move its
+// odds get a full tile: the score by quarter, the clock, who has the ball,
+// each side's chance of winning from here and where your odds go if it does.
+// Your team's game leads, then the rest by how much they matter. Every other
+// game today is one line in a ticker underneath, so the board is complete
+// without burying the few that count. The head carries the number a fan is
+// watching for: your odds with the scores as they stand.
+
+const periodName = (p) => (p <= 4 ? String(p) : (p === 5 ? "OT" : `${p - 4}OT`));
+
+function liveGames() {
+  const gap = (x) => Math.abs(x.g.swings[METRIC].delta || 0);
+  const order = (a, b) => (b.own - a.own) || (gap(b) - gap(a));
+  const started = startedGames();
+  const on = started.filter(x => isLive(x.l)).sort(order);
+  const big = on.filter(x => x.own || sigOf(x.g.swings[METRIC]));
+  // Games over since the build: those that matter first, then the rest.
+  const over = started.filter(x => !isLive(x.l))
+    .sort((a, b) => (sigOf(b.g.swings[METRIC]) - sigOf(a.g.swings[METRIC])) || order(a, b));
+  return { big, rest: on.filter(x => !big.includes(x)).concat(over), live: on.length };
+}
+
+function scoreTileHTML({ g, own, l }) {
+  const key = METRIC;
+  const s = g.swings[key];
+  const base = baseFor(g, key);
+  const q = liveWin(g, l);
+  const periods = Math.max(4, l.period, l.h.lines.length, l.a.lines.length);
+  const nums = Array.from({ length: periods }, (_, i) => i);
+  const row = (isHome) => {
+    const idx = isHome ? g.home_idx : g.away_idx;
+    const side = isHome ? l.h : l.a;
+    const score = isHome ? l.hp : l.ap;
+    const ahead = score > (isHome ? l.ap : l.hp);
+    const ball = l.poss && l.poss === side.id
+      ? '<i class="ball" title="Has the ball"></i>' : "";
+    // A quarter not reached yet stays blank rather than reading as a zero.
+    const cells = nums.map(i => `<span>${i < side.lines.length
+      && Number.isFinite(side.lines[i]) ? side.lines[i] : ""}</span>`).join("");
+    // Your odds if this side wins. The side ahead is in bold: that is where
+    // your odds go if the score holds.
+    const p = isHome ? s.p_if_home : s.p_if_away;
+    const win = q == null ? "" : pct(isHome ? q : 1 - q, 0);
+    return `<div class="sb-row${isHome === s.home ? " root" : ""}${ahead ? " ahead" : ""}">
+        <span class="sb-team"><span class="who" data-team="${idx}">${logo(idx, 20)}${pollTag(idx)}<b><span class="nm-full">${esc(isHome ? g.home : g.away)}</span><span class="nm-abbr">${esc(team(idx).abbr || (isHome ? g.home : g.away))}</span></b>${recTag(idx)}</span>${ball}</span>
+        ${cells}<span class="sb-tot${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</span>
+        <span class="sb-win">${win}</span>
+        <span class="sb-odds ${dirOf(p - base)}" title="${esc(metricLabel(key))} if ${esc(isHome ? g.home : g.away)} wins: ${pct(p)}, ${signed(p - base)}">${pct(p)}</span></div>`;
+  };
+  const sit = [l.down, l.redzone ? "red zone" : ""].filter(Boolean).join(", ");
+  const tv = g.broadcast || l.tv || "";
+  return `<article class="sbt ${confidenceOf(s)}${own ? " own" : ""}">
+      <div class="sb-top"><b class="live">${esc(liveClock(l))}</b>
+        ${tv ? `<span class="muted">${esc(tv)}</span>` : ""}
+        ${own ? '<span class="sb-tag">Your game</span>' : ""}</div>
+      <div class="sb-grid" style="--n:${periods}">
+        <div class="sb-row sb-head" aria-hidden="true"><span></span>${nums.map(i =>
+          `<span>${periodName(i + 1)}</span>`).join("")}<span>T</span>
+          <span class="sb-win" title="Chance to win from here">Win</span>
+          <span class="sb-odds" title="${esc(metricLabel(key))}, if that side wins">${esc(shortLabel(key))}</span></div>
+        ${row(false)}${row(true)}
+      </div>
+      ${sit ? `<p class="sb-sit">${esc(sit)}</p>` : ""}
+      ${l.last ? `<p class="sb-last" title="${esc(l.last)}">${esc(l.last)}</p>` : ""}
+    </article>`;
+}
+
+/** The rest of today's games, one line each: the clock and the two scores. */
+function tickerHTML(list) {
+  return `<div class="tick">${list.map(({ g, l }) => {
+    const side = (isHome) => {
+      const idx = isHome ? g.home_idx : g.away_idx;
+      const t = team(idx);
+      const score = isHome ? l.hp : l.ap;
+      const ahead = score > (isHome ? l.ap : l.hp);
+      return `<span class="tk-side${ahead ? " ahead" : ""}"><span class="who" data-team="${idx}">${logo(idx, 16)}<span class="tk-n">${esc(t.abbr || t.name)}</span></span><b class="tk-s${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</b></span>`;
+    };
+    return `<div class="tk${isLive(l) ? "" : " over"}"><span class="tk-clock">${esc(liveClock(l))}</span>${side(false)}${side(true)}</div>`;
+  }).join("")}</div>`;
+}
+
+function renderScoreboard() {
+  const { big, rest, live } = liveGames();
+  const any = big.length + rest.length;
+  $("liveblock").hidden = !any;
+  if (!any) return;
+  $("livetitle").textContent = live ? "Live now" : "Today's results";
+  $("liveblock").classList.toggle("on", !!live);
+  const odds = liveOdds();
+  $("livecount").innerHTML = odds
+    ? `<span class="lv-k">${esc(shortLabel(METRIC))} odds with today's scores</span>
+       <b class="lv-p">${pct(odds.p)}</b>
+       <span class="lv-d ${dirOf(odds.p - odds.base)}">${signed(odds.p - odds.base)}</span>` : "";
+  $("livecount").title = `Your odds as the build had them, moved by how each game since `
+    + `has gone. Scores from ESPN, every ${LIVE_EVERY / 1000} seconds while a game is on.`;
+  $("livelist").innerHTML =
+    (big.length ? `<div class="sb">${big.map(scoreTileHTML).join("")}</div>` : "")
+    + (rest.length ? `<p class="tickhead">${big.length ? "Other games today" : "Today's games"}</p>${tickerHTML(rest)}` : "");
+}
+
+// The season, as one row of opponent logos under the record: a W or an L
+// under each game played, the games to come a little faded, the week on the
+// slate ringed. Scores and kickoffs are in the hover text; a game to come
+// puts its week on the slate when clicked.
+
+function scheduleRows() {
+  const me = teamIdx();
+  const rows = (STATE.played || [])
+    .filter(g => g.home === me || g.away === me)
+    .map(g => ({ week: g.week, home_idx: g.home, away_idx: g.away, neutral: g.neutral,
+                 hp: g.home_points, ap: g.away_points, title_game: g.title_game }));
+  for (const g of RESULT.own_games) {
+    const done = finalOf(g);
+    rows.push(done ? { ...g, hp: done.home, ap: done.away } : g);
+  }
+  return rows.sort((a, b) => a.week - b.week || kickoffOrder(a) - kickoffOrder(b));
+}
+
+function seasonHTML(rows) {
+  const me = teamIdx();
+  const wk = selectedWeek();
+  const weeks = new Set([...$("week").options].map(o => o.value));
+  let last = null;
+  return rows.map(g => {
+    // A bye is a wider gap, so the weeks still read in order.
+    const bye = !g.title_game && last != null && g.week > last + 1;
+    if (!g.title_game) last = g.week;
+    const home = g.home_idx === me;
+    const opp = home ? g.away_idx : g.home_idx;
+    const name = team(opp).name;
+    const where = home || g.neutral ? "vs" : "at";
+    const label = g.title_game ? "Title game" : `Week ${g.week}`;
+    const cls = `sz${bye ? " afterbye" : ""}${g.week === wk && g.hp == null ? " on" : ""}`;
+    if (g.hp != null) {
+      const us = home ? g.hp : g.ap, them = home ? g.ap : g.hp;
+      const won = us > them;
+      return `<span class="${cls} past" title="${esc(`${label} ${where} ${name}: ${won ? "W" : "L"} ${us}-${them}`)}">
+        <span class="sz-logo">${logo(opp, 16)}</span><b class="${won ? "w" : "l"}">${won ? "W" : "L"}</b></span>`;
+    }
+    const chance = home ? g.p_home_win : 1 - g.p_home_win;
+    const tip = `${label} ${where} ${name}, ${whenText(g, false) || "time not set"}. ${pct(chance, 0)} to win.`;
+    const pick = weeks.has(String(g.week));
+    const tag = pick ? `button type="button" data-week="${g.week}"` : "span";
+    return `<${tag} class="${cls}" title="${esc(tip)}"><span class="sz-logo">${logo(opp, 16)}</span><b></b></${pick ? "button" : "span"}>`;
+  }).join("");
+}
+
+function renderSeasonRow() {
+  const el = $("season");
+  const t = team(teamIdx());
+  if (!RESULT || !t.name) { el.innerHTML = ""; return; }
+  el.innerHTML = seasonHTML(scheduleRows());
+}
+
+/** What the scoreboard touches, redrawn on each poll. */
+function renderLive() {
+  renderScoreboard();
+  renderOwnGames();
+  renderRootList();
+  renderSeasonRow();
 }
 
 const KEY_HTML = `<p class="key">
@@ -1206,7 +1552,7 @@ function teamResults(idx, inSeason) {
     .map(g => ({ ...g, label: g.title_game ? "Title" : `Wk ${g.week}` }));
 }
 
-function tipHTML(idx, games, inSeason) {
+function tipHTML(idx, games, inSeason, tap = false) {
   const t = team(idx);
   let w = 0, l = 0;
   const next = teamUpcoming(idx, inSeason).slice(0, 6).map(g => {
@@ -1240,16 +1586,68 @@ function tipHTML(idx, games, inSeason) {
   // season, where this week's ranking puts it.
   const r = cardRank(idx, inSeason);
   const ranked = r ? `#${r}` : "";
-  const pick = STATE.teams.some(x => x.idx === idx) ? "Click to make this your team" : "";
-  return `<div class="tiphead">${logo(idx, 26)}<div>
+  const pickable = STATE.teams.some(x => x.idx === idx);
+  // A mouse clicks the name itself; a tap has already been spent opening
+  // this card, so the card carries the way through.
+  const foot = !pickable ? ""
+    : !tap ? `<p class="tipfoot">Click to make this your team</p>`
+    : idx === teamIdx() && $("seasonview").hidden ? ""
+    : `<button type="button" class="tipgo" data-go="${idx}">Go to ${esc(t.name)}'s page</button>`;
+  // The team's own odds on the measure you are looking at, from the league
+  // table every guide carries. Not in a simulated season, where they would
+  // be the real season's.
+  const lg = !inSeason && RESULT ? RESULT.league.find(r => r.idx === idx) : null;
+  const odds = lg && lg.p[METRIC] != null
+    ? `<div class="tipodds" title="${esc(metricLabel(METRIC))}"><b>${pct(lg.p[METRIC])}</b>
+        <span>${esc(shortLabel(METRIC))}</span></div>` : "";
+  return `<div class="tiphead">${logo(idx, 26)}<div class="tipwho">
       <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span>
         ${ranked ? `<span class="tiprank">${ranked}</span>` : ""}</div>
-      <div class="tipsub">${esc(t.conference || "Independent")}${rating}</div></div></div>
+      <div class="tipsub">${esc(t.conference || "Independent")}${rating}</div></div>${odds}</div>
     ${rows ? `<table class="tiptable"><tbody>${rows}</tbody></table>`
            : '<p class="tipnone">No games played yet.</p>'}
     ${next ? `<p class="tiphead2">Still to play</p>
       <table class="tiptable next"><tbody>${next}</tbody></table>` : ""}
-    ${pick ? `<p class="tipfoot">${pick}</p>` : ""}`;
+    ${foot}`;
+}
+
+/** Fill the card for a team and show it. ``tap`` is a touch screen's: the
+ * card can be tapped, and sits by the name instead of the pointer. */
+let TIP_Y = 0;
+
+function showTip(el, idx, tap) {
+  TIP_TEAM = idx;
+  TIP_Y = scrollY;
+  const tip = $("teamtip");
+  const inSeason = !!el.closest("#seasonview");
+  tip.innerHTML = tipHTML(idx, teamResults(idx, inSeason), inSeason, tap);
+  tip.classList.toggle("tap", tap);
+  if (!tap) tip.classList.remove("sheet");
+  tip.style.maxHeight = "";
+  tip.hidden = false;
+  if (tap) placeTipBy(el);
+}
+
+/** Below the tapped name, or above it if there is more room there, and never
+ * over it: the card scrolls inside itself rather than cover what was tapped. */
+function placeTipBy(el) {
+  const tip = $("teamtip");
+  // On a phone the card is a sheet along the bottom edge, where the button
+  // sits under a thumb; CSS places it.
+  const sheet = matchMedia("(max-width: 640px)").matches;
+  tip.classList.toggle("sheet", sheet);
+  if (sheet) {
+    tip.style.left = tip.style.top = tip.style.maxHeight = "";
+    return;
+  }
+  const a = el.getBoundingClientRect();
+  const below = innerHeight - a.bottom - 16, above = a.top - 16;
+  tip.style.maxHeight = Math.max(160, Math.max(below, above)) + "px";
+  const r = tip.getBoundingClientRect();
+  const y = r.height <= below || below >= above ? a.bottom + 8 : a.top - r.height - 8;
+  const x = Math.min(Math.max(8, a.left), Math.max(8, innerWidth - r.width - 8));
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
 }
 
 function placeTip(e) {
@@ -1277,32 +1675,56 @@ function pickTeam(idx) {
   if ($("seasonview").hidden) window.scrollTo({ top: 0 });
 }
 
+// A touch screen has no hover, and a tap also fires the mouse events a hover
+// listens for, so the last pointer down decides which behaviour applies.
+let POINTER = "mouse";
+document.addEventListener("pointerdown", (e) => { POINTER = e.pointerType; }, true);
+const touched = () => POINTER === "touch";
+
 document.addEventListener("mouseover", (e) => {
   const el = e.target.closest("[data-team]");
-  if (!el || !STATE) return;
+  if (!el || !STATE || touched()) return;
   const idx = Number(el.dataset.team);
   if (idx === TIP_TEAM && !$("teamtip").hidden) return;
-  TIP_TEAM = idx;
-  const tip = $("teamtip");
-  const inSeason = !!el.closest("#seasonview");
-  tip.innerHTML = tipHTML(idx, teamResults(idx, inSeason), inSeason);
-  tip.hidden = false;
+  showTip(el, idx, false);
   placeTip(e);
 });
 document.addEventListener("mousemove", (e) => {
+  if (touched()) return;
   if (!$("teamtip").hidden && e.target.closest("[data-team]")) placeTip(e);
 });
 document.addEventListener("mouseout", (e) => {
+  if (touched()) return;
   const el = e.target.closest("[data-team]");
   if (el && !(e.relatedTarget && el.contains(e.relatedTarget))) hideTip();
 });
+// Scrolling away closes a tapped card, but not the last few pixels of the
+// flick that was still settling when the name was tapped.
+window.addEventListener("scroll", () => {
+  if (touched() && !$("teamtip").hidden && Math.abs(scrollY - TIP_Y) > 40) hideTip();
+}, { passive: true });
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-team]");
-  if (el && STATE) {
+  const go = e.target.closest(".tipgo");
+  if (go) {
     hideTip();
-    pickTeam(Number(el.dataset.team));
+    pickTeam(Number(go.dataset.go));
     return;
   }
+  if (e.target.closest("#teamtip")) return;
+  const el = e.target.closest("[data-team]");
+  if (el && STATE) {
+    const idx = Number(el.dataset.team);
+    if (touched()) {
+      // A second tap on the same name closes its card.
+      if (idx === TIP_TEAM && !$("teamtip").hidden) hideTip();
+      else showTip(el, idx, true);
+      return;
+    }
+    hideTip();
+    pickTeam(idx);
+    return;
+  }
+  if (touched()) hideTip();
   // The intro's link to the picker puts the cursor in it.
   if (e.target.closest('a[href="#team"]')) {
     e.preventDefault();
@@ -1333,11 +1755,20 @@ document.querySelector(".brand").addEventListener("click", () => {
   } catch { /* private mode: the saved team comes back, which is all */ }
 });
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
-$("roottoggle").addEventListener("click", () => {
-  const open = $("roottoggle").getAttribute("aria-expanded") !== "true";
-  $("roottoggle").setAttribute("aria-expanded", String(open));
-  $("rootlist").hidden = !open;
+$("season").addEventListener("click", (e) => {
+  const chip = e.target.closest("button.sz[data-week]");
+  if (!chip || !RESULT) return;
+  const sel = $("week");
+  if (sel.value === chip.dataset.week) return;
+  sel.value = chip.dataset.week;
+  sel.dispatchEvent(new Event("change"));
 });
+// A block's heading folds its body away: the scoreboard and the slate.
+document.querySelectorAll("button.fold").forEach(b => b.addEventListener("click", () => {
+  const open = b.getAttribute("aria-expanded") !== "true";
+  b.setAttribute("aria-expanded", String(open));
+  $(b.getAttribute("aria-controls")).hidden = !open;
+}));
 let refit = 0;
 window.addEventListener("resize", () => {
   cancelAnimationFrame(refit);

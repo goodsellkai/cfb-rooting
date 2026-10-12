@@ -45,6 +45,7 @@
           <ul id="teammenu" class="menu" role="listbox" hidden></ul>
         </div>
         <p id="teamline" class="teamline"></p>
+        <div id="season" class="season" aria-label="Season"></div>
       </div>
     </div>
     <div id="path" class="path guideonly" role="group" aria-label="Measure success by"></div>
@@ -89,6 +90,14 @@
 
   <div id="results" class="guide" hidden>
     <div class="maincol">
+      <section id="liveblock" class="block liveblock" hidden>
+        <div class="blockhead">
+          <h2><button id="livetoggle" class="fold" type="button" aria-expanded="true"
+                      aria-controls="livelist"><span class="livedot" aria-hidden="true"></span><span id="livetitle">Live now</span></button></h2>
+          <span id="livecount" class="muted"></span>
+        </div>
+        <div id="livelist"></div>
+      </section>
       <section id="owngames" class="block" hidden>
         <div class="blockhead"><h2 id="ownhead">Your team's games</h2></div>
         <div id="owntable"></div>
