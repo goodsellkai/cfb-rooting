@@ -1387,18 +1387,26 @@ function seasonHTML(rows) {
     const name = team(opp).name;
     const where = home || g.neutral ? "vs" : "at";
     const label = g.title_game ? "Title game" : `Week ${g.week}`;
-    const cls = `sz${bye ? " afterbye" : ""}${g.week === wk && g.hp == null ? " on" : ""}`;
-    if (g.hp != null) {
+    const past = g.hp != null;
+    let said, mark = "";
+    if (past) {
       const us = home ? g.hp : g.ap, them = home ? g.ap : g.hp;
       const won = us > them;
-      return `<span class="${cls} past" title="${esc(`${label} ${where} ${name}: ${won ? "W" : "L"} ${us}-${them}`)}">
-        <span class="sz-logo">${logo(opp, 16)}</span><b class="${won ? "w" : "l"}">${won ? "W" : "L"}</b></span>`;
+      said = `${label} ${where} ${name}: ${won ? "won" : "lost"} ${us}-${them}`;
+      mark = `<b class="${won ? "w" : "l"}">${won ? "W" : "L"}</b>`;
+    } else {
+      said = `${label} ${where} ${name}, ${whenText(g, false) || "time not set"}`;
+      mark = "<b></b>";
     }
-    const chance = home ? g.p_home_win : 1 - g.p_home_win;
-    const tip = `${label} ${where} ${name}, ${whenText(g, false) || "time not set"}. ${pct(chance, 0)} to win.`;
-    const pick = weeks.has(String(g.week));
-    const tag = pick ? `button type="button" data-week="${g.week}"` : "span";
-    return `<${tag} class="${cls}" title="${esc(tip)}"><span class="sz-logo">${logo(opp, 16)}</span><b></b></${pick ? "button" : "span"}>`;
+    const pick = !g.title_game && weeks.has(String(g.week));
+    const cls = `sz${past ? " past" : ""}${bye ? " afterbye" : ""}${pick && g.week === wk ? " on" : ""}`;
+    // The logo carries the team, so hovering it opens that team's card; the
+    // chip around it carries the week, so clicking it puts that week on the
+    // slate.
+    const inner = `<span class="sz-logo" data-team="${opp}">${logo(opp, 16)}</span>${mark}`;
+    return pick
+      ? `<button type="button" class="${cls}" data-week="${g.week}"${past ? ' data-past="1"' : ""} aria-label="${esc(said)}">${inner}</button>`
+      : `<span class="${cls}" aria-label="${esc(said)}">${inner}</span>`;
   }).join("");
 }
 
@@ -1624,6 +1632,12 @@ function showTip(el, idx, tap) {
   tip.classList.toggle("tap", tap);
   if (!tap) tip.classList.remove("sheet");
   tip.style.maxHeight = "";
+  const chip = el.closest("#season .sz[data-week]");
+  if (chip) {
+    const foot = tip.querySelector(".tipfoot") || tip.appendChild(document.createElement("p"));
+    foot.className = "tipfoot";
+    foot.textContent = `Click to see week ${chip.dataset.week}`;
+  }
   tip.hidden = false;
   if (tap) placeTipBy(el);
 }
@@ -1710,7 +1724,7 @@ document.addEventListener("click", (e) => {
     pickTeam(Number(go.dataset.go));
     return;
   }
-  if (e.target.closest("#teamtip")) return;
+  if (e.target.closest("#teamtip") || e.target.closest("#season")) return;
   const el = e.target.closest("[data-team]");
   if (el && STATE) {
     const idx = Number(el.dataset.team);
@@ -1755,14 +1769,32 @@ document.querySelector(".brand").addEventListener("click", () => {
   } catch { /* private mode: the saved team comes back, which is all */ }
 });
 $("rootsearch").addEventListener("input", () => { if (RESULT) renderRootList(); });
+// A week already played only has results to show, so going to one turns on
+// Include played; going back to a week to come turns it off again, if this
+// was what turned it on.
+let PLAYED_FOR_WEEK = false;
+
 $("season").addEventListener("click", (e) => {
   const chip = e.target.closest("button.sz[data-week]");
   if (!chip || !RESULT) return;
-  const sel = $("week");
-  if (sel.value === chip.dataset.week) return;
+  // The redraw below replaces the row, so by the time this click reached the
+  // page's own handler the logo would be out of the page and read as a click
+  // on a team. The click is the week's; it stops here.
+  e.stopPropagation();
+  hideTip();
+  const sel = $("week"), played = $("showplayed");
+  if (chip.dataset.past && !played.checked) {
+    played.checked = true;
+    PLAYED_FOR_WEEK = true;
+  } else if (!chip.dataset.past && PLAYED_FOR_WEEK) {
+    played.checked = false;
+    PLAYED_FOR_WEEK = false;
+  }
   sel.value = chip.dataset.week;
   sel.dispatchEvent(new Event("change"));
 });
+// Turning Include played on or off by hand makes it the reader's choice.
+$("showplayed").addEventListener("change", () => { PLAYED_FOR_WEEK = false; });
 // A block's heading folds its body away: the scoreboard and the slate.
 document.querySelectorAll("button.fold").forEach(b => b.addEventListener("click", () => {
   const open = b.getAttribute("aria-expanded") !== "true";
