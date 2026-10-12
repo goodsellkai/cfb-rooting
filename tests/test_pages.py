@@ -72,14 +72,14 @@ def test_a_team_page_carries_its_structured_data(season, payload):
     assert 'name="robots"' in head
 
 
-def test_a_team_page_lists_the_games_it_has_left(season, payload):
+def test_a_team_page_marks_up_no_events(season, payload):
+    """Google reads a SportsEvent as an event to attend and flags each one
+    without a venue, which the build does not keep."""
     team = season.fbs_teams[0]
     head = pages.team_head(season, team, payload, season.current_week())
+    assert "SportsEvent" not in head
     page = next(b for b in blocks(head) if b["@type"] == "WebPage")
-    events = page["about"]["event"]
-    assert len(events) == len(payload["own_games"])
-    for ev in events:
-        assert team.school in (ev["homeTeam"]["name"], ev["awayTeam"]["name"])
+    assert page["about"]["@type"] == "SportsTeam"
 
 
 def test_a_card_replaces_the_header_photo(season, payload):

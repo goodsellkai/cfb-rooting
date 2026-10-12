@@ -217,16 +217,13 @@ def team_head(state, team, payload, week, card=None):
     crumbs = _crumbs([(SITE_NAME, SITE_URL + "/"),
                       ("Teams", SITE_URL + "/teams/"),
                       (team.school, url)])
-    fbs = {t.school for t in state.fbs_teams}
     about = {"@type": "SportsTeam", "name": team.school,
              "sport": "American football", "url": url}
     if team.conference and "independent" not in team.conference.lower():
         about["memberOf"] = {"@type": "SportsOrganization",
                              "name": team.conference}
-    events = [_event(g, fbs) for g in sorted(payload["own_games"],
-                                             key=lambda g: g["week"])]
-    if events:
-        about["event"] = events
+    # No games as events: Google reads those as events to attend and wants a
+    # venue for each, which the build does not keep.
     page = _page_ld(title, desc, url)
     page["about"] = about
     # The writeup is an article that is rewritten every build, so it says
@@ -241,26 +238,6 @@ def team_head(state, team, payload, week, card=None):
     story = card_story(state, team, payload, week)
     return _head(title, desc, url, card=card, card_alt=story["alt"],
                  ld=[page, article, crumbs, faq])
-
-
-def _event(g, fbs):
-    """One of a team's games still to play, as a scheduled sports event."""
-    def side(name):
-        out = {"@type": "SportsTeam", "name": name}
-        if name in fbs:
-            out["url"] = f"{SITE_URL}/team/{slug(name)}/"
-        return out
-    ev = {"@type": "SportsEvent",
-          "name": f"{g['away']} {'vs' if g.get('neutral') else 'at'} {g['home']}",
-          "sport": "American football",
-          "homeTeam": side(g["home"]), "awayTeam": side(g["away"]),
-          "eventStatus": "https://schema.org/EventScheduled"}
-    start = g.get("start_date")
-    if start:
-        # A kickoff time not yet set is stored as midnight; the day is all
-        # that is known.
-        ev["startDate"] = start if g.get("time_set", True) else start[:10]
-    return ev
 
 
 def card_story(state, team, payload, week):
