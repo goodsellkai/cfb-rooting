@@ -88,6 +88,11 @@ jobs:
           CFBROOT_SITE_URL: ${{ vars.SITE_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # A private repository that keeps each game's last pregame chance
+          # and its result, for checking the model. Nothing on the site reads
+          # it. Without the token the build skips it.
+          TRACK_TOKEN: ${{ secrets.TRACK_TOKEN }}
+          TRACK_REPO: ${{ vars.TRACK_REPO || 'goodsellkai/cfbroot-tracking' }}
           ASKED_FOR: ${{ github.event.inputs.minutes }}
         run: |
           budget="${ASKED_FOR:-0}"
@@ -102,6 +107,16 @@ jobs:
           if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
             npm install -g wrangler@3 >/dev/null
           fi
+          track=""
+          if [ -n "$TRACK_TOKEN" ]; then
+            if git clone -q "https://x-access-token:${TRACK_TOKEN}@github.com/${TRACK_REPO}.git" track; then
+              git -C track config user.name "cfbroot build"
+              git -C track config user.email "actions@users.noreply.github.com"
+              track=track
+            else
+              echo "tracking repository not reachable; not tracking this run"
+            fi
+          fi
           start=$(date +%s); n=0; wait=60
           while :; do
             n=$((n + 1))
@@ -109,6 +124,14 @@ jobs:
             if cfbroot export --out site; then
               if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
                 wrangler pages deploy site --project-name=cfbroot --branch=main
+              fi
+              # Never a reason to fail the build: the site is already out.
+              if [ -n "$track" ]; then
+                python -m cfbroot.track record site track && (
+                  cd track && git add -A
+                  git diff --cached --quiet || git commit -q -m "Build $(date -u +%Y-%m-%dT%H:%MZ)"
+                  git push -q origin HEAD:main
+                ) || echo "tracking did not save this build; carrying on"
               fi
               wait=60
             else
