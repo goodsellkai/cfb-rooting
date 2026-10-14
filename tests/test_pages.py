@@ -210,3 +210,56 @@ def test_csp_lets_the_analytics_beacon_through():
                if "Content-Security-Policy" in line)
     assert "https://static.cloudflareinsights.com" in csp
     assert "https://cloudflareinsights.com" in csp
+
+
+def _stakes_guide(game_rows):
+    """A guide cut down to what Stakes reads."""
+    return {"games": [{"week": w, "home": h, "away": a, "neutral": False,
+                       "start_date": "2026-10-17T19:30Z", "time_set": True,
+                       "broadcast": "FOX",
+                       "swings": {"make_playoff": {"p_if_home": ph, "p_if_away": pa}}}
+                      for w, h, a, ph, pa in game_rows],
+            "own_games": []}
+
+
+def test_stakes_count_the_playoff_places_that_change_hands():
+    """Half the sum of every team's swing: the field is a fixed size, so what
+    one result gives some teams it takes from others."""
+    s = pages.Stakes()
+    s.add("Alpha", _stakes_guide([(7, "Beta", "Gamma", 0.70, 0.30),
+                                  (7, "Delta", "Echo", 0.52, 0.50)]))
+    s.add("Zeta", _stakes_guide([(7, "Beta", "Gamma", 0.10, 0.50),
+                                 (7, "Delta", "Echo", 0.49, 0.51)]))
+    rows = s.week(7)
+    assert [r["game"]["home"] for r in rows] == ["Beta", "Delta"]
+    assert abs(rows[0]["spots"] - 0.40) < 1e-9          # (0.40 + 0.40) / 2
+    assert rows[0]["teams"][0][0] in ("Alpha", "Zeta")
+    assert s.week(8) == []
+
+
+def test_the_week_page_ranks_the_games_and_links_the_teams(season, payload):
+    s = pages.Stakes()
+    for t in season.fbs_teams[:3]:
+        s.add(t.school, payload)
+    week = season.default_week() or season.current_week()
+    rows = s.week(week)
+    body = pages.this_week_body(season, 2_500_000, s)
+    head = pages.this_week_head(season, 2_500_000)
+    assert f"week {week}" in body
+    assert f"<title>Week {week} college football games" in head
+    if rows:
+        assert body.count("<li>") == len(rows)
+        assert 'href="../team/' in body
+        home = pages.home_body(season, season.fbs_teams, 2_500_000, stakes=s)
+        assert 'href="this-week/"' in home
+        assert home.count('class="stake"') == min(5, len(rows))
+    assert "/this-week/" in pages.sitemap(season.fbs_teams)
+
+
+def test_kickoffs_are_given_in_eastern_time():
+    assert pages._kickoff({"start_date": "2026-10-17T19:30Z", "broadcast": "FOX"}) \
+        == "Sat 3:30 PM ET, FOX"
+    # After the clocks go back on the first Sunday of November.
+    assert pages._kickoff({"start_date": "2026-11-07T20:00Z"}) == "Sat 3:00 PM ET"
+    assert pages._kickoff({"start_date": "2026-11-07T05:00Z", "time_set": False}) \
+        == "Sat, time TBA"

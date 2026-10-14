@@ -655,6 +655,7 @@ function setBand(idx) {
   // Each team keeps the same photo, so its page looks the same every visit.
   band.dataset.photo = String(idx == null ? 3 : idx % 4 + 1);
   band.classList.toggle("home", idx == null);
+  if (idx == null) $("share").hidden = true;
   const plate = $("teamlogo");
   if (t && t.logo) {
     plate.innerHTML = `<img src="${esc(t.logo)}" alt="" width="48" height="48">`;
@@ -1001,6 +1002,7 @@ function ownGames() {
 function render(newTeam) {
   if (!RESULT) return;
   document.body.classList.add("hasteam");
+  $("share").hidden = false;
   $("empty").hidden = true;
   $("results").hidden = false;
   const idx = teamIdx();
@@ -1069,6 +1071,17 @@ function whenText(g, zone = true) {
   }
   return t.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit",
                                 ...(zone ? { timeZoneName: "short" } : {}) });
+}
+
+/** Kickoffs the build wrote in Eastern time, said again in the reader's
+ * own zone. The page carries the exact time on each one. */
+function localizeKickoffs() {
+  for (const el of document.querySelectorAll("time.kick[datetime]")) {
+    const g = { start_date: el.getAttribute("datetime"),
+                time_set: el.dataset.tba ? false : true };
+    const when = whenText(g, true);
+    if (when) el.textContent = el.dataset.tv ? `${when}, ${el.dataset.tv}` : when;
+  }
 }
 
 /** The reader's time zone as a short name, said once over a list of times. */
@@ -1717,6 +1730,47 @@ document.addEventListener("mouseout", (e) => {
 window.addEventListener("scroll", () => {
   if (touched() && !$("teamtip").hidden && Math.abs(scrollY - TIP_Y) > 40) hideTip();
 }, { passive: true });
+
+// The keyboard. Team names are drawn in a dozen places, so they are made
+// focusable as they arrive rather than in each one. Focus opens the card
+// beside the name, Enter does what a click does, and Escape closes it. In the
+// season row the chip is the button and the logo inside it is not a stop.
+function focusableTeams() {
+  for (const el of document.querySelectorAll("[data-team]:not([tabindex])")) {
+    if (el.closest("#season, #teamtip, a, button")) continue;
+    el.tabIndex = 0;
+    el.setAttribute("role", "link");
+  }
+}
+// One pass after each burst of redrawing, on a timer rather than the next
+// frame, which a tab that is not being painted never reaches.
+let TAB_PASS = 0;
+new MutationObserver(() => {
+  clearTimeout(TAB_PASS);
+  TAB_PASS = setTimeout(focusableTeams, 0);
+}).observe(document.body, { childList: true, subtree: true });
+focusableTeams();
+
+document.addEventListener("focusin", (e) => {
+  const el = e.target.closest && e.target.closest('[data-team][role="link"], #season button.sz');
+  if (!el || !STATE || !el.matches(":focus-visible")) return;
+  const host = el.matches("[data-team]") ? el : el.querySelector("[data-team]");
+  if (!host) return;
+  showTip(host, Number(host.dataset.team), false);
+  placeTipBy(el);
+});
+document.addEventListener("focusout", (e) => {
+  if (e.target.closest && e.target.closest('[data-team][role="link"], #season button.sz')) hideTip();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("teamtip").hidden) { hideTip(); return; }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches
+      && e.target.matches('[data-team][role="link"]')) {
+    e.preventDefault();
+    POINTER = "keyboard";
+    e.target.click();
+  }
+});
 document.addEventListener("click", (e) => {
   const go = e.target.closest(".tipgo");
   if (go) {
@@ -1795,6 +1849,39 @@ $("season").addEventListener("click", (e) => {
 });
 // Turning Include played on or off by hand makes it the reader's choice.
 $("showplayed").addEventListener("change", () => { PLAYED_FOR_WEEK = false; });
+$("share").addEventListener("click", async () => {
+  if (!RESULT) return;
+  const t = STATE.teams.find(x => x.name === RESULT.team);
+  const url = t && t.slug ? new URL(`team/${t.slug}/`, new URL(BASE, location.href)).href
+                          : location.href;
+  // The race the team is really in, by the same rule as its share card: the
+  // playoff, or failing a real chance of that, its conference.
+  const h = RESULT.headline;
+  const conf = (t && t.conference) || "";
+  // A team out of every race is shared without a number.
+  let race = h.make_playoff.p >= 0.005 ? `${pct(h.make_playoff.p)} to make the playoff` : "";
+  if (!race && conf && !/independent/i.test(conf)) {
+    if (h.win_conference && h.win_conference.p >= 0.005) {
+      race = `${pct(h.win_conference.p)} to win the ${conf}`;
+    } else if (h.make_conf_title_game && h.make_conf_title_game.p >= 0.005) {
+      race = `${pct(h.make_conf_title_game.p)} to reach the ${conf} title game`;
+    }
+  }
+  const text = race ? `${RESULT.team}: ${race}, and who to root for this week.`
+                    : `${RESULT.team}: who to root for this week.`;
+  const b = $("share");
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, text, url }); } catch { /* closed */ }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    b.textContent = "Link copied";
+  } catch {
+    b.textContent = "Could not copy";
+  }
+  setTimeout(() => { b.textContent = "Share"; }, 2000);
+});
 // A block's heading folds its body away: the scoreboard and the slate.
 document.querySelectorAll("button.fold").forEach(b => b.addEventListener("click", () => {
   const open = b.getAttribute("aria-expanded") !== "true";
@@ -1826,4 +1913,5 @@ $("path").addEventListener("click", (e) => {
   if (b && RESULT) setMetric(b.dataset.key);
 });
 
+localizeKickoffs();
 boot();

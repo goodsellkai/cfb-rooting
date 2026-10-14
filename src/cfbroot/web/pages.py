@@ -12,7 +12,7 @@ import json
 import os
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 SITE_NAME = "CFB Rooting Guide"
 # What a page shows before its script runs, which the intro replaces.
@@ -498,7 +498,7 @@ def _team_row(school, logo, odds=None, best=1.0, pos=None):
             f'{html.escape(school)}</a>{bar}</li>')
 
 
-def home_body(state, teams, n_sims, race=(), bubble=()):
+def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None):
     week = state.current_week()
     logos = {t.school: t.logo for t in teams}
     best = race[0][1] if race else 1.0
@@ -539,6 +539,7 @@ committee does, and fills the bracket.
 </div>
 </div>
 
+{_stakes_home(state, stakes)}
 {_faq_html(home_questions(state, n_sims, race))}"""
 
 
@@ -598,6 +599,172 @@ has its conference and title odds, its remaining schedule and the games
 elsewhere that move its number most.</p>
 <div class="confs">
 {out}</div>
+<p><a href="../">Back to the guide</a></p>"""
+
+
+# The games that matter most
+#
+# Every simulated season fills the same twelve playoff places, so whatever
+# one result adds to some teams' odds it takes from others: the swings across
+# all teams sum to zero. Half the sum of their sizes is how much of the field
+# changes hands between a game's two results. A game worth 0.40 moves four
+# tenths of a playoff place from one set of teams to another.
+
+class Stakes:
+    """Each game left, with the playoff places in play and who they go to,
+    gathered from every team's guide as the build writes it."""
+
+    def __init__(self):
+        self.games: dict = {}
+
+    def add(self, school: str, guide: dict) -> None:
+        for g in list(guide.get("games") or ()) + list(guide.get("own_games") or ()):
+            s = (g.get("swings") or {}).get("make_playoff") or {}
+            ph, pa = s.get("p_if_home"), s.get("p_if_away")
+            if ph is None or pa is None:
+                continue
+            row = self.games.setdefault((g["week"], g["home"], g["away"]),
+                                        {"game": g, "spots": 0.0, "teams": []})
+            row["spots"] += abs(ph - pa) / 2
+            row["teams"].append((school, ph - pa))
+
+    def week(self, week) -> list:
+        """That week's games, the one moving most of the field first."""
+        rows = [r for (w, _, _), r in self.games.items() if w == week]
+        for r in rows:
+            r["teams"].sort(key=lambda t: -abs(t[1]))
+        return sorted(rows, key=lambda r: (-r["spots"], r["game"]["home"]))
+
+
+def _eastern(iso: str) -> datetime:
+    """A UTC time in US Eastern. Daylight time runs from the second Sunday in
+    March to the first Sunday in November; a season crosses only the second.
+    Worked out here because Windows has no time zone database to ask."""
+    t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+    def sunday(month, nth):
+        first = datetime(t.year, month, 1, tzinfo=timezone.utc)
+        return first + timedelta(days=(6 - first.weekday()) % 7 + 7 * (nth - 1))
+
+    summer = (sunday(3, 2) + timedelta(hours=7) <= t
+              < sunday(11, 1) + timedelta(hours=6))
+    return t - timedelta(hours=4 if summer else 5)
+
+
+def _kickoff(g) -> str:
+    start = g.get("start_date")
+    if not start:
+        return ""
+    et = _eastern(start)
+    day = et.strftime("%a")
+    if g.get("time_set") is False:
+        return f"{day}, time TBA"
+    hour = et.hour % 12 or 12
+    when = f"{day} {hour}:{et.minute:02d} {'AM' if et.hour < 12 else 'PM'} ET"
+    return f"{when}, {g['broadcast']}" if g.get("broadcast") else when
+
+
+def _team_link(school, fbs, depth):
+    """A team's name, linked to its page from a page ``depth`` folders down."""
+    name = html.escape(school)
+    if school not in fbs:
+        return name
+    return f'<a href="{"../" * depth}team/{slug(school)}/">{name}</a>'
+
+
+def _kick_html(g) -> str:
+    """The kickoff as Eastern time for a crawler, with the exact time on the
+    element so the page can say it in the reader's own zone."""
+    text = html.escape(_kickoff(g))
+    if not g.get("start_date"):
+        return '<span class="kick"></span>'
+    tba = ' data-tba="1"' if g.get("time_set") is False else ""
+    tv = f' data-tv="{html.escape(g["broadcast"])}"' if g.get("broadcast") else ""
+    return (f'<time class="kick" datetime="{html.escape(g["start_date"])}"{tba}{tv}>'
+            f'{text}</time>')
+
+
+def _stake_row(row, logos, fbs, best, depth, pos, detail):
+    g = row["game"]
+
+    def side(name):
+        art = (f'<img src="{html.escape(logos[name])}" alt="" width="22" height="22">'
+               if logos.get(name) else '<span class="noart"></span>')
+        return f'<span class="side">{art}{_team_link(name, fbs, depth)}</span>'
+
+    where = "vs" if g.get("neutral") else "at"
+    width = max(2, round(100 * row["spots"] / best)) if best else 2
+    most = ""
+    if detail:
+        named = ", ".join(f"{_team_link(name, fbs, depth)} {100 * abs(d):.1f}"
+                          for name, d in row["teams"][:3] if abs(d) >= 0.0005)
+        if named:
+            most = f'<span class="most">Most at stake for {named}</span>'
+    return (f'<li><span class="pos">{pos}</span>'
+            f'<span class="match">{side(g["away"])}<i>{where}</i>{side(g["home"])}</span>'
+            f'{_kick_html(g)}'
+            f'<span class="stake" title="Playoff places that change hands between '
+            f'its two results"><span class="barline"><i style="width:{width}%"></i></span>'
+            f'<b>{row["spots"]:.2f}</b></span>{most}</li>')
+
+
+def _stakes_list(rows, state, depth, detail):
+    logos = {t.school: t.logo for t in state.teams}
+    fbs = {t.school for t in state.fbs_teams}
+    best = rows[0]["spots"] if rows else 1.0
+    return "\n".join(_stake_row(r, logos, fbs, best, depth, i, detail)
+                     for i, r in enumerate(rows, 1))
+
+
+def _stakes_home(state, stakes) -> str:
+    """The week's five biggest games, under the race on the front page."""
+    week = state.default_week() or state.current_week()
+    rows = stakes.week(week)[:5] if stakes else []
+    if not rows:
+        return ""
+    return f"""<section class="stakes-home">
+<h2>The games that matter most, week {week}</h2>
+<p class="note">Playoff places that change hands between each game's two results.</p>
+<ol class="stakes">
+{_stakes_list(rows, state, 0, False)}
+</ol>
+<p class="foot"><a href="this-week/">Every week {week} game, ranked</a></p>
+</section>"""
+
+
+def this_week_head(state, n_sims, card=None):
+    week = state.default_week() or state.current_week()
+    title = (f"Week {week} college football games that matter most for the "
+             f"playoff | {SITE_NAME}")
+    desc = (f"Every week {week} game, ranked by how much it moves the "
+            f"{state.year} College Football Playoff race across "
+            f"{_sims(n_sims)} simulated seasons, and which teams have the "
+            f"most at stake in each.")
+    url = f"{SITE_URL}/this-week/"
+    return _head(title, desc, url, card=card,
+                 card_alt=f"The games that matter most, week {week}",
+                 ld=[_page_ld(title, desc, url),
+                     _crumbs([(SITE_NAME, SITE_URL + "/"),
+                              (f"Week {week}", url)])])
+
+
+def this_week_body(state, n_sims, stakes):
+    week = state.default_week() or state.current_week()
+    rows = stakes.week(week) if stakes else []
+    # A game that moves almost nothing is listed, but not given a bar to
+    # compare against the ones that matter.
+    listed = _stakes_list(rows, state, 1, True) if rows else ""
+    body = (f'<ol class="stakes detail">\n{listed}\n</ol>' if rows
+            else f"<p>No games left in week {week}.</p>")
+    return f"""<h1>The games that matter most for the playoff, week {week}</h1>
+<p class="lead">Every week {week} game, ranked by how much of the twelve-team
+field changes hands between its two results, across {_sims(n_sims)} simulated
+seasons. A game worth 0.40 moves four tenths of a playoff place from one set of
+teams to another.</p>
+<p>Beside each game are the teams with the most at stake, and how many points
+apart its two results leave their playoff odds. Pick any team to see which of
+these it should root for.</p>
+{body}
 <p><a href="../">Back to the guide</a></p>"""
 
 
@@ -709,7 +876,8 @@ def not_found() -> str:
 
 def sitemap(teams) -> str:
     day = datetime.now(timezone.utc).date().isoformat()
-    urls = ([SITE_URL + "/", SITE_URL + "/how-it-works/", SITE_URL + "/teams/"]
+    urls = ([SITE_URL + "/", SITE_URL + "/this-week/", SITE_URL + "/how-it-works/",
+             SITE_URL + "/teams/"]
             + [f"{SITE_URL}/team/{slug(t.school)}/" for t in teams])
     body = "\n".join(
         f"  <url><loc>{u}</loc><lastmod>{day}</lastmod></url>" for u in urls)

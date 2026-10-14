@@ -37,12 +37,15 @@
     <div class="who">
       <span id="teamlogo" class="plate" hidden></span>
       <div class="whotext">
-        <div class="combo">
-          <label for="team" class="sr">Your team</label>
-          <input id="team" class="teaminput" role="combobox" aria-autocomplete="list"
-                 aria-expanded="false" aria-controls="teammenu"
-                 placeholder="Pick your team" autocomplete="off" spellcheck="false">
-          <ul id="teammenu" class="menu" role="listbox" hidden></ul>
+        <div class="namerow">
+          <div class="combo">
+            <label for="team" class="sr">Your team</label>
+            <input id="team" class="teaminput" role="combobox" aria-autocomplete="list"
+                   aria-expanded="false" aria-controls="teammenu"
+                   placeholder="Pick your team" autocomplete="off" spellcheck="false">
+            <ul id="teammenu" class="menu" role="listbox" hidden></ul>
+          </div>
+          <button id="share" class="share" type="button" hidden>Share</button>
         </div>
         <p id="teamline" class="teamline"></p>
         <div id="season" class="season" aria-label="Season"></div>
@@ -205,7 +208,8 @@
          rel="noopener">Source on GitHub</a>.
       Not affiliated with the College Football Playoff, the NCAA or any school.
       Odds are model output, not betting advice.</p>
-    <p class="footlinks"><a href="/teams/">All teams</a>
+    <p class="footlinks"><a href="/this-week/">This week's big games</a>
+      <a href="/teams/">All teams</a>
       <a href="/how-it-works/">How it works</a>
       <span id="footmeta"></span></p>
   </div>

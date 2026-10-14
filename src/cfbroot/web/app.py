@@ -382,6 +382,30 @@ def teams_page() -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/this-week/", response_class=HTMLResponse)
+def this_week_page() -> HTMLResponse:
+    """The week's games by what they move, as the build writes it. The first
+    request builds every team's guide, which takes a while."""
+    from . import pages
+    state = store.get_season()
+    stakes = pages.Stakes()
+    n_sims = DEFAULT_SIMS
+    if store.league is not None:
+        n_sims = store.league.n_sims
+        for t in state.fbs_teams:
+            stakes.add(t.school, store.payload(t.idx))
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("<!--HEAD-->", pages.this_week_head(state, n_sims))
+                .replace(pages.INTRO_BLOCK, pages.this_week_body(state, n_sims, stakes)))
+    html = html.replace('<script src="/static/app.js',
+                        '<script>window.CFBROOT_INFO = true;</script>'
+                        '<script src="/static/app.js')
+    token = _asset_token()
+    for name in VERSIONED:
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/state")
 def api_state():
     try:

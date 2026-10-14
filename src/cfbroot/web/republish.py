@@ -185,15 +185,16 @@ def republish(out: Path, source: str, log=print) -> None:
     shutil.copytree(HERE / "static", out / "static")
     template = load_template(str(int(time.time())))
     shares = cards.Cards(out, state, log)
-    write_front(out, state, teams, n_sims, standing, template,
-                shares.site(state.current_week(), standing))
+    site_card = shares.site(state.current_week(), standing)
     write_meta(out, state, teams, n_sims, template)
+    stakes = pages.Stakes()
 
     week = state.default_week() or state.current_week()
     for i, t in enumerate(teams, 1):
         guide = json.loads(
             (out / "data" / "team" / f"{pages.slug(t.school)}.json")
             .read_text("utf-8"))
+        stakes.add(t.school, guide)
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
         (team_dir / "index.html").write_text(
@@ -205,6 +206,7 @@ def republish(out: Path, source: str, log=print) -> None:
             encoding="utf-8")
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
+    write_front(out, state, teams, n_sims, standing, template, site_card, stakes)
 
     log(f"{out}: {size / 1e6:.0f} MB in {time.perf_counter() - t0:.0f}s, "
         f"numbers unchanged from {source}")

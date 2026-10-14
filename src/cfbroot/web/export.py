@@ -138,6 +138,7 @@ def render(template: str, head: str, intro: str, depth: int,
                     .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
                     .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
                     .replace('href="/teams/"', f'href="{base}teams/"')
+                    .replace('href="/this-week/"', f'href="{base}this-week/"')
                     .replace('class="brand" href="/"',
                              f'class="brand" href="{base or "./"}"')
                     .replace('href="/static/', f'href="{base}static/')
@@ -159,12 +160,20 @@ def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
 
 
 def write_front(out: Path, state, teams, n_sims: int, standing,
-                template: str, card: str | None = None) -> None:
-    """The home page, the full table and how it works."""
+                template: str, card: str | None = None, stakes=None) -> None:
+    """The home page, the week's biggest games, the full table and how it
+    works. ``stakes`` is gathered from every team's guide, so these go out
+    after the team pages."""
     (out / "index.html").write_text(
         render(template, pages.home_head(state, n_sims, standing[:10], card),
                pages.home_body(state, teams, n_sims,
-                               standing[:10], standing[10:18]), 0),
+                               standing[:10], standing[10:18], stakes), 0),
+        encoding="utf-8")
+    week = out / "this-week"
+    week.mkdir(exist_ok=True)
+    (week / "index.html").write_text(
+        render(template, pages.this_week_head(state, n_sims, card),
+               pages.this_week_body(state, n_sims, stakes), 1, info=True),
         encoding="utf-8")
     everyone = out / "teams"
     everyone.mkdir(exist_ok=True)
@@ -234,9 +243,9 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     standing = sorted(zip(store.league.names, odds),
                       key=lambda r: (-r[1], r[0]))
     shares = cards.Cards(out, state, log)
-    write_front(out, state, state.fbs_teams, n_sims, standing, template,
-                shares.site(state.current_week(), standing))
+    site_card = shares.site(state.current_week(), standing)
     write_meta(out, state, state.fbs_teams, n_sims, template)
+    stakes = pages.Stakes()
 
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS
@@ -247,6 +256,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     for i, t in enumerate(teams, 1):
         guide = store.payload(t.idx)
         guide["build"] = BUILD
+        stakes.add(t.school, guide)
         # Named for the team rather than its number, which is only stable
         # within one build.
         size += _write(out / "data" / "team" / f"{pages.slug(t.school)}.json",
@@ -263,6 +273,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
+    write_front(out, state, teams, n_sims, standing, template, site_card, stakes)
 
     (out / "data" / "season").mkdir()
     (out / "data" / "season" / "fresh").mkdir()

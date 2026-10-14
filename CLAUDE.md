@@ -22,6 +22,7 @@ cfbroot republish --out site             # the pages again, numbers as published
 cfbroot guide --team "Texas Tech"     # a rooting guide in the terminal
 cfbroot massey --top 25               # the model's ratings
 cfbroot refresh                       # re-pull scores and ratings into the cache
+python -m cfbroot.track report <dir>  # the model's record, from a clone of the tracking repo
 ```
 
 Calibration modules print the numbers that are hard-coded in `config.py`, and are
@@ -114,6 +115,16 @@ section that stays on screen after the app loads and is what crawlers read.
   "Odds with today's scores" moves the build's number by each started game's
   change in that chance times its swing; it adds games' effects, so it is an
   estimate, and the next build replaces it.
+- **The front page and `/this-week/` go out after the team pages.** They rank
+  the week's games by playoff places in play, which is gathered from every
+  team's guide as the loop writes it (`pages.Stakes`). Each simulated season
+  fills the same twelve places, so the swings over all teams sum to zero and
+  half their absolute sum is the share of the field that changes hands.
+- **The model's record is private.** Each full build runs `cfbroot.track` into
+  a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
+  `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,
+  its score, and each build's odds table. Nothing on the site reads or links
+  it, and Kai asked that it stay that way. Without the token the build skips it.
 - **`pages.py` only reads seven things off a season** and nine off a team, which
   is what makes the republish possible. `tests/test_republish.py` pins that list.
   Reading something new there means adding it to `republish.Season` too, or the
