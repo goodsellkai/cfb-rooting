@@ -88,21 +88,24 @@ AUTHOR = {"@type": "Person", "name": "Kai Goodsell",
           "url": "https://github.com/goodsellkai"}
 
 
-def _head(title, description, url, extra="", ld=None, card=None, card_alt=""):
+def _head(title, description, url, extra="", ld=None, card=None, card_alt="",
+          index=True):
     t, d = html.escape(title), html.escape(description)
     # A drawn share card when the build made one; the header photo otherwise.
     size = (1200, 630) if card else (1280, 720)
     card = card or f"{SITE_URL}/static/header/1.jpg"
     alt = html.escape(card_alt or title)
     blocks = ld if ld is not None else [_page_ld(title, description, url)]
+    robots = ('<meta name="robots" content="index, follow, max-snippet:-1, '
+              f'max-image-preview:large">\n<link rel="canonical" href="{url}">'
+              if index else '<meta name="robots" content="noindex">')
     scripts = "".join(
         '\n<script type="application/ld+json">'
         + json.dumps(b, separators=(",", ":")) + "</script>"
         for b in blocks)
     return f"""<title>{t}</title>
 <meta name="description" content="{d}">
-<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
-<link rel="canonical" href="{url}">
+{robots}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="{SITE_NAME}">
 <meta property="og:title" content="{t}">
@@ -865,13 +868,23 @@ and the numbers move with them.</p>
 
 def not_found_head() -> str:
     return _head(f"Page not found | {SITE_NAME}",
-                 "That address is not part of this site.", SITE_URL + "/")
+                 "That address is not part of this site.", SITE_URL + "/",
+                 ld=[], index=False)
 
 
-def not_found() -> str:
-    return f"""<h1>Page not found</h1>
-<p>That address is not part of this site.</p>
-<p><a href="/">Go to {SITE_NAME}</a></p>"""
+def not_found(base: str = "/") -> str:
+    """The page for any address the site does not have. Its links are from
+    the site's root, since it is served at whatever depth was asked for. A
+    mistyped team address gets the nearest team offered by the script."""
+    return f"""<h1>That page isn't here</h1>
+<p class="lead">The address may be mistyped, or the page may have moved.</p>
+<p id="didyoumean" class="didyoumean" hidden></p>
+<ul class="lost">
+<li><a href="{base}">Pick your team</a> and see which games to root for</li>
+<li><a href="{base}this-week/">The games that matter most this week</a></li>
+<li><a href="{base}teams/">Playoff odds for every team</a></li>
+<li><a href="{base}how-it-works/">How the odds are worked out</a></li>
+</ul>"""
 
 
 def sitemap(teams) -> str:

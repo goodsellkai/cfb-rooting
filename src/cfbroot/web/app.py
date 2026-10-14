@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -39,6 +41,22 @@ SEED = 12345
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def missing_page(request, exc):
+    """An address the site does not have gets the same page the hosted site
+    serves. The API keeps answering in JSON, which is what its callers read."""
+    if exc.status_code != 404 or request.url.path.startswith("/api/"):
+        return await http_exception_handler(request, exc)
+    from . import pages
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("<!--HEAD-->", pages.not_found_head())
+                .replace(pages.INTRO_BLOCK, pages.not_found("/")))
+    html = html.replace('<script src="/static/app.js',
+                        '<script>window.CFBROOT_INFO = true;</script>'
+                        '<script src="/static/app.js')
+    return HTMLResponse(html, status_code=404, headers={"Cache-Control": "no-store"})
 
 
 # Server state

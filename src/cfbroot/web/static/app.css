@@ -148,7 +148,8 @@ a { color: inherit; }
 .band {
   --team: var(--turf); --team-fg: #fff; --team-mark: var(--mark);
   --photo-blend: multiply;
-  position: relative; isolation: isolate; overflow: hidden;
+  /* Clipped sideways only: the team list drops out of the bottom of it. */
+  position: relative; isolation: isolate; overflow-x: clip; overflow-y: visible;
   background: var(--team); color: var(--team-fg);
   transition: background-color .45s ease, color .45s ease;
 }
@@ -163,6 +164,9 @@ a { color: inherit; }
   -webkit-mask-image: linear-gradient(100deg, transparent 22%, #000 66%);
   mask-image: linear-gradient(100deg, transparent 22%, #000 66%);
 }
+/* With the team list open the band sits above the sticky toolbar, which
+   would otherwise cover the list; closed, it scrolls under the toolbar. */
+.band.menuopen { z-index: 30; }
 .band[data-photo="1"]::before { background-image: url("header/1.jpg"); }
 .band[data-photo="2"]::before { background-image: url("header/2.jpg"); }
 .band[data-photo="3"]::before { background-image: url("header/3.jpg"); }
@@ -755,6 +759,13 @@ body.info .intro:has(.confs) { max-width: var(--page); }
 .confs { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
          gap: 0 44px; align-items: start; }
 .confs h2 { margin-top: 26px; }
+/* the missing-page page: where to go instead */
+.didyoumean { font-size: 18px; color: var(--ink); }
+.didyoumean a { font-weight: 750; color: var(--ink); text-decoration-color: var(--mark-line);
+                text-decoration-thickness: 3px; text-underline-offset: 4px; }
+ul.lost { margin: 18px 0 0; padding: 0; list-style: none; font-size: 16px; }
+ul.lost li { padding: 9px 0; border-bottom: 1px solid var(--rule-2); }
+ul.lost a { color: var(--ink); font-weight: 650; }
 body.info .intro .confs table { max-width: none; }
 body.info .intro p { max-width: none; font-size: 16px; line-height: 1.62; }
 body.info .intro table, .writeup table {

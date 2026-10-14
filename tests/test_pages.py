@@ -263,3 +263,20 @@ def test_kickoffs_are_given_in_eastern_time():
     assert pages._kickoff({"start_date": "2026-11-07T20:00Z"}) == "Sat 3:00 PM ET"
     assert pages._kickoff({"start_date": "2026-11-07T05:00Z", "time_set": False}) \
         == "Sat, time TBA"
+
+
+def test_the_missing_page_works_at_any_depth():
+    """It is served for any address, so every path in it starts at the root.
+    Relative ones once left it unstyled and without its script one folder
+    down."""
+    from cfbroot.web.export import load_template, render
+    head = pages.not_found_head()
+    assert 'content="noindex"' in head and 'rel="canonical"' not in head
+    html = render(load_template("t"), head, pages.not_found("/"), 0,
+                  info=True, base="/")
+    assert 'href="/static/app.css' in html and 'src="/static/app.js' in html
+    assert 'href="static/' not in html and 'src="static/' not in html
+    assert 'class="brand" href="/"' in html
+    assert 'href="/this-week/"' in html and 'href="/teams/"' in html
+    assert "window.CFBROOT_INFO = true" in html
+    assert 'id="didyoumean"' in html

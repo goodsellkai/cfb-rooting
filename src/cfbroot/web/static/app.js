@@ -108,7 +108,38 @@ const CONF_TITLE = {
 
 // Startup
 
+/** On the missing-page page, the team a mistyped address was nearest to:
+ * the last part of the address against every team's, by edit distance. */
+function suggestTeam() {
+  const part = location.pathname.split("/").filter(Boolean).pop() || "";
+  const want = slugOf(decodeURIComponent(part));
+  if (want.length < 3) return;
+  const dist = (a, b) => {
+    let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j++) {
+        next[j] = Math.min(row[j] + 1, next[j - 1] + 1,
+                           row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      row = next;
+    }
+    return row[b.length];
+  };
+  let best = null, bestD = Infinity;
+  for (const t of STATE.teams) {
+    const d = dist(want, t.slug);
+    if (d < bestD) { best = t; bestD = d; }
+  }
+  if (!best || bestD > Math.max(2, Math.floor(best.slug.length / 3))) return;
+  const p = $("didyoumean");
+  const href = new URL(`team/${best.slug}/`, new URL(BASE, location.href)).href;
+  p.innerHTML = `Looking for <a href="${esc(href)}">${esc(best.name)}</a>?`;
+  p.hidden = false;
+}
+
 async function boot() {
+  if (window.CFBROOT_INFO) document.body.classList.add("info");
   try {
     // Everything else is keyed off this, so it is checked rather than taken
     // from the browser's copy.
@@ -120,7 +151,7 @@ async function boot() {
   }
   renderTopMeta();
   if (window.CFBROOT_INFO) {          // a page that is only words
-    document.body.classList.add("info");
+    if ($("didyoumean")) suggestTeam();
     return;
   }
   try {
@@ -487,12 +518,19 @@ function openMenu() {
         <span class="conf">${esc(t.conference || "Independent")}</span></li>`).join("")
     : `<li class="none">No team matches</li>`;
   ul.hidden = false;
+  // On a phone the list starts at the name, not the screen's edge, and can
+  // run off the right; it moves left by however far it would.
+  ul.style.left = "";
+  const over = ul.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+  if (over > 0) ul.style.left = `${-over}px`;
+  $("band").classList.add("menuopen");
   $("team").setAttribute("aria-expanded", "true");
   showActive();
 }
 
 function closeMenu() {
   $("teammenu").hidden = true;
+  $("band").classList.remove("menuopen");
   $("team").setAttribute("aria-expanded", "false");
   $("team").removeAttribute("aria-activedescendant");
   ACTIVE = -1;

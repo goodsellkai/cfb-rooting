@@ -26,6 +26,7 @@ import re
 import shutil
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ..config import METRIC_NAMES, SimConfig
 from ..sim import run_league
@@ -111,9 +112,11 @@ def load_template(build: str) -> str:
 
 def render(template: str, head: str, intro: str, depth: int,
            team: str | None = None, info: bool = False, writeup: str = "",
-           color: str | None = None, photo: int = 3) -> str:
-    """The app's page, with what a crawler reads written in."""
-    base = "../" * depth
+           color: str | None = None, photo: int = 3,
+           base: str | None = None) -> str:
+    """The app's page, with what a crawler reads written in. ``base`` replaces
+    the relative path ``depth`` gives, for a page served at any depth."""
+    base = "../" * depth if base is None else base
     boot = f'<script>window.CFBROOT_STATIC = true; window.CFBROOT_BASE = "{base}";'
     boot += f' window.CFBROOT_TEAM = "{team}";' if team else ""
     boot += " window.CFBROOT_INFO = true;" if info else ""
@@ -154,8 +157,13 @@ def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
     (out / "sitemap.xml").write_text(pages.sitemap(teams), encoding="utf-8")
     (out / "_headers").write_text(pages.headers(), encoding="utf-8")
     shutil.copy(HERE / "static" / "favicon.ico", out / "favicon.ico")
+    # Served for any address at any depth, so its paths start at the root
+    # rather than at itself: relative ones broke the styles and the script
+    # one folder down.
+    root = urlparse(pages.SITE_URL).path.rstrip("/") + "/"
     (out / "404.html").write_text(
-        render(template, pages.not_found_head(), pages.not_found(), 0),
+        render(template, pages.not_found_head(), pages.not_found(root), 0,
+               info=True, base=root),
         encoding="utf-8")
 
 
