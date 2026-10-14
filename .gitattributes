@@ -1,0 +1,12 @@
+# Text is stored and checked out with LF line endings on every machine, so
+# a Windows checkout does not turn whole files into CRLF and back, which made
+# exact-match edits fail and diffs touch every line.
+* text=auto eol=lf
+
+# cmd.exe reads batch files more reliably with CRLF.
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
