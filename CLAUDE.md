@@ -112,14 +112,20 @@ section that stays on screen after the app loads and is what crawlers read.
   from ESPN's period and clock fields, not its summary line. A live game's win
   chance is the random-walk model of a score (Stern, 1994) on the build's own
   pregame chance and measured `sigma`, so at kickoff it equals the build's.
-  "Odds with today's scores" moves the build's number by each started game's
-  change in that chance times its swing; it adds games' effects, so it is an
-  estimate, and the next build replaces it.
+  "Odds with today's results" moves the build's number by each game finished
+  since the build, its result against its pregame chance times its swing.
+  Games still on do not count until they end (Kai asked for that). It adds
+  games' effects, so it is an estimate, and the next build replaces it.
 - **The front page and `/this-week/` go out after the team pages.** They rank
   the week's games by playoff places in play, which is gathered from every
   team's guide as the loop writes it (`pages.Stakes`). Each simulated season
   fills the same twelve places, so the swings over all teams sum to zero and
   half their absolute sum is the share of the field that changes hands.
+- **Sunday has a build after the AP poll.** Polls are shown, never used by
+  the model, and the AP's lands on Sunday afternoon, so `pages.yml` runs at 5pm
+  and 6pm Central on Sundays to put it on the site. The loader looks for the
+  newest poll from one week past the current one, since the poll after a
+  week's games carries the next week's number.
 - **The model's record is private.** Each full build runs `cfbroot.track` into
   a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,

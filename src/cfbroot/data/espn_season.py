@@ -93,6 +93,10 @@ def _game(e: dict, week: int) -> dict:
 
     hid, hname, hconf = team("home")
     aid, aname, aconf = team("away")
+    # Kept for every side, so an FCS opponent, which never appears in the team
+    # list, still gets its logo and short name.
+    look = {s: {"abbr": side[s]["team"].get("abbreviation") or "",
+                "logo": side[s]["team"].get("logo") or ""} for s in ("home", "away")}
     notes = [n.get("headline") for n in c.get("notes") or [] if n.get("headline")]
     tv = [n for b in c.get("broadcasts") or [] for n in b.get("names") or []]
     return {
@@ -101,6 +105,8 @@ def _game(e: dict, week: int) -> dict:
         "time_set": bool(c.get("timeValid", True)),
         "home_id": hid, "home_team": hname, "home_conference": hconf,
         "away_id": aid, "away_team": aname, "away_conference": aconf,
+        "home_abbr": look["home"]["abbr"], "home_logo": look["home"]["logo"],
+        "away_abbr": look["away"]["abbr"], "away_logo": look["away"]["logo"],
         "home_points": points("home"), "away_points": points("away"),
         "completed": done, "neutral_site": bool(c.get("neutralSite")),
         "conference_game": bool(c.get("conferenceCompetition")),

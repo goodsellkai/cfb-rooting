@@ -107,7 +107,10 @@ def load_season(year: int | None = None, *, live: bool = False,
     by_espn = {int(t.team_id): t.idx for t in state.teams if t.team_id is not None}
     for name, poll in (("ap", AP_POLL), ("cfp", CFP_POLL)):
         try:
-            week, ranks = latest_poll(year, poll, state.current_week(),
+            # The poll after a week's games carries the next week's number,
+            # and the current week can sit on a postponed game, so the search
+            # starts one week ahead. It stops at the first week it finds.
+            week, ranks = latest_poll(year, poll, state.current_week() + 1,
                                        force=force)
         except Exception:  # noqa: BLE001
             continue      # a poll nobody published yet, or ESPN is down

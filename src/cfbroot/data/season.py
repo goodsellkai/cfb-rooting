@@ -491,8 +491,9 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
             f"FBS median: {', '.join(sorted(missing)[:6])}"
             + (" ..." if len(missing) > 6 else ""))
 
-    def ensure_team(team_id, name, conference) -> int:
-        """Register a non-FBS opponent on first sight."""
+    def ensure_team(team_id, name, conference, abbr=None, logo=None) -> int:
+        """Register a non-FBS opponent on first sight, with its logo and short
+        name when the source gave them (ESPN does; CFBD does not)."""
         if team_id is not None and int(team_id) in by_id:
             return by_id[int(team_id)]
         key = normalise_name(name or "")
@@ -501,8 +502,10 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         idx = len(teams)
         teams.append(TeamInfo(idx=idx, school=name or f"Unknown {idx}",
                               team_id=int(team_id) if team_id is not None else None,
+                              abbreviation=abbr or "",
                               conference=conference, conf_idx=-1, is_fbs=False,
-                              rating=params.fcs_rating, rating_source="fcs-default"))
+                              rating=params.fcs_rating, rating_source="fcs-default",
+                              logo=logo or None))
         if team_id is not None:
             by_id[int(team_id)] = idx
         if key:
@@ -513,8 +516,10 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
     games: list[dict] = []
     max_week = max((int(g.get("week") or 0) for g in games_raw), default=0)
     for g in games_raw:
-        hi = ensure_team(g.get("home_id"), g.get("home_team"), g.get("home_conference"))
-        ai = ensure_team(g.get("away_id"), g.get("away_team"), g.get("away_conference"))
+        hi = ensure_team(g.get("home_id"), g.get("home_team"), g.get("home_conference"),
+                         g.get("home_abbr"), g.get("home_logo"))
+        ai = ensure_team(g.get("away_id"), g.get("away_team"), g.get("away_conference"),
+                         g.get("away_abbr"), g.get("away_logo"))
         if not (teams[hi].is_fbs or teams[ai].is_fbs):
             continue
         hp, ap = g.get("home_points"), g.get("away_points")

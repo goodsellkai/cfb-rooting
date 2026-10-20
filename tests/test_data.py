@@ -310,3 +310,29 @@ def test_a_title_game_with_the_conference_flag_unset_is_still_detected():
     """CFBD really does send conference_game=False for title games."""
     s = _season_with_note("SEC Championship", conference_game=False)
     assert sum(g["is_ccg"] for g in s.games) == 1
+
+
+def test_an_fcs_opponent_keeps_its_logo_and_short_name():
+    """ESPN gives every side of a game its logo and abbreviation. FCS teams
+    are only ever seen as opponents, so that is the only place to get them."""
+    from cfbroot.config import ModelParams
+    from cfbroot.data.season import build_season
+    teams_raw = [{"id": 1, "school": "Alpha", "abbreviation": "ALP",
+                  "conference": "Test Conf", "classification": "fbs"}]
+    conferences_raw = [{"id": 1, "name": "Test Conf", "abbreviation": "TC",
+                        "classification": "fbs", "member_count": 1}]
+    game = {"id": 1, "season": 2026, "week": 1, "season_type": "regular",
+            "start_date": "2026-09-05T00:00:00Z", "completed": False,
+            "neutral_site": False, "conference_game": False,
+            "home_id": 1, "home_team": "Alpha", "home_conference": "Test Conf",
+            "home_points": None, "away_points": None, "notes": "",
+            "away_id": 2502, "away_team": "Portland State", "away_conference": None,
+            "away_abbr": "PRST",
+            "away_logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2502.png"}
+    s = build_season(year=2026, teams_raw=teams_raw, conferences_raw=conferences_raw,
+                     games_raw=[game], fpi_raw=[{"team": "Alpha", "fpi": 0.0}],
+                     params=ModelParams(), recalibrate=False)
+    fcs = next(t for t in s.teams if t.school == "Portland State")
+    assert not fcs.is_fbs
+    assert fcs.abbreviation == "PRST"
+    assert fcs.logo.endswith("/2502.png")
