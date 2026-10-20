@@ -538,7 +538,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .sb-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; font-size: 12.5px; }
 .sb-top .live { color: var(--ink); font-size: 13.5px; font-weight: 780; }
 .sb-tag {
-  margin-left: auto; padding: 1px 6px; border-radius: 3px;
+  margin-left: auto; margin-right: 2px; padding: 1px 6px; border-radius: 3px;
   background: var(--sel); color: var(--ink-2); font-size: 11.5px; font-weight: 700;
 }
 .sb-grid { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--n), 1.3rem) 2.1rem 2.6rem 3.9rem; }
@@ -569,7 +569,26 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: 8px 14px; font-stretch: 88%; font-variant-numeric: tabular-nums;
 }
-.tk { display: grid; gap: 2px; padding: 2px 0 2px 9px; border-left: 2px solid var(--rule); min-width: 0; }
+.tk { display: grid; gap: 2px; padding: 2px 0 2px 9px; border-left: 2px solid var(--rule); min-width: 0;
+      cursor: pointer; }
+.tk:hover { border-left-color: var(--muted); }
+.tk-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+/* The arrows that fold a tile to a line and open a line into a tile: down to
+   open, up to fold, as the slate's own heading does. */
+.sb-fold, .tk-fold {
+  position: relative; flex: none; width: 20px; height: 18px; margin: 0; padding: 0;
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+}
+.sb-fold { margin-left: auto; align-self: center; }
+.sb-tag + .sb-fold { margin-left: 4px; }
+.sb-fold::before, .tk-fold::before {
+  content: ""; position: absolute; left: 6px; top: 4px; width: 6px; height: 6px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+.sb-fold::before { top: 7px; transform: rotate(-135deg); }
+.sb-fold:hover, .tk-fold:hover, .tk:hover .tk-fold { color: var(--ink); }
+.sb-fold:focus-visible, .tk-fold:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; border-radius: 3px; }
 .tk-clock { font-size: 11.5px; font-weight: 700; color: var(--up); }
 .tk.over .tk-clock { color: var(--muted); }
 .tk-side { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13.5px; }
@@ -888,26 +907,46 @@ body.season .guideonly { display: none; }
 .dropped { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .dropped span { white-space: nowrap; }
 
-/* bracket */
-.bracket { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 18px;
-           overflow-x: auto; padding: 4px 0 2px; font-stretch: 86%; }
-.bcol { display: flex; flex-direction: column; justify-content: space-around; gap: 8px; }
-.bcol .subhead { margin: 0 0 2px; }
-.bgame { position: relative; border: 1px solid var(--rule); border-radius: 6px; background: var(--raise); }
-.bgame::after { content: ""; position: absolute; top: 50%; right: -18px; width: 18px;
-                height: 1px; background: var(--rule); }
-.bcol:last-child .bgame::after { display: none; }
-.bgame.tbd { opacity: .45; border-style: dashed; }
-.bgame.waiting { border-style: dashed; }
-.bgame.tbd .bteam, .bgame.waiting .bteam:empty { height: 28px; }
-.bgame.final { border-color: var(--ink); }
-.bteam { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 13px; color: var(--ink-2); }
+/* bracket: a tree on a grid of eight equal rows, so a game spans the two,
+   four or eight rows of the games that feed it and its lines can be drawn at
+   fixed fractions of that span */
+.bracket {
+  display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr) 26px) minmax(150px, 1fr);
+  grid-template-rows: auto repeat(8, 38px); column-gap: 0; align-items: center;
+  overflow-x: auto; padding: 4px 0 6px; font-stretch: 86%; --line: var(--rule);
+}
+.bhead { grid-column: var(--c); grid-row: 1; margin: 0 0 6px; }
+.bgame, .bline { grid-column: var(--c); grid-row: var(--r) / span var(--span); }
+.bgame { position: relative; border: 1px solid var(--rule); border-radius: 6px;
+         background: var(--raise); overflow: hidden; }
+.bgame.ahead { background: none; border-style: dashed; }
+.bgame.final { border: 1.5px solid var(--ink); }
+.bteam { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
+         font-size: 13px; color: var(--ink-2); }
 .bteam + .bteam { border-top: 1px solid var(--rule-2); }
 .bteam.win { color: var(--ink); font-weight: 750; }
+.bteam.out { color: var(--muted); }
+.bteam.out .logo { opacity: .55; }
+.bteam.open { color: var(--muted); font-size: 12px; font-style: normal; }
 .bteam.mine { box-shadow: inset 3px 0 0 var(--ink); }
-.bseed { width: 16px; font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.bseed { width: 16px; flex: none; font-size: 11px; color: var(--muted); text-align: center;
+         font-variant-numeric: tabular-nums; }
 .bname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bpts { font-weight: 800; font-stretch: 68%; font-size: 15px; font-variant-numeric: tabular-nums; }
+.bteam.out .bpts { font-weight: 600; }
+/* A first-round winner goes into its quarterfinal's second line, an elbow
+   from the middle of one game to 15px below the middle of the next, which is
+   the second line's middle. */
+.bline { position: relative; align-self: stretch; }
+.bline::before, .bline::after { content: ""; position: absolute; border: 0 solid var(--line); }
+.bline.feed::before { left: 0; width: 50%; top: 50%; border-top-width: 1.5px; }
+.bline.feed::after { left: 50%; right: 0; top: 50%; height: 15px;
+                     border-left-width: 1.5px; border-bottom-width: 1.5px; }
+/* Two games into one: a bracket from the middle of each to the middle of the
+   game they feed, which sits halfway between them. */
+.bline.join::before { left: 0; width: 50%; top: 25%; bottom: 25%;
+                      border-width: 1.5px 1.5px 1.5px 0; border-radius: 0 5px 5px 0; }
+.bline.join::after { left: 50%; right: 0; top: 50%; border-top-width: 1.5px; }
 .champion { display: flex; align-items: center; gap: 14px; padding: 12px 0 14px; margin-bottom: 6px; }
 .champion .logo { width: 44px; height: 44px; }
 .champion .label { font-size: 13px; font-weight: 650; color: var(--muted); }
@@ -1050,8 +1089,11 @@ body.season .guideonly { display: none; }
   .gamegrid { grid-template-columns: minmax(0, 1fr); }
   .twocol { grid-template-columns: minmax(0, 1fr); }
   /* a phone reads the rounds down the page instead of across it */
-  .bracket { grid-template-columns: minmax(0, 1fr); gap: 12px; overflow-x: visible; }
-  .bgame::after { display: none; }
+  /* a phone reads the rounds down the page, each in bracket order */
+  .bracket { display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+             overflow-x: visible; }
+  .bhead { margin: 12px 0 0; }
+  .bline { display: none; }
   .sitefoot-in { font-size: 12.5px; }
 }
 @media (max-width: 380px) {

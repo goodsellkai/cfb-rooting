@@ -425,38 +425,80 @@ function renderSelection(recs) {
       <tbody>${field}</tbody></table></div></div></div>`;
 }
 
+// The 12-team bracket, drawn as a tree: each game sits beside the game its
+// winner plays. The simulation lists games in the order it plays them, so
+// these are their places top to bottom: the 1 seed's quarter of the bracket,
+// then the 4's, the 2's and the 3's.
+const BRACKET_ORDER = [[3, 0, 2, 1], [0, 3, 1, 2], [0, 1], [0]];
+// Who can still reach each slot not yet decided, by seed, in the same order.
+const BRACKET_OPEN = [
+  null,
+  [["", "8 or 9"], ["", "5 or 12"], ["", "7 or 10"], ["", "6 or 11"]],
+  [["1, 8 or 9", "4, 5 or 12"], ["2, 7 or 10", "3, 6 or 11"]],
+  [["Top semifinal winner", "Bottom semifinal winner"]],
+];
+
 function renderBracket() {
   const me = myIdx();
   const shown = STAGES[STAGE].round;
-  $("s-boardtitle").textContent = STAGES[STAGE].label;
+  // Each column names its round, and the stage control says which one is on.
+  $("s-boardtitle").textContent = "The playoff";
   const seedOf = Object.fromEntries(SEASON.field.map(f => [f.team, f.seed]));
+  const rounds = SEASON.rounds;
 
-  const line = (t, pts, g, done) => `<div class="bteam${done && winner(g) === t ? " win" : ""}${t === me ? " mine" : ""}" data-team="${t}">
-      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 16)}
+  // One line of a game: a team, or who can still get there.
+  const line = (t, pts, g, played, open) => {
+    if (t == null) {
+      return `<div class="bteam open"><span class="bseed"></span><span class="bname">${esc(open)}</span></div>`;
+    }
+    const cls = played ? (winner(g) === t ? " win" : " out") : "";
+    return `<div class="bteam${cls}${t === me ? " mine" : ""}" data-team="${t}">
+      <span class="bseed">${seedOf[t] ?? ""}</span>${logo(t, 18)}
       <span class="bname">${esc(team(t).name)}</span>
-      <span class="bpts">${done ? pts : ""}</span></div>`;
-  const game = (g, done, cls) => `<div class="bgame${cls ? " " + cls : ""}">
-      ${line(g.home, g.home_points, g, done)}${line(g.away, g.away_points, g, done)}</div>`;
-  const blank = () => `<div class="bgame tbd"><div class="bteam"></div><div class="bteam"></div></div>`;
-  // A quarterfinal's home side is a team that had the week off, so it sits in
-  // its slot before the round is played.
-  const waiting = (g) => `<div class="bgame waiting">${line(g.home, "", g, false)}
-      <div class="bteam"></div></div>`;
+      <span class="bpts">${played ? pts : ""}</span></div>`;
+  };
 
-  const cols = SEASON.rounds.map((r, i) => {
-    const done = i <= shown;
-    const last = i === SEASON.rounds.length - 1;
-    const body = r.games.map(g =>
-      done ? game(g, true, last ? "final" : "") : (i === 1 ? waiting(g) : blank())).join("");
-    return `<div class="bcol"><h3 class="subhead">${esc(r.name)}</h3>${body}</div>`;
-  }).join("");
+  // A round is played up to the stage shown; the next one's teams are known
+  // from the results before it; later ones only by who could get there. A
+  // quarterfinal's home side is a team with a bye, known all along.
+  const box = (i, k, pos) => {
+    const g = rounds[i].games[k];
+    const played = i <= shown;
+    const known = played || i === shown + 1;
+    const open = (BRACKET_OPEN[i] || [])[pos] || ["", ""];
+    const home = known || i === 1 ? g.home : null;
+    const away = known ? g.away : null;
+    const cls = `bgame${i === rounds.length - 1 ? " final" : ""}${played ? "" : " ahead"}`;
+    return `<div class="${cls}" style="--r:${2 + pos * 2 ** (i === 0 ? 1 : i)};--span:${2 ** (i === 0 ? 1 : i)};--c:${2 * i + 1}">
+      ${line(home, g.home_points, g, played, open[0])}${line(away, g.away_points, g, played, open[1])}</div>`;
+  };
 
-  const champ = shown === SEASON.rounds.length - 1 && SEASON.champion != null
+  let html = "";
+  rounds.forEach((r, i) => {
+    html += `<h3 class="subhead bhead" style="--c:${2 * i + 1}">${esc(r.name)}</h3>`;
+    BRACKET_ORDER[i].forEach((k, pos) => { html += box(i, k, pos); });
+    if (i === rounds.length - 1) return;
+    // The lines to the next round: one elbow each from the first round into
+    // a quarterfinal's second line, and one bracket for each pair after.
+    const next = BRACKET_ORDER[i + 1].length;
+    for (let pos = 0; pos < next; pos++) {
+      const span = 2 ** (i + 1);
+      html += `<span class="bline ${i === 0 ? "feed" : "join"}" aria-hidden="true"
+        style="--r:${2 + pos * span};--span:${span};--c:${2 * i + 2}"></span>`;
+    }
+  });
+
+  const champ = shown === rounds.length - 1 && SEASON.champion != null
     ? `<div class="champion${SEASON.champion === me ? " mine" : ""}" data-team="${SEASON.champion}">
         ${logo(SEASON.champion, 34)}
         <div><div class="label">National champion</div>
           <div class="cname">${esc(team(SEASON.champion).name)}</div></div></div>` : "";
-  $("s-board").innerHTML = champ + `<div class="bracket">${cols}</div>`;
+  // Anything but the twelve-team field the tree is drawn for goes as a list.
+  const tree = rounds.length === 4 && rounds[0].games.length === 4;
+  $("s-board").innerHTML = champ + (tree ? `<div class="bracket">${html}</div>`
+    : rounds.map((r, i) => `<h3 class="subhead">${esc(r.name)}</h3>`
+        + r.games.map(g => `<div class="bgame">${line(g.home, g.home_points, g, i <= shown, "")}`
+          + `${line(g.away, g.away_points, g, i <= shown, "")}</div>`).join("")).join(""));
 }
 
 function fillConferences() {

@@ -416,15 +416,17 @@ function startedGames() {
   return out;
 }
 
-/** Your odds with today's scores. Each started game moves the build's number
- * by how far its live chance has moved from the pregame one, times what it
- * is worth to you. Exact for one game; for several it adds their effects,
- * which holds closely while their results do not lean on each other. */
+/** Your odds with today's results. Only games that are over count: a game
+ * still being played moves its own tile, not this number. Each one moves the
+ * build's number from the pregame chance to the result, times what it is
+ * worth to you. Exact for one game; for several it adds their effects, which
+ * holds closely while their results do not lean on each other. */
 function liveOdds() {
   const key = METRIC;
   const base = RESULT.headline[key].p;
   let p = base, n = 0;
   for (const { g, l } of startedGames()) {
+    if (l.state !== "post") continue;
     const q = liveWin(g, l);
     if (q == null) continue;
     const s = g.swings[key];
@@ -1357,10 +1359,12 @@ function scoreTileHTML({ g, own, l }) {
   };
   const sit = [l.down, l.redzone ? "red zone" : ""].filter(Boolean).join(", ");
   const tv = g.broadcast || l.tv || "";
-  return `<article class="sbt ${confidenceOf(s)}${own ? " own" : ""}">
+  return `<article class="sbt ${confidenceOf(s)}${own ? " own" : ""}" data-game="${esc(gameKey(g))}">
       <div class="sb-top"><b class="live">${esc(liveClock(l))}</b>
         ${tv ? `<span class="muted">${esc(tv)}</span>` : ""}
-        ${own ? '<span class="sb-tag">Your game</span>' : ""}</div>
+        ${own ? '<span class="sb-tag">Your game</span>' : ""}
+        <button type="button" class="sb-fold" aria-expanded="true"
+          aria-label="Fold ${esc(g.away)} at ${esc(g.home)} to one line"></button></div>
       <div class="sb-grid" style="--n:${periods}">
         <div class="sb-row sb-head" aria-hidden="true"><span></span>${nums.map(i =>
           `<span>${periodName(i + 1)}</span>`).join("")}<span>T</span>
@@ -1383,7 +1387,11 @@ function tickerHTML(list) {
       const ahead = score > (isHome ? l.ap : l.hp);
       return `<span class="tk-side${ahead ? " ahead" : ""}"><span class="who" data-team="${idx}">${logo(idx, 16)}<span class="tk-n">${esc(t.abbr || t.name)}</span></span><b class="tk-s${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</b></span>`;
     };
-    return `<div class="tk${isLive(l) ? "" : " over"}"><span class="tk-clock">${esc(liveClock(l))}</span>${side(false)}${side(true)}</div>`;
+    return `<div class="tk${isLive(l) ? "" : " over"}" data-game="${esc(gameKey(g))}">
+      <span class="tk-top"><span class="tk-clock">${esc(liveClock(l))}</span>
+        <button type="button" class="tk-fold" aria-expanded="false"
+          aria-label="Open ${esc(g.away)} at ${esc(g.home)} as a full scoreboard"></button></span>
+      ${side(false)}${side(true)}</div>`;
   }).join("")}</div>`;
 }
 
@@ -1396,15 +1404,31 @@ function renderScoreboard() {
   $("liveblock").classList.toggle("on", !!live);
   const odds = liveOdds();
   $("livecount").innerHTML = odds
-    ? `<span class="lv-k">${esc(shortLabel(METRIC))} odds with today's scores</span>
+    ? `<span class="lv-k">${esc(shortLabel(METRIC))} odds with today's results</span>
        <b class="lv-p">${pct(odds.p)}</b>
        <span class="lv-d ${dirOf(odds.p - odds.base)}">${signed(odds.p - odds.base)}</span>` : "";
-  $("livecount").title = `Your odds as the build had them, moved by how each game since `
-    + `has gone. Scores from ESPN, every ${LIVE_EVERY / 1000} seconds while a game is on.`;
-  $("livelist").innerHTML =
-    (big.length ? `<div class="sb">${big.map(scoreTileHTML).join("")}</div>` : "")
-    + (rest.length ? `<p class="tickhead">${big.length ? "Other games today" : "Today's games"}</p>${tickerHTML(rest)}` : "");
+  $("livecount").title = `Your odds as the build had them, moved by each game that has `
+    + `finished since. Games still on count once they end.`;
+  // Each part keeps its order: the games open as tiles, then the rest as lines.
+  const part = (list, relevant) => {
+    const open = list.filter(x => liveOpen(x, relevant));
+    const shut = list.filter(x => !liveOpen(x, relevant));
+    return (open.length ? `<div class="sb">${open.map(x => scoreTileHTML(x)).join("")}</div>` : "")
+      + (shut.length ? tickerHTML(shut) : "");
+  };
+  $("livelist").innerHTML = part(big, true)
+    + (rest.length ? `<p class="tickhead">${big.length ? "Other games today" : "Today's games"}</p>`
+       + part(rest, false) : "");
 }
+
+// The games that matter open as tiles and fold to a line; the rest are lines
+// that open into tiles. What the reader chose for a game holds through the
+// redraws every poll makes.
+const LIVE_OPEN = new Map();
+const liveOpen = (x, relevant) => {
+  const k = gameKey(x.g);
+  return LIVE_OPEN.has(k) ? LIVE_OPEN.get(k) : relevant;
+};
 
 // The season, as one row of opponent logos under the record: a W or an L
 // under each game played, the games to come a little faded, the week on the
@@ -1919,6 +1943,24 @@ $("share").addEventListener("click", async () => {
     b.textContent = "Could not copy";
   }
   setTimeout(() => { b.textContent = "Share"; }, 2000);
+});
+$("livelist").addEventListener("click", (e) => {
+  // Team names keep their own click: the card, or the team's page.
+  if (e.target.closest("[data-team]")) return;
+  const item = e.target.closest("[data-game]");
+  if (!item) return;
+  const tile = item.classList.contains("sbt");
+  // A tile folds only from its button, since it is mostly things to read; a
+  // line opens from anywhere on it.
+  if (tile && !e.target.closest(".sb-fold")) return;
+  // The redraw takes the clicked element out of the page, which the page's
+  // own click handler would misread, so the click ends here.
+  e.stopPropagation();
+  LIVE_OPEN.set(item.dataset.game, !tile);
+  renderScoreboard();
+  const again = $("livelist").querySelector(`[data-game="${CSS.escape(item.dataset.game)}"] .sb-fold, `
+    + `[data-game="${CSS.escape(item.dataset.game)}"] .tk-fold`);
+  if (again && e.detail === 0) again.focus();     // keep a keyboard user's place
 });
 // A block's heading folds its body away: the scoreboard and the slate.
 document.querySelectorAll("button.fold").forEach(b => b.addEventListener("click", () => {
