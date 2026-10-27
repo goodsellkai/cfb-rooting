@@ -766,9 +766,10 @@ def teams_body(state, teams, odds=()):
             art = (f'<img src="{html.escape(t.logo)}" alt="" width="20" '
                    f'height="20">' if t.logo else "")
             p = chance.get(t.school)
+            odds = (_bar_cell(p, digits=2) if p is not None
+                    else '<td class="num">-</td>')
             rows += (f'<tr><td><a href="../team/{slug(t.school)}/">{art}'
-                     f'{html.escape(t.school)}</a></td>'
-                     f'<td class="num">{_pct(p, 2) if p is not None else "-"}</td></tr>\n')
+                     f'{html.escape(t.school)}</a></td>{odds}</tr>\n')
         head = (f'<a href="../conference/{conf_slug(conf)}/">{html.escape(conf)}</a>'
                 if conf in conferences(teams) else html.escape(conf))
         out += (f'<section>\n<h2>{head}</h2>\n<table><thead><tr>'
@@ -879,8 +880,20 @@ def _kick_html(g) -> str:
 PLAYOFF_STAKE = "Playoff places that change hands between its two results"
 
 
+def _stake_chip(name, d, logos, fbs, depth, metric="playoff"):
+    """A team with something on a game: the gap between its odds after the
+    two results, as a bar on a 0 to 100 point scale and as a number."""
+    art = (f'<img src="{html.escape(logos[name])}" alt="" width="18" height="18">'
+           if logos.get(name) else "")
+    gap = 100 * abs(d)
+    return (f'<span class="st" title="{html.escape(name)}: {gap:.1f} points of '
+            f'{metric} odds ride on this game">{art}{_team_link(name, fbs, depth)}'
+            f'<b>{gap:.1f}</b>'
+            f'<span class="stb"><i style="width:{max(gap, 1.5):.1f}%"></i></span></span>')
+
+
 def _stake_row(row, logos, fbs, best, depth, pos, detail, weeks=False,
-               what=PLAYOFF_STAKE):
+               what=PLAYOFF_STAKE, metric="playoff"):
     g = row["game"]
     value = row.get("value", row["spots"])
 
@@ -893,10 +906,10 @@ def _stake_row(row, logos, fbs, best, depth, pos, detail, weeks=False,
     width = max(2, round(100 * value / best)) if best else 2
     most = ""
     if detail:
-        named = ", ".join(f"{_team_link(name, fbs, depth)} {100 * abs(d):.1f}"
-                          for name, d in row["teams"][:3] if abs(d) >= 0.0005)
-        if named:
-            most = f'<span class="most">Most at stake: {named}</span>'
+        chips = "".join(_stake_chip(name, d, logos, fbs, depth, metric)
+                        for name, d in row["teams"][:3] if abs(d) >= 0.0005)
+        if chips:
+            most = f'<span class="most"><span class="mk">Most at stake</span>{chips}</span>'
     # A list across several weeks says which week each game is in; the
     # kickoff on its own names only a day.
     kick = (f'<span class="when"><span class="wk">Week {g["week"]}</span>'
@@ -909,12 +922,20 @@ def _stake_row(row, logos, fbs, best, depth, pos, detail, weeks=False,
             f'<b>{value:.2f}</b></span>{most}</li>')
 
 
-def _stakes_list(rows, state, depth, detail, weeks=False, what=PLAYOFF_STAKE):
+def _stakes_list(rows, state, depth, detail, weeks=False, what=PLAYOFF_STAKE,
+                 metric="playoff"):
     logos = {t.school: t.logo for t in state.teams}
     fbs = {t.school for t in state.fbs_teams}
     best = max((r.get("value", r["spots"]) for r in rows), default=1.0)
-    return "\n".join(_stake_row(r, logos, fbs, best, depth, i, detail, weeks, what)
+    return "\n".join(_stake_row(r, logos, fbs, best, depth, i, detail, weeks, what,
+                                metric)
                      for i, r in enumerate(rows, 1))
+
+
+def _stakes_head(value, when="Kickoff") -> str:
+    """The column names over a ranked list of games."""
+    return (f'<div class="stakehead" aria-hidden="true"><span></span><span>Game</span>'
+            f'<span>{when}</span><span class="sv">{html.escape(value)}</span></div>')
 
 
 def _stakes_home(state, stakes) -> str:
@@ -925,7 +946,7 @@ def _stakes_home(state, stakes) -> str:
         return ""
     return f"""<section class="stakes-home">
 <h2>The games that matter most, week {week}</h2>
-<p class="note">Playoff spots that change hands between each game's two results.</p>
+{_stakes_head("Playoff spots in play")}
 <ol class="stakes">
 {_stakes_list(rows, state, 0, False)}
 </ol>
@@ -955,15 +976,12 @@ def this_week_body(state, n_sims, stakes):
     # A game that moves almost nothing is listed, but not given a bar to
     # compare against the ones that matter.
     listed = _stakes_list(rows, state, 1, True) if rows else ""
-    body = (f'<ol class="stakes detail">\n{listed}\n</ol>' if rows
+    body = (f'{_stakes_head("Playoff spots in play")}\n'
+            f'<ol class="stakes detail">\n{listed}\n</ol>' if rows
             else f"<p>No games left in week {week}.</p>")
     return f"""<h1>The games that matter most for the playoff, week {week}</h1>
-<p class="lead">Every week {week} game, ranked by how much of the 12-team
-field changes hands between its two results, from {_sims(n_sims)} simulated
-seasons. A value of 0.40 means four-tenths of a playoff spot moves from one
-group of teams to another.</p>
-<p>Team figures are the gap in playoff odds between the two results, in
-percentage points.</p>
+<p class="lead">Every week {week} game, ranked by how much of the 12-team field
+moves between its two results, across {_sims(n_sims)} simulated seasons.</p>
 {body}
 <p><a href="../">Back to the guide</a></p>"""
 
@@ -1357,6 +1375,43 @@ def _pair_html(pair, logos, colors, names, fbs, abbrs=None):
             f'<b class="pr-p">{_pct(1 - wa, 0)}</b>{side(b, True)}</li>')
 
 
+def _bar_cell(p, strong=False, digits=1) -> str:
+    """A chance as a short bar on a 0 to 100 scale, then the number."""
+    v = _pct(p, digits)
+    inner = f"<b>{v}</b>" if strong else v
+    return (f'<td class="num bc{" strong" if strong else ""}"><span class="bcb" aria-hidden="true">'
+            f'<i style="width:{100 * float(p or 0):.1f}%"></i></span>'
+            f'<span class="bcv">{inner}</span></td>')
+
+
+def _title_share(rows, conf, by_idx, fbs) -> str:
+    """Every simulated season's champion as one bar: a slice per team in its
+    own colour, as wide as its chance, the long tail folded into one."""
+    shown = [r for r in rows if r["p"]["win_conference"] >= 0.02][:6]
+    rest = max(0.0, 1.0 - sum(r["p"]["win_conference"] for r in shown))
+    segs, key = "", ""
+    for r in shown:
+        t = by_idx[r["idx"]]
+        p = r["p"]["win_conference"]
+        color = html.escape(t.color or "var(--ink-2)")
+        art = (f'<img src="{html.escape(t.logo)}" alt="" width="20" height="20">'
+               if t.logo and p >= 0.07 else "")
+        segs += (f'<span class="ts-seg" style="flex-grow:{p:.4f};--c:{color}" '
+                 f'title="{html.escape(t.school)} {_pct(p)}">{art}</span>')
+        key += (f'<li><i style="--c:{color}"></i>{_team_link(t.school, fbs, 2)}'
+                f'<b>{_pct(p)}</b></li>')
+    if rest >= 0.001:
+        segs += (f'<span class="ts-seg rest" style="flex-grow:{rest:.4f}" '
+                 f'title="Everyone else {_pct(rest)}"></span>')
+        key += f'<li><i class="rest"></i>Everyone else<b>{_pct(rest)}</b></li>'
+    said = ", ".join(f"{by_idx[r['idx']].school} {_pct(r['p']['win_conference'])}"
+                     for r in shown)
+    return (f'<figure class="titleshare"><figcaption>Who wins the '
+            f'{html.escape(conf)}</figcaption><div class="ts-bar" role="img" '
+            f'aria-label="Who wins the {html.escape(conf)}: {html.escape(said)}">'
+            f'{segs}</div><ol class="ts-key">{key}</ol></figure>')
+
+
 def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
     fbs = {t.school for t in state.fbs_teams}
     by_idx = {t.idx: t for t in state.teams}
@@ -1366,22 +1421,7 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
     abbrs = {i: getattr(t, "abbreviation", "") for i, t in by_idx.items()}
     now = datetime.now(timezone.utc)
     pairs = [x for x in pairs or () if x["p"] >= RECORD_FLOOR][:6]
-
-    lead = ""
-    if rows:
-        top = rows[0]
-        rest = [r for r in rows[1:3] if r["p"]["win_conference"] >= 0.0005]
-        lead = (f"{_team_link(top['team'], fbs, 2)} wins the {html.escape(conf)} "
-                f"in {_pct(top['p']['win_conference'])} of {_sims(n_sims)} "
-                f"simulated seasons"
-                + (", ahead of " + " and ".join(
-                    f"{_team_link(r['team'], fbs, 2)} ({_pct(r['p']['win_conference'])})"
-                    for r in rest) if rest else "") + ".")
-        if pairs:
-            lead += (f" The likeliest title game is "
-                     f"{_team_link(names[pairs[0]['a']], fbs, 2)} against "
-                     f"{_team_link(names[pairs[0]['b']], fbs, 2)}, in "
-                     f"{_pct(pairs[0]['p'])}.")
+    share = _title_share(rows, conf, by_idx, fbs) if rows else ""
 
     body = ""
     for r in rows:
@@ -1392,9 +1432,9 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
                  f'{html.escape(r["team"])}</a></td>'
                  f'<td class="num">{r["conf_record"]}</td>'
                  f'<td class="num ovr">{r["record"]}</td>'
-                 f'<td class="num">{_pct(p["make_conf_title_game"])}</td>'
-                 f'<td class="num"><b>{_pct(p["win_conference"])}</b></td>'
-                 f'<td class="num">{_pct(p["make_playoff"])}</td></tr>\n')
+                 f'{_bar_cell(p["make_conf_title_game"])}'
+                 f'{_bar_cell(p["win_conference"], True)}'
+                 f'{_bar_cell(p["make_playoff"])}</tr>\n')
     table = (f'<div class="tablewrap"><table class="confrace"><thead><tr>'
              f'<th>Team</th><th class="num">Conf</th><th class="num ovr">Overall</th>'
              f'<th class="num">Title game</th><th class="num">Wins {html.escape(conf)}</th>'
@@ -1411,19 +1451,18 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
     games = [r for r in (stakes.week(None, expected=True) if stakes else [])
              if r["value"] >= 0.005][:8]
     if games:
+        what = "Title game places this game is expected to move"
         deciders = (f"<h2>The games that decide the race</h2>\n"
-                    f"<p class=\"note\">Title game places each game is expected "
-                    f"to move, from what changes hands between its two results "
-                    f"and how likely each one is. Team figures are the gap in "
-                    f"title game odds, in percentage points.</p>\n"
+                    f"{_stakes_head('Title game places in play', 'When')}\n"
                     f"<ol class=\"stakes detail weeks\">\n"
-                    f"{_stakes_list(games, state, 2, True, weeks=True, what='Title game places this game is expected to move')}\n</ol>")
+                    f"{_stakes_list(games, state, 2, True, weeks=True, what=what, metric='title game')}\n</ol>")
 
     others = " ".join(f'<a href="../{conf_slug(c)}/">{html.escape(c)}</a>'
                       for c in conferences(state.fbs_teams) if c != conf)
     return f"""<h1>The {html.escape(conf)} title race</h1>
-<p class="foot">Updated {now:%B} {now.day}, after week {state.current_week() - 1}.</p>
-<p class="lead">{lead}</p>
+<p class="foot">Updated {now:%B} {now.day}, after week {state.current_week() - 1},
+from {_sims(n_sims)} simulated seasons.</p>
+{share}
 {table}
 {matchups}
 {deciders}
@@ -1465,18 +1504,30 @@ def _races_home(state, league) -> str:
     if not league:
         return ""
     logos = {t.idx: t.logo for t in state.teams}
+    colors = {t.idx: t.color for t in state.teams if t.color}
     items = ""
     for c in conferences(state.fbs_teams):
-        rows = [r for r in league if r["conference"] == c]
+        rows = sorted((r for r in league if r["conference"] == c),
+                      key=lambda r: -r["p"]["win_conference"])
         if not rows:
             continue
-        top = max(rows, key=lambda r: r["p"]["win_conference"])
+        top = rows[0]
         art = (f'<img src="{html.escape(logos[top["idx"]])}" alt="" width="20" '
                f'height="20">' if logos.get(top["idx"]) else '<span class="noart"></span>')
+        # Who wins it, a slice per contender in its own colour.
+        strip = "".join(
+            f'<i style="flex-grow:{r["p"]["win_conference"]:.4f};'
+            f'--c:{html.escape(colors.get(r["idx"]) or "var(--ink-2)")}"></i>'
+            for r in rows[:5] if r["p"]["win_conference"] >= 0.02)
+        rest = 1 - sum(r["p"]["win_conference"] for r in rows[:5]
+                       if r["p"]["win_conference"] >= 0.02)
+        if rest >= 0.005:
+            strip += f'<i class="rest" style="flex-grow:{rest:.4f}"></i>'
         items += (f'<li><a href="conference/{conf_slug(c)}/">'
                   f'<span class="cn">{html.escape(c)}</span>'
                   f'<span class="fav">{art}{html.escape(top["team"])}'
-                  f'<b>{_pct(top["p"]["win_conference"], 0)}</b></span></a></li>\n')
+                  f'<b>{_pct(top["p"]["win_conference"], 0)}</b></span>'
+                  f'<span class="strip" aria-hidden="true">{strip}</span></a></li>\n')
     if not items:
         return ""
     return f"""<section class="races-home">
@@ -1507,7 +1558,7 @@ def rankings_head(state, projection, n_sims, card=None):
                               ("Projected CFP rankings", url)])])
 
 
-def _field_html(projection, by_idx, fbs, year) -> str:
+def _field_html(projection, by_idx, fbs) -> str:
     field = projection.get("field") or []
     if len(field) != 12:
         return ""
@@ -1530,20 +1581,24 @@ def _field_html(projection, by_idx, fbs, year) -> str:
         return (f'<span class="ft"><b class="sd">{f["seed"]}</b>{art}'
                 f'{_team_link(t.school, fbs, depth)}{note}</span>')
 
-    byes = "".join(f"<li>{team(seed[i])}</li>" for i in range(1, 5))
-    first = "".join(f"<li>{team(seed[a])}<i>at</i>{team(seed[b])}</li>"
-                    for a, b in ((12, 5), (11, 6), (10, 7), (9, 8)))
-    out_ = ", ".join(_team_link(by_idx[i].school, fbs, 1)
-                     for i in projection.get("out") or [] if i in by_idx)
-    return f"""<h2>If the season ended today</h2>
-<p>The current conference leaders take the automatic bids, under the {year} rules:
-four power conference champions, the best-ranked Group of Six team and Notre
-Dame if it is in the top 12.</p>
-<div class="fieldnow">
-<div><h3>First-round byes</h3><ol class="ftlist">{byes}</ol></div>
-<div><h3>First round, at the higher seed</h3><ol class="ftlist pairs1">{first}</ol></div>
-</div>
-""" + (f"<p>First teams out: {out_}.</p>" if out_ else "")
+    # Bracket order, top to bottom: each bye waits for the winner of the
+    # first-round game it is drawn against, which the higher seed hosts.
+    pods = "".join(
+        f'<li class="pod"><span class="pod-game">{team(seed[a])}{team(seed[b])}</span>'
+        f'<span class="pod-line" aria-hidden="true"></span>'
+        f'<span class="pod-bye">{team(seed[bye])}</span></li>'
+        for bye, a, b in ((1, 8, 9), (4, 5, 12), (3, 6, 11), (2, 7, 10)))
+    out_ = "".join(
+        f'<li><img src="{html.escape(by_idx[i].logo)}" alt="" width="20" height="20">'
+        f'{_team_link(by_idx[i].school, fbs, 1)}</li>' if by_idx[i].logo
+        else f'<li>{_team_link(by_idx[i].school, fbs, 1)}</li>'
+        for i in projection.get("out") or [] if i in by_idx)
+    return f"""<section class="fieldnow">
+<h2>If the season ended today</h2>
+<div class="br-head" aria-hidden="true"><span>First round, at the higher seed</span>
+<span>First-round byes</span></div>
+<ol class="pods">{pods}</ol>
+""" + (f'<h3>First teams out</h3>\n<ul class="outs">{out_}</ul>\n' if out_ else "") + "</section>"
 
 
 def rankings_body(state, projection, odds=()):
@@ -1566,21 +1621,21 @@ played for the committee to rank teams.</p>
         art = (f'<img src="{html.escape(t.logo)}" alt="" width="22" height="22">'
                if t.logo else '<span class="noart"></span>')
         p = chance.get(t.school)
+        odds = (_bar_cell(p, True) if p is not None
+                else '<td class="num"><b>-</b></td>')
         rows += (f'<tr><td class="rk">{n}</td>'
                  f'<td><a href="../team/{slug(t.school)}/">{art}{html.escape(t.school)}</a></td>'
-                 f'<td class="num">{w}-{l}</td>'
-                 f'<td class="num"><b>{_pct(p) if p is not None else "-"}</b></td></tr>\n')
+                 f'<td class="num">{w}-{l}</td>{odds}</tr>\n')
     head = ('<tr><th class="rk">Rank</th><th>Team</th><th class="num">Record</th>'
-            '<th class="num">Playoff odds</th></tr>')
+            '<th class="num">Final playoff odds</th></tr>')
 
     return f"""<h1>Projected CFP rankings</h1>
-<p class="foot">After week {week} of the {state.year} season. Updated {now:%B} {now.day}.</p>
-<p class="lead">The selection committee's top 25 as the model expects it, from
-results through week {week}.</p>
+<p class="foot">The committee's top 25 as the model expects it after week {week} of
+the {state.year} season. Updated {now:%B} {now.day}.</p>
+<div class="rankwrap">
 <div class="tablewrap"><table class="rank25"><thead>{head}</thead>
 <tbody>{rows}</tbody></table></div>
-<p class="note">The ranking is where teams stand now. Playoff odds are for the
-end of the season.</p>
-{_field_html(projection, by_idx, fbs, state.year)}
+{_field_html(projection, by_idx, fbs)}
+</div>
 <p><a href="../teams/">Playoff odds for every team</a> &middot;
 <a href="../how-it-works/">Methodology</a></p>"""

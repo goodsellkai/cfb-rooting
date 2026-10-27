@@ -255,6 +255,7 @@ def test_the_week_page_ranks_the_games_and_links_the_teams(season, payload):
     if rows:
         assert body.count("<li>") == len(rows)
         assert 'href="../team/' in body
+        assert "Playoff spots in play" in body and 'class="st"' in body
         home = pages.home_body(season, season.fbs_teams, 2_500_000, stakes=s)
         assert 'href="this-week/"' in home
         assert home.count('class="stake"') == min(5, len(rows))
@@ -323,6 +324,9 @@ def test_a_conference_page_has_its_race_matchups_and_tiebreakers(season, payload
     said = text(body)
     assert f"The {conf} title race" in said
     assert "Likeliest title games" in said and "40.0% of seasons" in said
+    # who wins it, as one bar with a slice for the favourite and a key under it
+    assert "Who wins the SEC" in said and 'class="ts-seg"' in body
+    assert f"{rows[0]['team']}" in text(body.split('class="ts-key"')[1].split("</ol>")[0])
     assert "How the SEC breaks ties" in said and "Head-to-head" in said
     assert "{" not in body and "}" not in body
     head = pages.conference_head(season, conf, rows, payload["n_sims"], pairs)
@@ -348,6 +352,8 @@ def test_the_rankings_page_lists_25_and_the_field(season):
     assert "Projected CFP rankings" in said
     assert body.count('<td class="rk">') == 25
     assert "If the season ended today" in said and "First-round byes" in said
+    # the field as the bracket's first two rounds: a bye beside each game
+    assert body.count('<li class="pod">') == 4 and body.count('class="sd"') == 12
     assert "{" not in body and "}" not in body
     # with nothing to show it says so rather than failing
     assert "returns once" in text(pages.rankings_body(season, None))

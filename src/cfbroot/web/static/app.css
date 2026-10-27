@@ -30,6 +30,7 @@
   --pick: #1f5c3c;
   --pick-ink: #ffffff;
   --chart: #2a6b47;
+  --chart-ink: #ffffff;
   --shadow: 0 12px 32px -14px rgba(16, 32, 22, .32), 0 1px 2px rgba(16, 32, 22, .08);
   --font: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
@@ -56,6 +57,7 @@
     --pick: #2e6e4a;
     --pick-ink: #ffffff;
     --chart: #8fd0aa;
+    --chart-ink: #0f1712;
     --shadow: 0 14px 34px -14px rgba(0, 0, 0, .7), 0 1px 2px rgba(0, 0, 0, .4);
   }
 }
@@ -265,50 +267,45 @@ button.sz:focus-visible { outline: 2px solid var(--team-mark); outline-offset: 2
 .menu .conf { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .menu li.none { color: var(--muted); cursor: default; }
 
-.path { display: grid; grid-auto-flow: column; grid-auto-columns: 72px; gap: 4px; }
+/* The road: one bar chart on a shared baseline, each bar as tall as its
+   chance and labelled at its top, stepping down from finishing ranked to
+   winning it all. The bar chosen is the first-down yellow. */
+@property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+.path { display: grid; grid-auto-flow: column; grid-auto-columns: 74px; }
 .path:empty { display: none; }
 .step {
-  position: relative; display: grid; grid-template-rows: auto 48px auto;
-  gap: 6px; padding: 6px 5px 9px; margin: 0; text-align: left;
-  background: color-mix(in srgb, currentColor 6%, transparent);
-  border: 0; border-radius: 6px; color: inherit;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+  display: grid; grid-template-rows: 96px auto; gap: 7px; margin: 0; padding: 0;
+  background: none; border: 0; border-radius: 4px; color: inherit; text-align: center;
   font: inherit; cursor: pointer;
-  transition: background-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
-.step:hover {
-  background: color-mix(in srgb, currentColor 13%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 50%, transparent);
-  transform: translateY(-2px);
+.step .col {
+  position: relative; display: block;
+  border-bottom: 1.5px solid color-mix(in srgb, currentColor 55%, transparent);
+  transition: --p .7s cubic-bezier(.2, .8, .2, 1);
 }
-.step:active { transform: translateY(0) scale(.97); }
-.step[aria-pressed="true"] {
-  background: color-mix(in srgb, currentColor 15%, transparent);
-  box-shadow: inset 0 0 0 2px var(--team-mark);
+/* the top 20px are headroom for the label over a full bar */
+.step .col i {
+  position: absolute; left: 5px; right: 5px; bottom: 0; display: block;
+  height: max(2px, calc((100% - 20px) * var(--p) / 100)); border-radius: 3px 3px 0 0;
+  background: currentColor; opacity: .34; transition: opacity .15s ease;
 }
-.step:focus-visible { outline: 2px solid var(--team-mark); outline-offset: 0; }
 .step .v {
-  font-size: 20px; line-height: 1; font-weight: 800; font-stretch: 64%;
+  position: absolute; left: 0; right: 0; bottom: calc((100% - 20px) * var(--p) / 100 + 3px);
+  font-size: 16px; line-height: 1; font-weight: 800; font-stretch: 62%;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.step .v small { font-size: .62em; font-weight: 650; margin-left: 1px; opacity: .8; }
-.step .bar { position: relative; background: color-mix(in srgb, currentColor 14%, transparent); }
-.step .bar i {
-  position: absolute; left: 0; right: 0; bottom: 0; display: block;
-  background: currentColor; opacity: .82;
-  transition: height .6s cubic-bezier(.2, .8, .2, 1);
-}
+.step .v small { font-size: .7em; font-weight: 650; margin-left: 1px; opacity: .8; }
+.step:hover .col i { opacity: .55; }
+.step:active .col i { opacity: .7; }
+.step[aria-pressed="true"] .col i { background: var(--team-mark); opacity: 1; }
+.step[aria-pressed="true"] .v { font-size: 19px; }
+.step:focus-visible { outline: 2px solid var(--team-mark); outline-offset: 2px; }
 .step .k {
-  font-size: 12px; line-height: 1.2; font-weight: 650; font-stretch: 86%;
-  opacity: .88; min-height: 2.4em;
+  padding: 0 3px; font-size: 12px; line-height: 1.2; font-weight: 600; font-stretch: 84%;
+  opacity: .82; min-height: 2.4em;
 }
 .step .k .short { display: none; }
-.step[aria-pressed="true"] .bar i { background: var(--team-mark); opacity: 1; }
-.step[aria-pressed="true"]::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
-  border-radius: 0 0 6px 6px; background: var(--team-mark);
-}
-.step[aria-pressed="true"] .k { opacity: 1; }
+.step[aria-pressed="true"] .k { opacity: 1; font-weight: 780; }
 
 /* Controls */
 select, input, button { font: inherit; color: inherit; }
@@ -400,7 +397,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 /* The slate. Each game is one row whose first line is the side to root for,
    with the other side's own line under it. */
 .slate {
-  --cols: 6.5rem minmax(0, 1fr) 3rem 4.6rem 4rem 7.5rem;
+  --cols: 6.5rem minmax(0, 1fr) 3rem minmax(230px, 1.3fr);
   font-stretch: 88%; font-variant-numeric: tabular-nums;
 }
 .slatehead, .game {
@@ -410,7 +407,9 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
   padding: 8px 0 7px; border-bottom: 1px solid var(--rule);
   font-size: 12px; font-weight: 650; color: var(--muted); line-height: 1.2;
 }
-.slatehead .h-imp { grid-column: 6; }
+.slatehead .h-tor { grid-column: 4; display: flex; justify-content: space-between;
+                    align-items: baseline; gap: 6px; font-weight: 500; }
+.h-tor b { font-weight: 650; color: var(--ink-2); }
 /* kickoff order: each time slot heads its games, and stays in view */
 .slot {
   position: sticky; top: 53px; z-index: 2; margin-top: 8px; padding: 7px 0 5px;
@@ -435,7 +434,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .when .opp { display: none; }
 .game:not(.open) .when .tv { display: none; }
 .game .side {
-  grid-column: 2 / 6; display: grid; grid-template-columns: subgrid;
+  grid-column: 2 / 5; display: grid; grid-template-columns: subgrid;
   align-items: center; min-height: 27px; font-size: 14.5px;
 }
 .game .side.root { grid-row: 1; }
@@ -464,10 +463,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 }
 .more:hover { border-color: var(--muted); color: var(--ink); }
 .side .pr { color: var(--muted); }
-.side .od { color: var(--ink-2); }
-.side .dd { font-weight: 650; }
 .side.root .who b { font-weight: 780; }
-.side.root .od { color: var(--ink); font-weight: 650; }
 /* How sure: a highlighted name, an underlined one, or bold alone. */
 .game.clear .side.root .who b {
   background: var(--mark); color: var(--mark-ink); padding: 1px 6px; border-radius: 3px;
@@ -480,18 +476,25 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .down { color: var(--down); }
 .flat { color: var(--muted); }
 .game.played .side.other { opacity: .5; }
-.game .imp {
-  grid-column: 6; grid-row: 1 / span 2; display: flex; align-items: center; gap: 9px;
-}
-.imp b {
-  min-width: 3.1em; text-align: right; font-size: 17px; font-weight: 800;
-  font-stretch: 68%;
-}
-.imp .bar { flex: 1; display: block; }
-.imp .bar i { display: block; height: 7px; background: var(--bar); border-radius: 1px; }
-.game.leaning .imp .bar i { background: none; box-shadow: inset 0 0 0 1.5px var(--bar); }
-.game.thin .imp .bar i { background: none; border: 1.5px dashed var(--muted); }
-.game.thin .imp b, .game.leaning .imp b { color: var(--ink-2); }
+/* A side's bar from the centre line every game shares: right for better,
+   left for worse, labelled at its end. Solid when the effect is significant,
+   an outline when it is likely, dashed when one result almost never happens. */
+.tor { --half: calc(50% - 46px); position: relative; align-self: stretch; color: var(--muted); }
+.tor::before { content: ""; position: absolute; left: 50%; top: -7px; bottom: -7px; width: 1px;
+               background: var(--rule); }
+.tor.up { color: var(--up); }
+.tor.down { color: var(--down); }
+.tor i { position: absolute; top: 50%; height: 11px; margin-top: -5.5px;
+         width: calc(var(--half) * var(--f)); background: currentColor; }
+.tor.up i { left: 50%; border-radius: 0 3px 3px 0; }
+.tor.down i { right: 50%; border-radius: 3px 0 0 3px; }
+.tor b { position: absolute; top: 50%; transform: translateY(-50%); font-size: 13.5px;
+         font-weight: 720; line-height: 1; white-space: nowrap; }
+.tor.up b, .tor.flat b { left: calc(50% + var(--half) * var(--f) + 6px); }
+.tor.down b { right: calc(50% + var(--half) * var(--f) + 6px); }
+.game.leaning .tor i { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
+.game.thin .tor i { background: none; border: 1.5px dashed currentColor; }
+.game.thin .tor b, .game.leaning .tor b { font-weight: 600; }
 /* The slate's heading folds the whole list away. */
 .fold {
   display: inline-flex; align-items: baseline; gap: 0 .35em; flex-wrap: wrap;
@@ -615,21 +618,30 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .sb-last { margin: 2px 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
            font-size: 12px; color: var(--muted); }
 
-/* Distributions: the bars share one height, so equal values are the only
-   way two of them come out the same. */
-.dist { display: flex; align-items: stretch; gap: 3px; height: 116px; padding-top: 10px; }
-.dist .b { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.dist .pv { font-size: 10px; line-height: 1.3; text-align: center; color: var(--muted);
-            font-stretch: 62%; font-variant-numeric: tabular-nums; white-space: nowrap;
-            overflow: hidden; }
-.dist .col { flex: 1; display: flex; align-items: flex-end; }
-.dist .col i { display: block; width: 100%; min-height: 1px; background: var(--chart); opacity: .3; }
-.dist .b.hi i { opacity: 1; }
-.dist .b.hi .pv { color: var(--ink); font-weight: 700; }
-.dist .pv small { font-size: inherit; }
-.dist.bare .pv small { display: none; }
-.dist .lb { font-size: 11px; text-align: center; color: var(--muted); margin-top: 4px;
-            font-stretch: 80%; font-variant-numeric: tabular-nums; }
+/* Seeds: all twelve on one scale, the likeliest solid, and under them the
+   bracket's three kinds of place: a bye, a home game, a road game. */
+.seeds {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 3px;
+  padding-top: 10px; font-stretch: 78%; font-variant-numeric: tabular-nums;
+}
+.sd-c { display: grid; grid-template-rows: 86px auto; min-width: 0; }
+.sd-plot { position: relative; border-bottom: 1px solid var(--rule); }
+.sd-plot i {
+  position: absolute; left: 0; right: 0; bottom: 0; min-height: 1px; border-radius: 2px 2px 0 0;
+  height: calc((100% - 15px) * var(--h) / 100); background: var(--chart); opacity: .32;
+}
+.sd-c.hi i { opacity: 1; }
+.sd-v {
+  position: absolute; left: -3px; right: -3px; bottom: calc((100% - 15px) * var(--h) / 100 + 2px);
+  text-align: center; font-size: 10px; line-height: 1; color: var(--muted); white-space: nowrap;
+}
+.sd-c.hi .sd-v { color: var(--ink); font-weight: 760; }
+.sd-x { padding-top: 4px; text-align: center; font-size: 11.5px; color: var(--muted); }
+.sd-g {
+  grid-row: 2; margin: 6px 1px 0; padding-top: 3px; border-top: 1.5px solid var(--rule);
+  text-align: center; font-size: 11.5px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Tables */
 .tablewrap { overflow-x: auto; }
@@ -644,6 +656,16 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
 .lg td, .stand td { padding: 5px 6px; border-bottom: 1px solid var(--rule-2); white-space: nowrap; }
 .lg td:first-child, .lg th:first-child { padding-left: 2px; color: var(--muted); }
 .lg tr.mine td, .stand tr.mine td { background: var(--sel); font-weight: 700; }
+/* each team's odds as a bar on a 0 to 100 scale, ESPN's as a tick across it */
+.lg .lgo { width: 88px; padding-right: 0; }
+.lgbar { position: relative; display: block; height: 8px; }
+.lgbar i { position: absolute; left: 0; top: 0; bottom: 0; min-width: 1px; border-radius: 0 2px 2px 0;
+           background: var(--chart); }
+.lgbar s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+           background: var(--ink); opacity: .7; }
+.lg tr.mine .lgbar i { background: var(--ink); }
+.lg th .lgk { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+.lg-espn { display: inline-block; width: 2px; height: 11px; background: var(--ink); opacity: .7; }
 .lg tbody tr:hover td, .stand tbody tr:hover td { background: var(--sel); }
 .teamcell { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
 .teamcell .tn { overflow: hidden; text-overflow: ellipsis; }
@@ -764,10 +786,27 @@ ol.stakes { list-style: none; margin: 2px 0 0; padding: 0; font-stretch: 88%; ma
 .stakes .barline i { display: block; height: 100%; background: var(--ink-2); }
 .stakes .stake b { min-width: 2.4em; text-align: right; font-size: 15px; color: var(--ink);
                    font-variant-numeric: tabular-nums; }
-.stakes .most { grid-column: 2 / -1; padding-top: 3px; font-size: 13.5px; color: var(--ink-2); }
+/* who has the most riding on a game: each team's gap between the two results
+   as a short bar on a 0 to 100 point scale */
+.stakes .most { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center;
+                gap: 4px 18px; padding-top: 5px; font-size: 13.5px; color: var(--ink-2); }
+.most .mk { font-size: 12px; color: var(--muted); }
+.st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.st img { width: 18px; height: 18px; object-fit: contain; flex: none; }
+.stakes .st a { color: var(--ink); font-weight: 650; text-decoration: none; }
+.stakes .st a:hover { text-decoration: underline; }
+.stb { display: inline-block; width: 56px; height: 6px; }
+.stb i { display: block; height: 100%; border-radius: 0 2px 2px 0; background: var(--chart); }
+.st b { min-width: 2em; text-align: right; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stakehead {
+  display: grid; grid-template-columns: 1.4rem minmax(0, 1fr) 12rem 8.5rem; column-gap: 14px;
+  margin-top: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  font-size: 12px; font-weight: 650; color: var(--muted); font-stretch: 88%;
+}
+.stakehead .sv { text-align: right; }
 .race .odds { display: flex; align-items: center; gap: 8px; }
 .race .barline { display: block; width: 64px; height: 6px; }
-.race .barline i { display: block; height: 100%; background: var(--ink-2); }
+.race .barline i { display: block; height: 100%; background: var(--chart); }
 .race b { min-width: 52px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
 .faq { margin: 4px 0 0; max-width: 72ch; }
 .faq dt { font-weight: 750; color: var(--ink); margin-top: 14px; }
@@ -850,30 +889,63 @@ body.info .intro img, .writeup img { width: 20px; height: 20px; object-fit: cont
              align-items: start; }
 .needsbody[hidden] { display: none; }
 .nd-side { padding-top: 16px; }
-/* the answer, then the numbers behind it */
-.needssum { margin: 14px 0 6px; max-width: 72ch; }
+/* the answer, in a line */
+.needssum { margin: 16px 0 4px; max-width: 72ch; }
 .needssum:empty { display: none; }
-.needssum p { margin: 0 0 6px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
-.needssum p.verdict { font-size: 22px; line-height: 1.15; font-weight: 800; font-stretch: 76%;
-                      letter-spacing: -.005em; color: var(--ink); margin-bottom: 6px; }
-.needssum b { color: var(--ink); font-weight: 760; font-variant-numeric: tabular-nums; }
-/* A row per game left: the measure after a loss and after a win at the two
-   ends, and the stretch between them as a bar on one scale shared by every
-   row, with today's number a tick across it. The game expected to move the
-   odds most is the only one drawn solid. */
+.needssum p.verdict { margin: 0; font-size: 26px; line-height: 1.1; font-weight: 820;
+                      font-stretch: 72%; letter-spacing: -.008em; color: var(--ink); }
+/* The key to the games chart, where the heading keeps its note. */
+#needsnote { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.lgk { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lgk .db-dot { position: static; margin: 0; }
+.lg-now { display: inline-block; width: 2px; height: 13px; background: var(--ink); opacity: .6; }
+/* A row per game left, as a dumbbell on one scale shared by every row: a
+   ring where a loss leaves the odds, a dot where a win does, the bar between
+   them shaded from one to the other, and today's number one line down the
+   whole chart. The game expected to move the odds most is drawn solid. */
 .nd-grid {
-  --cols: 4.4rem minmax(0, 1fr) 3.3rem 4.4rem minmax(96px, 1.15fr) 4.4rem;
+  --cols: 4.4rem minmax(0, 16rem) 2.8rem minmax(220px, 1fr);
+  --pad: 62px; --rowbg: var(--bg);
   font-stretch: 88%; font-variant-numeric: tabular-nums;
 }
 .nd-head, .nd { display: grid; grid-template-columns: var(--cols); column-gap: 14px;
                 align-items: center; }
-.nd-head { padding: 10px 0 7px; border-bottom: 1px solid var(--rule); font-size: 12px;
+.nd-head { padding: 12px 0 7px; border-bottom: 1px solid var(--rule); font-size: 12px;
            font-weight: 650; color: var(--muted); line-height: 1.2; }
-.nd-scale { display: flex; justify-content: space-between; font-weight: 500; }
-.nd { padding: 6px 0; border-bottom: 1px solid var(--rule-2); cursor: pointer; }
-.nd:hover { background: color-mix(in srgb, var(--sel) 60%, transparent); }
-.nd.on { background: var(--sel); }
+.nd-scale { position: relative; align-self: stretch; min-height: 1.2em; }
+.nd-scale .db span { position: absolute; top: 0; transform: translateX(-50%); font-weight: 500;
+                     white-space: nowrap; }
+.nd { --rowbg: var(--bg); padding: 7px 0; border-bottom: 1px solid var(--rule-2); cursor: pointer;
+      background: var(--rowbg); }
+.nd:hover { --rowbg: color-mix(in srgb, var(--sel) 60%, var(--bg)); }
+.nd.on { --rowbg: var(--sel); }
 .nd.tg { cursor: default; }
+.nd.tg:hover { --rowbg: var(--bg); }
+.nd-bar { position: relative; align-self: stretch; min-height: 30px; margin: -7px 0; }
+.db { position: absolute; top: 0; bottom: 0; left: var(--pad); right: var(--pad); }
+/* gridlines at the quarters of the scale, and today's number across them */
+.nd .db { background: linear-gradient(to right, var(--rule-2) 1px, transparent 1px) 0 0 / 25% 100% repeat-x;
+          box-shadow: inset -1px 0 var(--rule-2); }
+.nd .db::after { content: ""; position: absolute; top: 0; bottom: 0; left: var(--now); width: 2px;
+                 margin-left: -1px; background: var(--ink); opacity: .55; }
+.db-line { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px;
+           background: linear-gradient(to right, var(--down), var(--up)); opacity: .5; }
+.db-line.flip { background: linear-gradient(to left, var(--down), var(--up)); }
+.nd.big .db-line { height: 6px; margin-top: -3px; opacity: 1; }
+.db-dot { position: absolute; top: 50%; z-index: 1; width: 12px; height: 12px;
+          margin: -6px 0 0 -6px; border-radius: 50%; }
+.db-dot.win { background: var(--up); }
+.db-dot.loss { background: var(--rowbg, var(--bg)); box-shadow: inset 0 0 0 2.5px var(--down); }
+.db-v { position: absolute; top: 50%; z-index: 2; padding: 1px 3px; transform: translate(7px, -50%);
+        background: var(--rowbg); font-size: 13.5px; line-height: 1.1; font-weight: 740;
+        white-space: nowrap; }
+.db-v.l { transform: translate(calc(-100% - 7px), -50%); }
+.db-v.win { color: var(--up); }
+.db-v.loss { color: var(--down); }
+.db-dot.gone, .db-v.gone { opacity: .3; }
+.nd-tag { flex: none; margin-left: 4px; padding: 1px 6px; border-radius: 3px;
+          background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 720;
+          line-height: 1.4; white-space: nowrap; }
 .nd-when { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .nd-when b { font-size: 13.5px; font-weight: 760; color: var(--ink); }
 .nd-when small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden;
@@ -891,43 +963,46 @@ body.info .intro img, .writeup img { width: 20px; height: 20px; object-fit: cont
 .nd-p.res { font-weight: 760; white-space: nowrap; }
 .nd-p.res.w { color: var(--up); }
 .nd-p.res.l { color: var(--down); }
-.nd-lo, .nd-hi { font-size: 15px; font-weight: 720; }
-.nd-lo { color: var(--down); }
-.nd-hi { color: var(--up); }
-.nd-lo.nd-un, .nd-hi.nd-un { color: var(--muted); font-weight: 500; }
-/* a game decided since the build: the result that happened stays */
-.nd.won .nd-lo, .nd.lost .nd-hi { opacity: .35; }
-.nd-bar { position: relative; height: 22px; }
-.nd-bar::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
-                  border-top: 1px solid var(--rule); }
-.nd-bar i { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
-            background: var(--chart); opacity: .38; }
-.nd.big .nd-bar i { opacity: 1; }
-.nd-bar b, .nd-tick { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px;
-                      background: var(--ink); border-radius: 1px; }
-.nd-key { display: flex; align-items: center; gap: 7px; margin: 8px 0 0; font-size: 12.5px;
-          color: var(--muted); font-variant-numeric: tabular-nums; }
-.nd-tick { position: static; display: inline-block; height: 12px; margin: 0; }
 .nd-grid.flat { --cols: 4.4rem minmax(0, 1fr) 3.3rem; }
-/* Each final record: how often it happens as a bar, and the measure there.
-   The likeliest record's bar is solid. */
-table.ladder { width: 100%; font-size: 14px; font-stretch: 88%; font-variant-numeric: tabular-nums; }
-.ladder caption { caption-side: top; text-align: left; padding: 0 0 8px; font-size: 14px;
-                  font-weight: 780; font-stretch: 84%; color: var(--ink); }
-.ladder th, .ladder td { padding: 6px 0; text-align: left; white-space: nowrap;
-                         border-bottom: 1px solid var(--rule-2); }
-.ladder thead th { padding-top: 0; font-size: 12px; font-weight: 650; color: var(--muted);
-                   border-bottom-color: var(--rule); }
-.ladder th[scope="row"] { width: 3.6rem; font-weight: 780; color: var(--ink); }
-.ladder td { color: var(--ink-2); }
-.ladder .num { text-align: right; }
-.ladder td b { color: var(--ink); font-weight: 780; }
-.ladder .lw { display: inline-block; vertical-align: middle; width: 96px; height: 6px;
-              margin-right: 9px; }
-.ladder .lw i { display: block; height: 100%; border-radius: 3px; background: var(--chart);
-                opacity: .4; }
-.ladder tr.likely .lw i { opacity: 1; }
-.ladder .lp { display: inline-block; min-width: 2.6em; }
+/* Each final record as a column as wide as it is likely, filled to the odds
+   at that record: the filled share of the chart is the team's whole chance.
+   A column too narrow for its labels keeps them in its hover text. */
+.mosaic { margin: 0; font-stretch: 86%; font-variant-numeric: tabular-nums; }
+.mosaic figcaption {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+}
+.mosaic figcaption b { font-size: 14px; font-weight: 780; font-stretch: 84%; color: var(--ink); }
+.mosaic figcaption span { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.mz { display: flex; gap: 3px; padding-top: 12px; }
+.mz-c { flex: 1 1 0; min-width: 3px; container-type: inline-size; }
+.mz-plot { position: relative; height: 132px; border-radius: 3px 3px 0 0;
+           background: color-mix(in srgb, var(--chart) 13%, transparent); }
+.mz-plot i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--h) * 1%);
+             min-height: 1px; background: var(--chart); }
+.mz-v { position: absolute; left: 0; right: 0; bottom: calc(var(--h) * 1% + 3px); text-align: center;
+        font-size: 13px; line-height: 1; font-weight: 760; color: var(--ink); white-space: nowrap; }
+/* a tall fill carries its label inside its top edge */
+.mz-plot.in .mz-v { bottom: auto; top: calc(100% - var(--h) * 1% + 5px); color: var(--chart-ink); }
+.mosaic.flat .mz-plot { background: none; border-bottom: 1px solid var(--rule); }
+.mosaic.flat .mz-plot i { height: calc((100% - 17px) * var(--h) / 100); border-radius: 2px 2px 0 0;
+                          opacity: .5; }
+.mosaic.flat .mz-v { bottom: calc((100% - 17px) * var(--h) / 100 + 3px); }
+.mosaic.flat .likely i { opacity: 1; }
+/* a fixed height, so the bracket under the columns lines up across them */
+.mz-x { height: 36px; padding-top: 5px; text-align: center; line-height: 1.2; white-space: nowrap;
+        overflow: hidden; }
+.mosaic.flat .mz-x { height: 23px; }
+.mz-x b { display: block; font-size: 13.5px; font-weight: 780; color: var(--ink); }
+.mz-x small { display: block; font-size: 11.5px; color: var(--muted); }
+@container (max-width: 42px) { .mz-v, .mz-x small { display: none; } }
+@container (max-width: 24px) { .mz-x b { display: none; } }
+/* the records that make a team bowl eligible, bracketed under their columns */
+.mz-b { height: 19px; margin-top: 6px; }
+.mz-b.on { margin-right: -3px; border-top: 1.5px solid var(--ink-2); }
+.mz-b.on.last { margin-right: 0; }
+.mz-b span { display: block; padding-top: 3px; font-size: 11.5px; color: var(--ink-2);
+             white-space: nowrap; }
 .seedbox { margin-top: 24px; }
 .seedbox[hidden] { display: none; }
 .subhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -941,8 +1016,34 @@ table.ladder { width: 100%; font-size: 14px; font-stretch: 88%; font-variant-num
 body.info .intro .tablewrap table { max-width: none; }
 .note { font-size: 13.5px; color: var(--muted); }
 
-/* A conference's title race */
+/* A chance in a table: a short bar on a 0 to 100 scale, then the number. The
+   column the table is about is solid, the rest lighter. */
+td.bc { white-space: nowrap; }
+.bcb { display: inline-block; vertical-align: middle; width: 60px; height: 8px; margin: -2px 10px 0 0; }
+.bcb i { display: block; height: 100%; min-width: 1px; border-radius: 0 2px 2px 0;
+         background: var(--chart); opacity: .45; }
+td.bc.strong .bcb i { opacity: 1; }
+/* a fixed width, so every bar in a column starts in the same place */
+.bcv { display: inline-block; min-width: 3.4em; text-align: right; }
+
+/* A conference's title race: who wins it, as one bar in the teams' colours,
+   then the table */
 table.confrace td b, table.rank25 td b { color: var(--ink); font-weight: 760; }
+.titleshare { margin: 18px 0 24px; }
+.titleshare figcaption { margin-bottom: 7px; font-size: 13px; font-weight: 650; color: var(--muted); }
+.ts-bar { display: flex; gap: 2px; height: 36px; }
+.ts-seg { flex: 1 1 0; min-width: 3px; display: grid; place-items: center; border-radius: 3px;
+          background: var(--c); box-shadow: inset 0 0 0 1px rgba(16, 32, 22, .12); }
+.ts-seg.rest { background: var(--rule); box-shadow: none; }
+.ts-seg img { box-sizing: content-box; padding: 3px; border-radius: 50%; background: #fff; }
+ol.ts-key { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 10px 0 0;
+            padding: 0; font-size: 14.5px; font-stretch: 90%; }
+.ts-key li { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
+.ts-key i { width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.ts-key i.rest { background: var(--rule); }
+.ts-key a { color: var(--ink); font-weight: 650; text-decoration: none; }
+.ts-key a:hover { text-decoration: underline; }
+.ts-key b { color: var(--ink); font-weight: 760; font-variant-numeric: tabular-nums; }
 body.info .intro table.confrace, body.info .intro table.rank25 { min-width: 520px; }
 ol.pairs { list-style: none; margin: 4px 0 8px; padding: 0; font-stretch: 88%; }
 .pairs li {
@@ -972,18 +1073,37 @@ ol.tiebreak li { margin-bottom: 4px; padding-left: 4px; }
 .otherconfs { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .otherconfs a { color: var(--ink); font-weight: 600; }
 
-/* Projected rankings: the rank in the condensed numerals, and the field if
-   the season ended today as byes and first-round games. */
+/* Projected rankings: the top 25 beside the field if the season ended today,
+   drawn as the bracket's first two rounds. */
+body.info .intro:has(.rankwrap) { max-width: var(--page); }
+.rankwrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 0 56px;
+            align-items: start; margin: 14px 0 22px; }
+body.info .intro .rankwrap table { max-width: none; }
+.rankwrap .tablewrap { margin: 0; }
 table.rank25 td.rk, table.rank25 th.rk { width: 3.2rem; text-align: left; }
 table.rank25 td.rk { font-size: 19px; font-weight: 820; font-stretch: 70%; color: var(--ink);
                      font-variant-numeric: tabular-nums; }
-.fieldnow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0 40px;
-            margin: 6px 0 10px; }
-.fieldnow h3 { margin-top: 8px; }
-ol.ftlist { list-style: none; margin: 0; padding: 0; font-stretch: 88%; }
-.ftlist li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 7px 0;
-             border-bottom: 1px solid var(--rule-2); }
-.ftlist i { font-style: normal; font-size: 12.5px; color: var(--muted); }
+.fieldnow h2 { margin-top: 0; }
+.br-head, .pod { display: grid; grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr); }
+.br-head { padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-size: 12px;
+           font-weight: 650; color: var(--muted); font-stretch: 88%; }
+.br-head span + span { grid-column: 3; }
+ol.pods { list-style: none; margin: 0; padding: 0; font-stretch: 88%; }
+.pod { align-items: center; padding: 12px 0; border-bottom: 1px solid var(--rule-2); }
+.pod-game, .pod-bye { display: grid; min-width: 0; border-radius: 6px; background: var(--raise); }
+.pod-game { border: 1px solid var(--rule); }
+.pod-bye { border: 1.5px solid var(--ink-2); }
+.pod .ft { display: flex; min-width: 0; padding: 7px 10px; }
+.pod-game .ft + .ft { border-top: 1px solid var(--rule-2); }
+.pod .ft a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pod .ft small { margin-left: auto; padding-left: 6px; white-space: nowrap; }
+.pod-line { position: relative; align-self: stretch; }
+.pod-line::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
+                    border-top: 1.5px solid var(--rule); }
+ul.outs { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 6px 0 0;
+          padding: 0; font-stretch: 88%; }
+.outs li { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; }
+.outs a { color: var(--ink); font-weight: 650; }
 .ft { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 650;
       color: var(--ink); }
 .ft a { color: inherit; text-decoration: none; }
@@ -1006,6 +1126,11 @@ ul.races { list-style: none; margin: 0; padding: 0; display: grid; font-stretch:
 .races .fav { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; }
 .races .fav img, .races .noart { width: 20px; height: 20px; object-fit: contain; flex: none; }
 .races .fav b { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 14px; }
+/* who wins it, a slice per contender in its own colour */
+.races .strip { display: flex; gap: 1px; height: 5px; margin-top: 5px; border-radius: 2px;
+                overflow: hidden; }
+.races .strip i { flex: 1 1 0; min-width: 2px; background: var(--c); }
+.races .strip i.rest { background: var(--rule); }
 .writeup ul { margin: 0 0 14px; padding-left: 20px; color: var(--ink-2); }
 .writeup li { margin-bottom: 4px; }
 body.season .guideonly { display: none; }
@@ -1165,7 +1290,7 @@ body.season .guideonly { display: none; }
 /* Below the width where the rail fits beside the list */
 @media (max-width: 1100px) {
   /* one column: the answer, the records, the games, the seed */
-  .needsbody { display: flex; flex-direction: column; }
+  .needsbody { display: flex; flex-direction: column; align-items: stretch; }
   .nd-main, .nd-side { display: contents; }
   #needssum { order: 1; }
   #needsrec { order: 2; width: 100%; max-width: 560px; margin: 6px 0 18px; }
@@ -1203,15 +1328,16 @@ body.season .guideonly { display: none; }
   .band.home .teamline { font-size: 15px; }
   .teamline { font-size: 13.5px; margin-top: 5px; }
   .path { grid-auto-flow: row; grid-template-columns: repeat(9, minmax(0, 1fr));
-          grid-auto-columns: auto; gap: 2px; }
+          grid-auto-columns: auto; }
   .path.short { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-  .step { grid-template-rows: auto 30px auto; gap: 4px; padding: 3px 1px 7px; text-align: center; }
-  .step .v { font-size: 13.5px; font-stretch: 62%; }
+  .step { grid-template-rows: 66px auto; gap: 5px; }
+  .step .col i { left: 2px; right: 2px; height: max(2px, calc((100% - 16px) * var(--p) / 100)); }
+  .step .v { bottom: calc((100% - 16px) * var(--p) / 100 + 2px); font-size: 12.5px; }
+  .step[aria-pressed="true"] .v { font-size: 14px; }
   .step .v small { display: none; }
-  .step .k { font-size: 11px; min-height: 0; font-stretch: 78%; white-space: nowrap; }
+  .step .k { padding: 0; font-size: 11px; min-height: 0; font-stretch: 78%; white-space: nowrap; }
   .step .k .full { display: none; }
   .step .k .short { display: inline; }
-  .step[aria-pressed="true"]::after { left: 1px; right: 1px; }
 
   /* three rows of controls would hold a quarter of the screen, so they
      scroll away with everything else */
@@ -1225,14 +1351,18 @@ body.season .guideonly { display: none; }
   .block { margin-bottom: 24px; }
   h2 { font-size: 16px; }
 
-  .slate { --cols: minmax(0, 1fr) 2.2rem 3.6rem 3.1rem 2.9rem; font-stretch: 80%; }
+  .slate { --cols: minmax(0, 1fr) 2.2rem 9rem; font-stretch: 80%; }
   .slatehead, .game { column-gap: 7px; }
   .slatehead .h-when { display: none; }
-  .slatehead .h-imp { grid-column: 5; }
+  .slatehead .h-tor { grid-column: 3; justify-content: center; }
+  .h-tor > span { display: none; }
   .slatehead { font-size: 11px; }
+  .tor { --half: calc(50% - 36px); }
+  .tor b { font-size: 12.5px; }
+  .tor i { height: 9px; margin-top: -4.5px; }
   .slot { top: 0; font-size: 13.5px; }
   .game { padding: 6px 0 5px; }
-  .game .side { grid-column: 1 / 5; font-size: 14px; min-height: 25px; }
+  .game .side { grid-column: 1 / 4; font-size: 14px; min-height: 25px; }
   .side .who { gap: 5px; }
   .side .at { width: 14px; margin-right: 4px; }
   /* a full season on one line beside the logo */
@@ -1258,9 +1388,6 @@ body.season .guideonly { display: none; }
   .teamtip.sheet .tiptable { width: 100%; }
   .teamtip.sheet .tipgo { padding: 12px; font-size: 15px; }
   .side .who b { font-stretch: 74%; }
-  .game .imp { grid-column: 5; }
-  .imp b { min-width: 0; width: 100%; font-size: 15.5px; }
-  .imp .bar { display: none; }
   .game .when { grid-column: 1 / -2; grid-row: 3; margin: 1px 0 0 15px; font-size: 12px; }
   .when b, .when .tv { display: inline; margin-right: 6px; }
   /* No room for "over Utah" beside the name, so it moves down by the time. */
@@ -1306,21 +1433,19 @@ body.season .guideonly { display: none; }
 /* What your team needs on a phone: who and the chance on the first line,
    the two results and the bar between them on the second. */
 @media (max-width: 640px) {
-  .nd-grid, .nd-grid.flat { --cols: 3.8rem minmax(0, 1fr) 3.6rem; }
+  .nd-grid, .nd-grid.flat { --cols: 3.8rem minmax(0, 1fr) 2.8rem; --pad: 58px; }
   .simstat b { font-size: 48px; }
-  .needssum p.verdict { font-size: 20px; }
+  .needssum p.verdict { font-size: 22px; }
   .outlook { padding-top: 16px; }
   .nd-when small { font-size: 11px; }
   .nd-head, .nd { column-gap: 8px; }
-  .nd-head > :nth-child(n+4) { display: none; }
-  .nd { row-gap: 3px; padding: 7px 0; }
-  .nd-lo { grid-column: 1; grid-row: 2; text-align: left; font-size: 14px; }
-  .nd-bar { grid-column: 2; grid-row: 2; height: 18px; }
-  .nd-hi { grid-column: 3; grid-row: 2; font-size: 14px; }
+  /* the scale, and each game's chart, on a line of their own under it */
+  .nd-head .nd-scale { grid-column: 1 / -1; grid-row: 2; margin-top: 7px; }
+  .nd { row-gap: 2px; }
+  .nd-bar { grid-column: 1 / -1; grid-row: 2; min-height: 28px; margin: 0 0 -7px; }
   .nd-opp { font-size: 14.5px; }
   .nd-opp .rec, .nd-opp .rk { display: none; }
-  .ndrec { font-size: 13px; }
-  .ndrec th, .ndrec td { padding-left: 12px; }
+  .mz-plot { height: 112px; }
   .pairs li { grid-template-columns: minmax(0, 1fr) 2.4rem minmax(48px, 80px) 2.4rem minmax(0, 1fr);
               row-gap: 4px; }
   .pairs .often { grid-column: 1 / -1; }
@@ -1329,7 +1454,21 @@ body.season .guideonly { display: none; }
   .pr-side .nm-abbr { display: inline; }
   .stakes.weeks .when { grid-column: 2 / -1; grid-row: 2; flex-direction: row;
                         flex-wrap: wrap; gap: 0 6px; }
-  .fieldnow { grid-template-columns: minmax(0, 1fr); }
+  .stakehead { grid-template-columns: 1.2rem minmax(0, 1fr) auto; column-gap: 10px; }
+  .stakehead > :nth-child(3) { display: none; }
+  /* the logo says who, so a phone keeps each game's stakes to one line */
+  .stakes .most { gap: 4px 14px; }
+  .stakes .st a { display: none; }
+  .stb { width: 36px; }
+  .bcb { width: 32px; }
+  .rankwrap { grid-template-columns: minmax(0, 1fr); }
+  .fieldnow { margin-top: 26px; }
+  .br-head, .pod { grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); }
+  .pod .ft { flex-wrap: wrap; padding: 6px 7px; gap: 0 5px; font-size: 14px; }
+  .pod .ft small { flex-basis: 100%; margin: 0; padding: 0; }
+  .ts-bar { height: 30px; }
+  .bcb { margin-right: 7px; }
+  td.bc:not(.strong) .bcb { display: none; }
   table.confrace .ovr { display: none; }
   body.info .intro table.confrace { min-width: 0; }
   body.info .intro table.rank25 { min-width: 0; }
@@ -1340,11 +1479,7 @@ body.season .guideonly { display: none; }
   .sb-grid { grid-template-columns: minmax(0, 1fr) repeat(var(--n), 1.2rem) 2rem 2.4rem 3.7rem; }
   .sbt .rec, .sbt .rk, .sbt .nm-full { display: none; }
   .sbt .nm-abbr { display: inline; }
-  .slate { --cols: minmax(0, 1fr) 2.2rem 3.1rem 2.9rem; }
-  .slatehead .h-od, .side .od { display: none; }
-  .slatehead .h-imp { grid-column: 4; }
-  .game .side { grid-column: 1 / 4; }
-  .game .imp { grid-column: 4; }
+  .slate { --cols: minmax(0, 1fr) 2.1rem 8rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

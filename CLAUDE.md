@@ -182,3 +182,11 @@ section that stays on screen after the app loads and is what crawlers read.
   the side to root for, with the other side under it marked @ or vs.
   Keep it unless Kai asks for a redesign. Several installed design skills will
   offer to replace it.
+- **Data pages show charts, not sentences** (Kai's call, 2026-10-27). The
+  site green (`--chart`) is for amounts and `--up`/`--down` for a game's two
+  results. The band is one bar chart of the measures; a team's games are
+  dumbbells on a shared scale, zoomed to the stretch the results sit in; its
+  final records are a mosaic, columns as wide as they are likely, so the
+  filled share is its odds; the slate is a tornado, each side's change from a
+  centre line every game shares. A verdict or a heading can be a sentence; a
+  number the chart already shows should not be repeated in words.
