@@ -500,15 +500,16 @@ def rate_selection_day(state, extra_games=None, params: MasseyParams | None = No
                        **kwargs) -> tuple[dict[str, float], dict]:
     """Massey rating once the title games are in, counted one way only.
 
-    A title game is added to the winner's record and left out of the loser's, so
-    reaching one can only help. One game cannot be present for one team and
-    absent for the other inside a single fit, so this runs two: everyone takes
-    the fit that includes title games, except the teams that lost one, who take
-    the fit that stops at the end of the regular season.
+    A title game counts in full for the winner and a quarter for the loser
+    (``CCG_LOSS_SHARE``). One game cannot count differently for two teams
+    inside a single fit, so this runs two: everyone takes the fit that
+    includes title games, except the teams that lost one, who take the fit
+    that stops at the end of the regular season, moved that share of the way
+    toward the other. A loss can lower a rating but never raise it.
 
     The two fits differ by about ten games in seventeen hundred, so they sit on
     effectively the same scale. The returned diagnostics say how far apart they
-    actually are for the teams that played no title game, which is the check
+    are for the teams that played no title game, which is the check
     that mixing them is safe.
     """
     through = selection_week(state)
@@ -533,7 +534,9 @@ def rate_selection_day(state, extra_games=None, params: MasseyParams | None = No
     drift = np.array([full[t] - base[t] for t in untouched]) if untouched else np.zeros(1)
     spread = np.ptp(list(full.values())) if full else 1.0
 
-    merged = {t: (base[t] if t in lost and t in base else v)
+    from .config import CCG_LOSS_SHARE
+    merged = {t: (base[t] + CCG_LOSS_SHARE * min(0.0, v - base[t])
+                  if t in lost and t in base else v)
               for t, v in full.items()}
     return merged, {
         "title_game_winners": len(won), "title_game_losers": len(lost),

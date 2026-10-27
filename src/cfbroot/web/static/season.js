@@ -392,7 +392,7 @@ function tile(g, recs, isTitle) {
     isTitle ? `<span>${esc(g.conference)}</span>` : "",
     g.real ? '<span class="chipmini real">Final</span>' : '<span class="chipmini">Simulated</span>',
     g.neutral && !isTitle ? "<span>neutral</span>" : "",
-    upset ? `<span class="chipmini upset">Upset, given ${Math.round(100 * p)}%</span>` : "",
+    upset ? `<span class="chipmini upset">Upset: ${Math.round(100 * p)}% to win</span>` : "",
   ].join("");
   return `<div class="gt${g.home === me || g.away === me ? " mine" : ""}">
     ${row(g.away, g.away_points, false)}${row(g.home, g.home_points, true)}
@@ -401,7 +401,7 @@ function tile(g, recs, isTitle) {
 
 function renderSelection(recs) {
   $("s-boardtitle").textContent = "Selection Sunday";
-  $("s-boardnote").textContent = "the model's committee ranking, with its noise";
+  $("s-boardnote").textContent = "model committee ranking";
   const me = myIdx();
   const seedOf = Object.fromEntries(SEASON.field.map(f => [f.team, f]));
   const top = SEASON.ranking.slice(0, 25).map((r, i) => {

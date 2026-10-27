@@ -39,6 +39,14 @@ def has_api_key() -> bool:
         return False
 
 
+
+# The share of a conference title game loss that counts against the loser:
+# its rating moves this far from the fit without the title game toward the
+# fit with it, and never up. The committee has rarely marked a team down for
+# losing one, but not at all overstated it. A choice Kai made, not a measured
+# value.
+CCG_LOSS_SHARE = 0.25
+
 @dataclass
 class ModelParams:
     """Game outcome and committee ranking parameters.

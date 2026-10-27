@@ -272,3 +272,19 @@ def test_the_kernel_ranks_a_season_the_way_selection_does():
     got = [n for _, n in sorted((int(np.argmax(lg.rank_hist[j])), lg.names[j])
                                 for j in range(len(lg.names)))]
     assert got[:25] == want[:25]
+
+
+def test_the_record_and_title_game_tallies_add_up(midseason):
+    """Odds by final record and by title game result split the same seasons
+    the totals count, so they add back up to them."""
+    lg = run_league(midseason, SimConfig(n_sims=3000, batch_size=1500, seed=5))
+    playoff = METRIC_NAMES.index("make_playoff")
+    assert (lg.wins_metric.sum(axis=1) == lg.team_counts).all()
+    assert (lg.wins_metric[:, :, playoff] == lg.wins_made_playoff).all()
+    assert (lg.ccg_seasons.sum(axis=1) == lg.n_sims).all()
+    assert (lg.ccg_counts.sum(axis=1) == lg.team_counts).all()
+    for d in lg.ccg_pairs.values():
+        met, beat = d["together"], d["beat"]
+        off = met - np.diag(np.diag(met))
+        assert off.sum() == 2 * lg.n_sims          # one title game a season
+        assert (beat + beat.T - 2 * np.diag(np.diag(beat)) == off).all()

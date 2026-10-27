@@ -69,8 +69,11 @@ def simulator_rating(state):
                         m.gh_logw, m.tg_ptr, m.tg_ref, m.tg_home, r0, r1, c0, c1,
                         np.zeros(n), np.zeros((n, m.gh_t.size)), np.zeros(n, np.uint8),
                         vec, wts)
-    return {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
-                            else c1[m.node[t.idx]]) for t in state.fbs_teams}
+    from cfbroot.config import CCG_LOSS_SHARE
+
+    def rated(k):
+        return (c0[k] + CCG_LOSS_SHARE * min(0.0, c1[k] - c0[k])) if loser[k] else c1[k]
+    return {t.school: float(rated(m.node[t.idx])) for t in state.fbs_teams}
 
 
 @pytest.mark.parametrize("title_game", [False, True])
@@ -123,14 +126,19 @@ def test_gauss_hermite_points_mirror():
     assert np.allclose(logw[::-1], logw, atol=1e-12)
 
 
-def test_a_title_game_win_is_added_and_a_loss_is_not():
-    """The winner is rated with the game and the loser without it."""
+def test_a_title_game_win_counts_and_a_loss_counts_a_little():
+    """The winner is rated with the game; the loser drops, but by much less
+    than the same loss would cost it in the regular season."""
+    st = with_title_game(full_season())
     base = massey.rate_selection_day(full_season())[0]
-    after = simulator_rating(with_title_game(full_season()))
-    # SEC Team 16 won it and gains. SEC Team 01 lost it and keeps the rating
-    # it had without it, give or take the winner's move through the network.
+    after = simulator_rating(st)
+    f = massey.fit_season(st, include_ccg=True, through_week=massey.selection_week(st))
+    full = {f.labels[j]: float(f.rating[j]) for j in range(f.n_fbs)}
+    # SEC Team 16 won it and gains. SEC Team 01 lost it and drops, though not
+    # as far as counting the whole loss would take it.
     assert after["SEC Team 16"] > base["SEC Team 16"] + 0.01
-    assert abs(after["SEC Team 01"] - base["SEC Team 01"]) < 0.005
+    assert after["SEC Team 01"] < base["SEC Team 01"]
+    assert after["SEC Team 01"] > full["SEC Team 01"]
 
 
 # The Massey rating itself
@@ -268,3 +276,25 @@ def test_margin_weight_one_is_masseys_own_model():
     b = massey.fit(rated, [0, 1], [1, 2], [True, True], **args)
     assert not np.allclose(a.power, b.power)      # the default discounts margin
     assert massey.MasseyParams().mov_weight == 0.45
+
+
+def test_a_title_game_loss_counts_a_quarter():
+    """The loser moves CCG_LOSS_SHARE of the way from its rating without the
+    title game toward its rating with it, so losing one now costs a little."""
+    from cfbroot import massey
+    from cfbroot.config import CCG_LOSS_SHARE
+
+    st = with_title_game(full_season())
+    through = massey.selection_week(st)
+
+    def fit(include):
+        f = massey.fit_season(st, include_ccg=include, through_week=through)
+        return {f.labels[j]: float(f.rating[j]) for j in range(f.n_fbs)}
+
+    full, base = fit(True), fit(False)
+    merged, _ = massey.rate_selection_day(st)
+    loser = "SEC Team 01"
+    assert merged[loser] == pytest.approx(
+        base[loser] + CCG_LOSS_SHARE * (full[loser] - base[loser]))
+    assert full[loser] < merged[loser] < base[loser]
+    assert merged["SEC Team 16"] == pytest.approx(full["SEC Team 16"])

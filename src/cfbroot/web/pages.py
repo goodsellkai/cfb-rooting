@@ -127,21 +127,22 @@ def home_questions(state, n_sims, race=()):
               if race else "")
     return [
         ("Which games should I root for this week?",
-         f"Pick your team and every week {week} game is sorted by how much "
-         f"each result moves its playoff odds, worked out from "
-         f"{_sims(n_sims)} simulated seasons. The game that matters most is "
-         f"often one your team is not playing in."),
+         f"Pick your team to see every week {week} game ranked by its effect "
+         f"on your team's playoff odds, from {_sims(n_sims)} simulated "
+         f"seasons. The most important game is often one your team is not "
+         f"playing in."),
         ("Who is most likely to make the College Football Playoff?",
          f"{leader}." if leader else
          "The teams on the front page, in order of their odds."),
         ("How are these playoff odds calculated?",
-         f"The rest of the season is played out {_sims(n_sims)} times. Each "
-         f"simulated season is rated with Massey's model, ranked through a "
-         f"model of the selection committee, and its bracket filled, so the "
-         f"odds come from full seasons rather than a formula."),
+         f"The rest of the season is simulated {_sims(n_sims)} times. Each "
+         f"simulated season is rated with Kenneth Massey's model, ranked by a "
+         f"model of the selection committee and played through the 12-team "
+         f"bracket."),
         ("How often do the numbers update?",
-         "Every half hour on Saturdays and daily the rest of the week, with "
-         "live scores on the page in between."),
+         "Every 30 minutes on Saturdays, on Sunday evening after the AP poll "
+         "and once a day during the week. Live scores update on the site as "
+         "games are played."),
     ]
 
 
@@ -150,14 +151,22 @@ def home_head(state, n_sims, race=(), card=None):
     desc = (f"College Football Playoff odds for all 138 teams, and which "
             f"week {week} games move them. Every remaining {state.year} game "
             f"scored on {_sims(n_sims)} simulated seasons.")
-    title = f"{SITE_NAME}: playoff odds and who to root for"
+    title = (f"College Football Playoff odds {state.year} and who to root for "
+             f"| {SITE_NAME}")
     page = _page_ld(title, desc, SITE_URL + "/")
     site = dict(_site())
     site["@context"] = "https://schema.org"
     site["description"] = desc
+    app = {"@context": "https://schema.org", "@type": "WebApplication",
+           "name": SITE_NAME, "url": SITE_URL + "/", "description": desc,
+           "applicationCategory": "SportsApplication", "operatingSystem": "Any",
+           "browserRequirements": "Requires JavaScript",
+           "isAccessibleForFree": True, "author": AUTHOR,
+           "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
     return _head(title, desc, SITE_URL + "/", card=card,
                  card_alt=f"Who to root for, week {week}",
-                 ld=[site, page, _faq_ld(home_questions(state, n_sims, race))])
+                 ld=[site, page, app,
+                     _faq_ld(home_questions(state, n_sims, race))])
 
 
 def record(state, idx):
@@ -206,20 +215,155 @@ def _root_lines(payload, week, fbs):
     return out
 
 
+# What a team needs: each game it has left with its odds after a win and
+# after a loss, its title game, and its odds at each final record. Every
+# measure has a phrase, so the app can say the same for any of them.
+PHRASES = {
+    "make_playoff": "makes the playoff",
+    "win_conference": "wins the {c}",
+    "make_conf_title_game": "reaches the {c} title game",
+    "top4_seed": "earns a first-round bye",
+    "reach_quarterfinal": "reaches the quarterfinals",
+    "reach_semifinal": "reaches the semifinals",
+    "reach_title_game": "reaches the national title game",
+    "win_national_title": "wins the national title",
+    "finish_ranked": "finishes ranked",
+}
+# A final record that comes up in fewer seasons than this is left out.
+RECORD_FLOOR = 0.005
+
+
+def conf_slug(conference: str) -> str:
+    return slug(conference)
+
+
+def has_conference(team) -> bool:
+    c = team.conference or ""
+    return bool(c) and "independent" not in c.lower()
+
+
+def own_rows(team, payload, key="make_playoff"):
+    """The team's games left, with its chance in each and the measure after
+    a win and after a loss."""
+    rows = []
+    for g in sorted(payload.get("own_games") or (),
+                    key=lambda g: (g["week"], g.get("start_date") or "")):
+        s = (g.get("swings") or {}).get(key) or {}
+        home = g["home"] == team.school
+        win = s.get("p_if_home") if home else s.get("p_if_away")
+        lose = s.get("p_if_away") if home else s.get("p_if_home")
+        ph = g.get("p_home_win")
+        if win is None or lose is None or ph is None:
+            continue
+        rows.append({"week": g["week"], "home": home,
+                     "where": "vs" if home or g.get("neutral") else "at",
+                     "opponent": g["away"] if home else g["home"],
+                     "chance": ph if home else 1 - ph,
+                     "win": win, "lose": lose, "game": g,
+                     # too few seasons with the unlikely result to measure it
+                     "sure": s.get("reliable") is not False})
+    return rows
+
+
+def record_rows(payload):
+    """Final records worth showing, best first."""
+    return [r for r in payload.get("by_record") or () if r["p"] >= RECORD_FLOOR]
+
+
+def needs_text(state, team, payload, key="make_playoff", name=None):
+    """What the team needs, in two or three sentences. ``name`` links an
+    opponent; the plain name otherwise."""
+    name = name or html.escape
+    school = html.escape(team.school)
+    conf = html.escape(team.conference or "conference")
+    phrase = PHRASES[key].format(c=conf)
+    games = own_rows(team, payload, key)
+    w, _, _, _, _ = record(state, team.idx)
+    out = []
+    recs = record_rows(payload)
+    if recs and games:
+        top = recs[0]
+        rec = f"{top['wins']}-{top['losses']}"
+        if top["wins"] == w + len(games):
+            out.append(f"If {school} wins out to finish {rec}, which happens in "
+                       f"{_pct(top['p'])} of seasons, it {phrase} in "
+                       f"{_pct(top['odds'][key])}.")
+        else:
+            out.append(f"At {rec}, its best likely finish, {school} {phrase} in "
+                       f"{_pct(top['odds'][key])}.")
+        more = [f"{r['wins']}-{r['losses']}" for r in recs[1:3]]
+        if more:
+            odds = [_pct(r["odds"][key]) for r in recs[1:3]]
+            out.append(f"At {more[0]} that falls to {odds[0]}"
+                       + (f", and at {more[1]} to {odds[1]}." if len(more) > 1
+                          else "."))
+    sure = [r for r in games if r["sure"]]
+    if sure:
+        big = max(sure, key=lambda r: abs(r["win"] - r["lose"]))
+        where = "at" if big["where"] == "at" else "against"
+        out.append(f"The biggest game left is {where} {name(big['opponent'])} in "
+                   f"week {big['week']}: a win puts {school} at "
+                   f"{_pct(big['win'])}, a loss at {_pct(big['lose'])}.")
+    tg = payload.get("title_game")
+    if tg and key not in ("win_conference", "make_conf_title_game"):
+        reach = tg["p"][0] + tg["p"][1]
+        won, lost, missed = tg["odds"][key]
+        if reach >= RECORD_FLOOR and won is not None and lost is not None:
+            out.append(f"It reaches the {conf} title game in {_pct(reach)} of "
+                       f"seasons. Winning it puts {school} at {_pct(won)} and "
+                       f"losing it at {_pct(lost)}"
+                       + (f"; missing it leaves {_pct(missed)}." if missed is not None
+                          else "."))
+    return " ".join(out)
+
+
+def _needs_html(state, team, payload, fbs):
+    """The written version of the app's What X needs block."""
+    school = html.escape(team.school)
+    games = own_rows(team, payload)
+    summary = needs_text(state, team, payload, name=lambda s: _link(s, fbs))
+    out = f"<h2>What {school} needs</h2>\n"
+    if summary:
+        out += f"<p>{summary}</p>\n"
+    if games:
+        rows = "".join(
+            f"<tr><td>Week {r['week']}</td>"
+            f"<td>{r['where']} {_link(r['opponent'], fbs)}</td>"
+            f"<td>{_pct(r['chance'])}</td>"
+            f"<td>{_pct(r['win']) if r['sure'] or r['chance'] >= 0.5 else '-'}</td>"
+            f"<td>{_pct(r['lose']) if r['sure'] or r['chance'] < 0.5 else '-'}</td></tr>\n"
+            for r in games)
+        out += ("<table><thead><tr><th>Week</th><th>Opponent</th>"
+                "<th>Win probability</th><th>Playoff odds after a win</th>"
+                "<th>After a loss</th></tr></thead>\n"
+                f"<tbody>{rows}</tbody></table>\n")
+    else:
+        out += "<p>The regular season is over.</p>\n"
+    recs = record_rows(payload)
+    if games and len(recs) > 1:
+        rows = "".join(
+            f"<tr><td>{r['wins']}-{r['losses']}</td><td>{_pct(r['p'])}</td>"
+            f"<td>{_pct(r['odds']['make_playoff'])}</td></tr>\n" for r in recs)
+        out += (f"<h3>{school}'s playoff odds by final record</h3>\n"
+                "<table><thead><tr><th>Regular season</th>"
+                "<th>Chance of that record</th><th>Playoff odds</th></tr></thead>\n"
+                f"<tbody>{rows}</tbody></table>\n")
+    return out
+
+
 def team_head(state, team, payload, week, card=None):
     h = payload["headline"]
     w, l, _, _, _ = record(state, team.idx)
     p = _pct(h["make_playoff"]["p"])
     url = f"{SITE_URL}/team/{slug(team.school)}/"
-    title = f"{team.school} playoff odds {state.year}: who to root for"
-    desc = (f"{team.school} is {w}-{l} and makes the College Football Playoff "
-            f"in {p} of {_sims(payload['n_sims'])} simulated {state.year} "
-            f"seasons. Which week {week} games move those odds, and by how "
-            f"much.")
+    title = f"{team.school} playoff chances {state.year}: what it needs, who to root for"
+    desc = (f"Week {week}: {team.school} is {w}-{l} and makes the College "
+            f"Football Playoff in {p} of {_sims(payload['n_sims'])} simulated "
+            f"seasons. What it needs from here, and which games to root for.")
     faq = _faq_ld(team_questions(state, team, payload, week, plain=True))
-    crumbs = _crumbs([(SITE_NAME, SITE_URL + "/"),
-                      ("Teams", SITE_URL + "/teams/"),
-                      (team.school, url)])
+    middle = ((team.conference, f"{SITE_URL}/conference/{conf_slug(team.conference)}/")
+              if has_conference(team) else ("Teams", SITE_URL + "/teams/"))
+    crumbs = _crumbs([(SITE_NAME, SITE_URL + "/"), middle, (team.school, url)])
     about = {"@type": "SportsTeam", "name": team.school,
              "sport": "American football", "url": url}
     if team.conference and "independent" not in team.conference.lower():
@@ -319,25 +463,24 @@ def team_questions(state, team, payload, week, plain=False):
     def name(school_name):
         return html.escape(school_name) if plain else _link(school_name, fbs)
 
-    playoff = (f"{html.escape(school)} is {w}-{l} and reaches the playoff in "
+    playoff = (f"{html.escape(school)} is {w}-{l} and makes the playoff in "
                f"{_pct(h['make_playoff']['p'])} of "
                f"{_sims(payload['n_sims'])} simulated seasons, with "
-               f"{payload['expected_wins']:.1f} wins expected. It wins the "
+               f"{payload['expected_wins']:.1f} projected wins. It wins the "
                f"{html.escape(conf)} in {_pct(h['win_conference']['p'])} and "
                f"the national title in "
                f"{_pct(h['win_national_title']['p'], 2)}.")
 
     if roots:
         top = roots[0]
-        rooting = (f"{name(top[0])} over {name(top[1])}, which is worth "
-                   f"{_pct(top[2], 2)} of playoff odds")
+        rooting = (f"{name(top[0])} over {name(top[1])}, worth "
+                   f"{_pct(top[2], 2)} in playoff odds")
         if len(roots) > 1:
             rooting += f", then {name(roots[1][0])} over {name(roots[1][1])}"
-        rooting += ". Every other game this week moves the odds less than the "
-        rooting += "simulations can separate from noise."
+        rooting += "."
     else:
-        rooting = (f"Nothing this week moves {html.escape(school)}'s odds "
-                   f"enough for the simulations to call it.")
+        rooting = (f"No other game this week has a significant effect on "
+                   f"{html.escape(school)}'s playoff odds.")
 
     hardest = ""
     if own:
@@ -346,22 +489,23 @@ def team_questions(state, team, payload, week, plain=False):
         at_home = game["home"] == school
         mine = game["p_home_win"] if at_home else 1 - game["p_home_win"]
         other = game["away"] if at_home else game["home"]
-        hardest = (f"{'Hosting' if at_home else 'Visiting'} {name(other)} in "
-                   f"week {game['week']}, where the model gives "
-                   f"{html.escape(school)} {_pct(mine)}.")
+        hardest = (f"{'Hosting' if at_home else 'At'} {name(other)} in "
+                   f"week {game['week']}, with a {_pct(mine)} chance to win.")
 
-    how = ("Every game left in the season is played out "
-           f"{_sims(payload['n_sims'])} times. Each simulated season is rated "
-           "and ranked the way the real one is, the bracket is filled, and a "
-           "game's value is the difference in playoff odds between the "
-           "seasons where it went one way and the seasons where it went the "
-           "other.")
+    how = (f"The rest of the season is simulated {_sims(payload['n_sims'])} "
+           "times. Each simulated season is rated, ranked by a model of the "
+           "selection committee and played through the bracket. A game's "
+           f"impact is the difference in {html.escape(school)}'s playoff odds "
+           "between the simulations each team wins it.")
 
-    out = [(f"Will {school} make the College Football Playoff?", playoff),
-           (f"Who should {school} fans root for in week {week}?", rooting)]
+    out = [(f"Will {school} make the College Football Playoff?", playoff)]
+    needs = needs_text(state, team, payload, name=name)
+    if needs:
+        out.append((f"What does {school} need to make the playoff?", needs))
+    out.append((f"Who should {school} fans root for in week {week}?", rooting))
     if hardest:
         out.append((f"What is {school}'s toughest game left?", hardest))
-    out.append((f"How are {school}'s playoff odds worked out?", how))
+    out.append((f"How are {school}'s playoff odds calculated?", how))
     if plain:
         out = [(q, re.sub(r"<[^>]+>", "", a)) for q, a in out]
     return out
@@ -371,10 +515,9 @@ def team_body(state, team, payload, week):
     """The line shown while the page is still loading."""
     h = payload["headline"]
     return f"""<h2>{html.escape(team.school)} playoff odds</h2>
-<p>{html.escape(team.school)} reaches the College Football Playoff in
+<p>{html.escape(team.school)} makes the College Football Playoff in
 {_pct(h["make_playoff"]["p"])} of {_sims(payload["n_sims"])} simulated
-{state.year} seasons. Working out which week {week} games move that
-number&hellip;</p>"""
+{state.year} seasons. Loading the week {week} guide&hellip;</p>"""
 
 
 def team_writeup(state, team, payload, week):
@@ -394,22 +537,27 @@ def team_writeup(state, team, payload, week):
     lead = (f"<p>{school} is {w}-{l}"
             + (f" ({cw}-{cl} in the {conf})" if cw + cl else "")
             + f" through week {state.current_week() - 1} of the {state.year} "
-            f"season. Across {_sims(payload['n_sims'])} simulated seasons it "
-            f"reaches the College Football Playoff "
-            f"{_pct(h['make_playoff']['p'])} of the time"
-            + (f", where ESPN's FPI gives it {_pct(espn)}" if espn is not None
-               else "")
-            + f". It wins the {conf or 'conference'} in "
+            f"season. It makes the College Football Playoff in "
+            f"{_pct(h['make_playoff']['p'])} of {_sims(payload['n_sims'])} "
+            f"simulated seasons"
+            + (f" (ESPN's FPI: {_pct(espn)})" if espn is not None else "")
+            + f", wins the {conf or 'conference'} in "
             f"{_pct(h['win_conference']['p'])}"
-            + (f", takes a top-four seed and the first-round bye in "
+            + (f", earns a top-four seed and first-round bye in "
                f"{_pct(h['top4_seed']['p'])}"
                if h["top4_seed"]["p"] >= 0.001 else "")
             + f" and wins the national title in "
-            f"{_pct(h['win_national_title']['p'], 2)}, averaging "
-            f"{payload['expected_wins']:.1f} wins.</p>")
+            f"{_pct(h['win_national_title']['p'], 2)}, with "
+            f"{payload['expected_wins']:.1f} projected wins.</p>")
     if place:
-        lead += (f"<p>That is the {_ordinal(place)} best playoff chance of the "
-                 f"{len(league)} teams in the sport this week.</p>")
+        lead += (f"<p>That is the {_ordinal(place)}-best playoff chance among "
+                 f"the {len(league)} FBS teams.")
+        rank = payload.get("cfp_rank") or {}
+        if rank.get("rank") and rank["rank"] <= 25:
+            lead += (f" In the model's <a href=\"../../cfp-rankings/\">projected "
+                     f"CFP rankings</a> after week {rank['week']}, it is No. "
+                     f"{rank['rank']}.")
+        lead += "</p>"
 
     roots = _root_lines(payload, week, fbs)
     if roots:
@@ -417,38 +565,20 @@ def team_writeup(state, team, payload, week):
             f"<li>{_link(a, fbs)} over {_link(b, fbs)}, worth "
             f"{_pct(d, 2)}</li>" for a, b, d in roots)
         rooting = (f"<h2>Who {school} fans should root for in week {week}</h2>\n"
-                   f"<p>These are the week {week} games whose result moves "
-                   f"{school}'s playoff odds by more than the simulations can "
-                   f"put down to chance, biggest first.</p>\n<ul>{lines}</ul>")
+                   f"<p>The week {week} games that move {school}'s playoff "
+                   f"odds the most.</p>\n<ul>{lines}</ul>")
     else:
         rooting = (f"<h2>Who {school} fans should root for in week {week}</h2>\n"
-                   f"<p>No other game this week moves {school}'s odds enough "
-                   f"for the simulations to call it. The games that matter are "
-                   f"its own.</p>")
+                   f"<p>No other game this week has a significant effect on "
+                   f"{school}'s playoff odds.</p>")
 
-    own = sorted(payload["own_games"], key=lambda g: g["week"])
-    if own:
-        rows = ""
-        for g in own:
-            at_home = g["home"] == team.school
-            mine = g["p_home_win"] if at_home else 1 - g["p_home_win"]
-            other = g["away"] if at_home else g["home"]
-            where = "at" if not (at_home or g["neutral"]) else "vs"
-            rows += (f"<tr><td>Week {g['week']}</td>"
-                     f"<td>{where} {_link(other, fbs)}</td>"
-                     f"<td>{_pct(mine)}</td></tr>\n")
-        schedule = (f"<h2>{school}'s remaining schedule</h2>\n"
-                    f"<table><thead><tr><th>Week</th><th>Opponent</th>"
-                    f"<th>Win probability</th></tr></thead>\n"
-                    f"<tbody>{rows}</tbody></table>")
-    else:
-        schedule = f"<h2>{school}'s remaining schedule</h2>\n<p>The regular season is over.</p>"
+    schedule = _needs_html(state, team, payload, fbs)
 
     if results:
         played = "; ".join(
             f"week {r['week']}, {'beat' if r['won'] else 'lost to'} "
             f"{_link(r['opponent'], fbs)} {r['score']}" for r in results)
-        so_far = f"<h2>How {school} got here</h2>\n<p>{played}.</p>"
+        so_far = f"<h2>{school}'s results</h2>\n<p>{played}.</p>"
     else:
         so_far = ""
 
@@ -466,7 +596,10 @@ def team_writeup(state, team, payload, week):
         race = (f"<h2>The {conf} race</h2>\n"
                 f"<table><thead><tr><th>Team</th><th>Wins the {conf}</th>"
                 f"<th>Makes the playoff</th></tr></thead>\n"
-                f"<tbody>{rows}</tbody></table>")
+                f"<tbody>{rows}</tbody></table>\n"
+                f"<p><a href=\"../../conference/{conf_slug(team.conference)}/\">"
+                f"The {conf} title race</a>: every team, the likeliest title "
+                f"games and how ties are broken.</p>")
 
     faq = _faq_html(team_questions(state, team, payload, week))
     return f"""<h1>{school} playoff odds and who to root for</h1>
@@ -478,7 +611,7 @@ def team_writeup(state, team, payload, week):
 {race}
 {faq}
 <p><a href="../../teams/">All {len(league)} teams</a> &middot;
-<a href="../../how-it-works/">How these numbers are worked out</a></p>"""
+<a href="../../how-it-works/">Methodology</a></p>"""
 
 
 def _ordinal(n: int) -> str:
@@ -501,7 +634,8 @@ def _team_row(school, logo, odds=None, best=1.0, pos=None):
             f'{html.escape(school)}</a>{bar}</li>')
 
 
-def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None):
+def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None,
+              league=None):
     week = state.current_week()
     logos = {t.school: t.logo for t in teams}
     best = race[0][1] if race else 1.0
@@ -512,17 +646,12 @@ def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None):
     return f"""<div class="hero">
 <div>
 <h1>Root for the right team</h1>
-<p class="lead">Your team has games left, and so does everyone chasing the
-same playoff spot. Pick a team and every game left in the {state.year} season
-is sorted by how much each result moves that team's odds, out of
-{_sims(n_sims)} simulated seasons.</p>
-<p class="lead">Some weeks the game that matters most does not involve your
-team at all.</p>
-<p>Each simulated season plays out every game left, rates the teams on the
-results the way the real ones are rated, ranks them the way the selection
-committee does, and fills the bracket.
-<a href="how-it-works/">How that works</a>.</p>
-<p class="cta"><a href="#team">Pick your team</a> or take one of these.</p>
+<p class="lead">The game that matters most is often one your team is not
+playing in.</p>
+<p>The rest of the {state.year} season is simulated {_sims(n_sims)} times.
+Each season is rated, ranked by a model of the selection committee and played
+through the 12-team bracket. <a href="how-it-works/">Methodology</a></p>
+<p class="cta"><a href="#team">Pick your team</a> or start with one of these.</p>
 </div>
 
 <div class="boards">
@@ -537,12 +666,14 @@ committee does, and fills the bracket.
     <ol class="race">
 {edge}
     </ol>
-    <p class="foot"><a href="teams/">All {len(teams)} teams</a></p>
+    <p class="foot"><a href="teams/">All {len(teams)} teams</a>
+    <a href="cfp-rankings/">Projected CFP rankings</a></p>
   </div>
 </div>
 </div>
 
 {_stakes_home(state, stakes)}
+{_races_home(state, league)}
 {_faq_html(home_questions(state, n_sims, race))}"""
 
 
@@ -592,14 +723,13 @@ def teams_body(state, teams, odds=()):
             rows += (f'<tr><td><a href="../team/{slug(t.school)}/">{art}'
                      f'{html.escape(t.school)}</a></td>'
                      f'<td class="num">{_pct(p, 2) if p is not None else "-"}</td></tr>\n')
-        out += (f'<section>\n<h2>{html.escape(conf)}</h2>\n<table><thead><tr>'
+        head = (f'<a href="../conference/{conf_slug(conf)}/">{html.escape(conf)}</a>'
+                if conf in conferences(teams) else html.escape(conf))
+        out += (f'<section>\n<h2>{head}</h2>\n<table><thead><tr>'
                 f'<th>Team</th><th class="num">Makes the playoff</th></tr></thead>\n'
                 f'<tbody>{rows}</tbody></table>\n</section>\n')
     return f"""<h1>Playoff odds for every FBS team</h1>
-<p class="lead">All {len(teams)} teams, by conference, with how often each one
-reaches the College Football Playoff across the simulations. Each team's page
-has its conference and title odds, its remaining schedule and the games
-elsewhere that move its number most.</p>
+<p class="foot">Updated after week {state.current_week() - 1} of the {state.year} season.</p>
 <div class="confs">
 {out}</div>
 <p><a href="../">Back to the guide</a></p>"""
@@ -614,15 +744,18 @@ elsewhere that move its number most.</p>
 # tenths of a playoff place from one set of teams to another.
 
 class Stakes:
-    """Each game left, with the playoff places in play and who they go to,
-    gathered from every team's guide as the build writes it."""
+    """Each game left, with the places in play and who they go to, gathered
+    from every team's guide as the build writes it. Playoff places by
+    default; a conference's title game places with that measure and only its
+    own teams added."""
 
-    def __init__(self):
+    def __init__(self, metric: str = "make_playoff"):
+        self.metric = metric
         self.games: dict = {}
 
     def add(self, school: str, guide: dict) -> None:
         for g in list(guide.get("games") or ()) + list(guide.get("own_games") or ()):
-            s = (g.get("swings") or {}).get("make_playoff") or {}
+            s = (g.get("swings") or {}).get(self.metric) or {}
             ph, pa = s.get("p_if_home"), s.get("p_if_away")
             if ph is None or pa is None:
                 continue
@@ -631,12 +764,22 @@ class Stakes:
             row["spots"] += abs(ph - pa) / 2
             row["teams"].append((school, ph - pa))
 
-    def week(self, week) -> list:
-        """That week's games, the one moving most of the field first."""
-        rows = [r for (w, _, _), r in self.games.items() if w == week]
+    def week(self, week, expected=False) -> list:
+        """That week's games, the one moving most of the field first.
+        ``None`` for every week left. Each row's ``value`` is what is shown:
+        the places that change hands between the two results, or with
+        ``expected`` the places the game is expected to move, which is that
+        times 2p(1-p). A result all but settled moves almost nothing however
+        much its upset would."""
+        rows = [r for (w, _, _), r in self.games.items()
+                if week is None or w == week]
         for r in rows:
             r["teams"].sort(key=lambda t: -abs(t[1]))
-        return sorted(rows, key=lambda r: (-r["spots"], r["game"]["home"]))
+            p = r["game"].get("p_home_win")
+            p = 0.5 if p is None else p
+            r["value"] = r["spots"] * 2 * p * (1 - p) if expected else r["spots"]
+        return sorted(rows, key=lambda r: (-r["value"], r["game"]["week"],
+                                           r["game"]["home"]))
 
 
 def _eastern(iso: str) -> datetime:
@@ -687,8 +830,13 @@ def _kick_html(g) -> str:
             f'{text}</time>')
 
 
-def _stake_row(row, logos, fbs, best, depth, pos, detail):
+PLAYOFF_STAKE = "Playoff places that change hands between its two results"
+
+
+def _stake_row(row, logos, fbs, best, depth, pos, detail, weeks=False,
+               what=PLAYOFF_STAKE):
     g = row["game"]
+    value = row.get("value", row["spots"])
 
     def side(name):
         art = (f'<img src="{html.escape(logos[name])}" alt="" width="22" height="22">'
@@ -696,26 +844,30 @@ def _stake_row(row, logos, fbs, best, depth, pos, detail):
         return f'<span class="side">{art}{_team_link(name, fbs, depth)}</span>'
 
     where = "vs" if g.get("neutral") else "at"
-    width = max(2, round(100 * row["spots"] / best)) if best else 2
+    width = max(2, round(100 * value / best)) if best else 2
     most = ""
     if detail:
         named = ", ".join(f"{_team_link(name, fbs, depth)} {100 * abs(d):.1f}"
                           for name, d in row["teams"][:3] if abs(d) >= 0.0005)
         if named:
-            most = f'<span class="most">Most at stake for {named}</span>'
+            most = f'<span class="most">Most at stake: {named}</span>'
+    # A list across several weeks says which week each game is in; the
+    # kickoff on its own names only a day.
+    kick = (f'<span class="when"><span class="wk">Week {g["week"]}</span>'
+            f'{_kick_html(g)}</span>' if weeks else _kick_html(g))
     return (f'<li><span class="pos">{pos}</span>'
             f'<span class="match">{side(g["away"])}<i>{where}</i>{side(g["home"])}</span>'
-            f'{_kick_html(g)}'
-            f'<span class="stake" title="Playoff places that change hands between '
-            f'its two results"><span class="barline"><i style="width:{width}%"></i></span>'
-            f'<b>{row["spots"]:.2f}</b></span>{most}</li>')
+            f'{kick}'
+            f'<span class="stake" title="{html.escape(what)}"><span class="barline">'
+            f'<i style="width:{width}%"></i></span>'
+            f'<b>{value:.2f}</b></span>{most}</li>')
 
 
-def _stakes_list(rows, state, depth, detail):
+def _stakes_list(rows, state, depth, detail, weeks=False, what=PLAYOFF_STAKE):
     logos = {t.school: t.logo for t in state.teams}
     fbs = {t.school for t in state.fbs_teams}
-    best = rows[0]["spots"] if rows else 1.0
-    return "\n".join(_stake_row(r, logos, fbs, best, depth, i, detail)
+    best = max((r.get("value", r["spots"]) for r in rows), default=1.0)
+    return "\n".join(_stake_row(r, logos, fbs, best, depth, i, detail, weeks, what)
                      for i, r in enumerate(rows, 1))
 
 
@@ -727,7 +879,7 @@ def _stakes_home(state, stakes) -> str:
         return ""
     return f"""<section class="stakes-home">
 <h2>The games that matter most, week {week}</h2>
-<p class="note">Playoff places that change hands between each game's two results.</p>
+<p class="note">Playoff spots that change hands between each game's two results.</p>
 <ol class="stakes">
 {_stakes_list(rows, state, 0, False)}
 </ol>
@@ -760,109 +912,110 @@ def this_week_body(state, n_sims, stakes):
     body = (f'<ol class="stakes detail">\n{listed}\n</ol>' if rows
             else f"<p>No games left in week {week}.</p>")
     return f"""<h1>The games that matter most for the playoff, week {week}</h1>
-<p class="lead">Every week {week} game, ranked by how much of the twelve-team
-field changes hands between its two results, across {_sims(n_sims)} simulated
-seasons. A game worth 0.40 moves four tenths of a playoff place from one set of
-teams to another.</p>
-<p>Beside each game are the teams with the most at stake, and how many points
-apart its two results leave their playoff odds. Pick any team to see which of
-these it should root for.</p>
+<p class="lead">Every week {week} game, ranked by how much of the 12-team
+field changes hands between its two results, from {_sims(n_sims)} simulated
+seasons. A value of 0.40 means four-tenths of a playoff spot moves from one
+group of teams to another.</p>
+<p>Team figures are the gap in playoff odds between the two results, in
+percentage points.</p>
 {body}
 <p><a href="../">Back to the guide</a></p>"""
 
 
 def how_head(state, n_sims, card=None):
-    desc = (f"How the rooting guide works: {_sims(n_sims)} simulated seasons, "
-            f"a rating fitted to every one of them, a model of the selection "
-            f"committee, and a test for which swings are real.")
+    desc = (f"How the playoff odds are calculated: {_sims(n_sims)} simulated "
+            f"seasons, a power rating fitted to each, a model of the selection "
+            f"committee and a significance test for every game's effect.")
     url = f"{SITE_URL}/how-it-works/"
-    title = f"How the playoff odds are worked out | {SITE_NAME}"
+    title = f"Methodology: how the playoff odds are calculated | {SITE_NAME}"
     return _head(title, desc, url, card=card,
                  card_alt=f"{SITE_NAME}: College Football Playoff odds",
                  ld=[_page_ld(title, desc, url),
                      _crumbs([(SITE_NAME, SITE_URL + "/"),
-                              ("How this works", url)])])
+                              ("Methodology", url)])])
 
 
 def how_body(state, n_sims):
-    return f"""<h1>How this works</h1>
-<p>The short version: the rest of the {state.year} season is played out
-{_sims(n_sims)} times, and your team's odds are counted in the seasons where
-one game went one way against the seasons where it went the other. The
-difference is what that game is worth to you.</p>
+    from ..config import CCG_LOSS_SHARE, ModelParams
+    p = ModelParams()
+    quarter = {0.25: "a quarter", 0.5: "half"}.get(CCG_LOSS_SHARE,
+                                                  f"{CCG_LOSS_SHARE:.0%}")
+    return f"""<h1>Methodology</h1>
+<p class="lead">The rest of the {state.year} season is simulated
+{_sims(n_sims)} times. Each simulated season is rated, ranked by a model of
+the College Football Playoff selection committee and played through the
+12-team bracket. A team's odds are the share of seasons in which an outcome
+happens, and a game's impact is the difference in those odds between the
+seasons each team wins it.</p>
 
-<h2>Playing out a season</h2>
-<p>Every game still to come gets a score. The margin is drawn around what
-ESPN's FPI says the gap between the teams is, plus home field, with the
-spread of real results around that prediction: about 14 points. Ratings are
-not exactly right, and their errors last, so each simulated season also draws
-one error per team and keeps it all year. A team the ratings overrate is
-overrated in September and in November, which is what makes a whole season
-plausible rather than a string of independent coin flips.</p>
-<p>FPI comes out once a day, so a Saturday result is not in it until Sunday
-morning. Until it is, every finished game the ratings have not seen moves
-both teams by the share of the surprise FPI itself would move them, worked
-out from three seasons of its weekly ratings. A team that wins in the
-afternoon is simulated on Saturday night at close to the strength it is
-about to be given, rather than the one it had on Friday.</p>
+<dl class="facts">
+<div><dt>Simulated seasons</dt><dd>{_sims(n_sims)}</dd></div>
+<div><dt>Scoring spread</dt><dd>{p.sigma:.1f} points</dd></div>
+<div><dt>Home-field edge</dt><dd>{p.hfa:.2f} points</dd></div>
+<div><dt>Playoff field</dt><dd>12 teams</dd></div>
+</dl>
 
-<h2>Rating what happened</h2>
-<p>A simulated season is a full set of results, so it gets rated from scratch
-the way the real one would be, with Kenneth Massey's model. Two stages: a
-maximum likelihood fit that asks which set of ratings makes the scoreboard
-most likely, then a Bayesian correction that reads each team's wins and
-losses against the quality of who it played. Margin counts, but less than the
-scoreboard suggests, because the committee does not reward blowouts the way a
-pure margin model does.</p>
+<h2>The model</h2>
+<ol class="steps">
+<li><h3>Simulating games</h3>
+<p>Each remaining game is given a score margin centred on the gap between the
+teams' ESPN Football Power Index (FPI) ratings, plus {p.hfa:.2f} points for
+the home team, measured against closing betting lines. Each margin is drawn
+with a spread of {p.sigma:.1f} points, measured on real results. Each
+simulated season also sets every team's strength around its rating and holds
+it for all of that team's games, the way a team's level carries through a
+real season.</p>
+<p>FPI updates once a day. Between updates, every finished game moves both
+teams' ratings by the share FPI itself would apply, so a team is simulated at
+its post-game strength the same day.</p></li>
+<li><h3>Rating each season</h3>
+<p>Every simulated season is rated from scratch with Kenneth Massey's model: a
+maximum likelihood fit of the scores, followed by a Bayesian correction for
+wins and losses against strength of schedule. Margin of victory counts, with
+diminishing returns, in line with how the committee treats lopsided
+results.</p></li>
+<li><h3>Ranking like the committee</h3>
+<p>The committee model starts from that rating and adds the committee's own
+variability, credit for wins over strong teams, a penalty for losses to weak
+ones, head-to-head results between close teams and a boost for conference
+champions. A conference championship game loss counts for {quarter} of a
+regular-season loss.</p></li>
+<li><h3>Conference titles and the field</h3>
+<p>Conference standings are settled by each league's published tiebreakers and
+the championship games are played. The field follows the {state.year} format:
+the four highest-ranked power conference champions, the highest-ranked
+champion of the other conferences, Notre Dame if it is ranked in the top 12,
+and at-large teams for the remaining places. The four highest seeds receive
+first-round byes.</p></li>
+<li><h3>The bracket</h3>
+<p>Every playoff game is simulated, so a national title means winning each
+round, not finishing first in the rankings.</p></li>
+<li><h3>Measuring a game's impact</h3>
+<p>All games are simulated in the same run. Splitting the seasons by the
+result of one game and comparing a team's odds in each half gives that game's
+impact with every other result held in common, without a second
+simulation.</p></li>
+</ol>
 
-<h2>Ranking, championships and the bracket</h2>
-<p>A rating is not a ranking. On top of it the model adds the committee's own
-variability, a bump for beating good teams and for losing only to good ones,
-a head-to-head rule, and the boost a conference champion gets. Conference
-races are then settled by each league's own published tiebreakers, the
-champions are crowned, and the playoff field is picked under this season's
-rules: the four power conference champions, the best team from the other six
-conferences, Notre Dame if it is ranked in the top 12, and at-large bids for
-the rest. The bracket is played out, so "win the national title" means
-winning four games, not being ranked first.</p>
+<h2>Statistical significance</h2>
+<p>A guide compares several hundred games at once. Each difference carries a
+confidence interval, and the full set is tested with a false discovery rate
+correction, so the games marked significant are those whose effects hold up
+across every comparison.</p>
 
-<h2>Turning that into a rooting guide</h2>
-<p>Because every unplayed game is simulated independently, one run answers
-every question. Split the seasons by who won a given game and compare your
-team's odds across the two halves, and you have that game's effect without
-simulating anything twice. Both halves share every other game's outcome, so
-the comparison is cleaner than running two separate simulations would be.</p>
+<h2>Data</h2>
+<p>Schedules, results and live scores come from ESPN. Team ratings come from
+ESPN's Football Power Index. AP Top 25 and committee rankings come from the
+published polls.</p>
 
-<h2>Why some games are marked as not significant</h2>
-<p>A guide compares hundreds of games at once, and at that many comparisons
-some differences look real by chance alone. Each difference gets a confidence
-interval and a p-value, and the whole set goes through a false discovery rate
-procedure, so what is shown as significant is what survives the multiple
-comparisons rather than what happened to look big. Games that do not survive
-are still listed, just marked plainly.</p>
+<h2>Updates</h2>
+<p>The odds are recalculated every 30 minutes from Friday evening through
+Saturday night, on Sunday evening after the AP poll is released and every
+morning during the week. Live scores update on the site while games are in
+progress.</p>
 
-<h2>How well it does</h2>
-<p>Tested against every real playoff committee poll from 2023 through 2025,
-the model's ranking sits about 2.9 places from the committee's on average,
-and its playoff field contains 23 of the 28 teams the committee actually
-picked. Where the two disagree, it is usually the same way: the model rates
-teams with fewer losses from weaker leagues higher than the committee does.
-Settings were tuned on those seasons and checked by leaving one season out.</p>
-
-<h2>What it keeps</h2>
-<p>No accounts, no sign in, no cookies. The team you picked and which tab you
-were on are remembered by your own browser and never leave it. Visits are
-counted by Cloudflare\'s analytics, which does not use cookies and does not
-identify anyone. Nothing is asked for and nothing is stored anywhere else.</p>
-
-<h2>What it is not</h2>
-<p>The odds are the output of a model, not a prediction anyone should bet on.
-It does not know about injuries, suspensions, weather, or a quarterback
-changing everything in October. The scores update every hour on game days,
-and the numbers move with them.</p>
-
-<p>The whole thing is open source:
-<a href="https://github.com/goodsellkai/cfb-rooting">github.com/goodsellkai/cfb-rooting</a>.</p>
+<p>The source code is on
+<a href="https://github.com/goodsellkai/cfb-rooting">GitHub</a>.</p>
 <p><a href="../">Back to the guide</a></p>"""
 
 
@@ -876,26 +1029,37 @@ def not_found(base: str = "/") -> str:
     """The page for any address the site does not have. Its links are from
     the site's root, since it is served at whatever depth was asked for. A
     mistyped team address gets the nearest team offered by the script."""
-    return f"""<h1>That page isn't here</h1>
-<p class="lead">The address may be mistyped, or the page may have moved.</p>
+    return f"""<h1>Page not found</h1>
+<p class="lead">This page does not exist or has moved.</p>
 <p id="didyoumean" class="didyoumean" hidden></p>
 <ul class="lost">
 <li><a href="{base}">Pick your team</a> and see which games to root for</li>
 <li><a href="{base}this-week/">The games that matter most this week</a></li>
 <li><a href="{base}teams/">Playoff odds for every team</a></li>
-<li><a href="{base}how-it-works/">How the odds are worked out</a></li>
+<li><a href="{base}cfp-rankings/">Projected CFP rankings</a></li>
+<li><a href="{base}how-it-works/">Methodology</a></li>
 </ul>"""
 
 
-def sitemap(teams) -> str:
+def sitemap(teams, cards=None) -> str:
+    """Every page, and the share card that goes with it where there is one.
+    ``cards`` maps an address to its card."""
+    cards = cards or {}
     day = datetime.now(timezone.utc).date().isoformat()
-    urls = ([SITE_URL + "/", SITE_URL + "/this-week/", SITE_URL + "/how-it-works/",
-             SITE_URL + "/teams/"]
+    urls = ([SITE_URL + "/", SITE_URL + "/this-week/", SITE_URL + "/cfp-rankings/",
+             SITE_URL + "/how-it-works/", SITE_URL + "/teams/"]
+            + [f"{SITE_URL}/conference/{conf_slug(c)}/" for c in conferences(teams)]
             + [f"{SITE_URL}/team/{slug(t.school)}/" for t in teams])
-    body = "\n".join(
-        f"  <url><loc>{u}</loc><lastmod>{day}</lastmod></url>" for u in urls)
+
+    def entry(u):
+        art = (f"<image:image><image:loc>{html.escape(cards[u])}</image:loc>"
+               f"</image:image>" if cards.get(u) else "")
+        return f"  <url><loc>{u}</loc><lastmod>{day}</lastmod>{art}</url>"
+
+    body = "\n".join(entry(u) for u in urls)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+            'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
             f"{body}\n</urlset>\n")
 
 
@@ -928,6 +1092,8 @@ def headers() -> str:
 /
   Cache-Control: public, max-age=300
 /team/*
+  Cache-Control: public, max-age=300
+/conference/*
   Cache-Control: public, max-age=300
 """
 
@@ -963,21 +1129,420 @@ def llms_txt(state, teams, n_sims) -> str:
         "Football Playoff, winning its conference and winning the national "
         "title, its remaining schedule with a win probability for every game, "
         "and the games elsewhere in the country whose result moves its odds "
-        "most. The numbers are rebuilt through the day on game days.",
+        "most. The odds are recalculated every 30 minutes on game days.",
         "",
         "## Pages",
         "",
         f"- [Home]({SITE_URL}/): the playoff race this week",
-        f"- [How it works]({SITE_URL}/how-it-works/): the simulation, the "
+        f"- [This week]({SITE_URL}/this-week/): the week's games ranked by "
+        f"their effect on the playoff race",
+        f"- [Projected CFP rankings]({SITE_URL}/cfp-rankings/): the "
+        f"committee's top 25 as the model expects it, and the field if the "
+        f"season ended today",
+        f"- [Methodology]({SITE_URL}/how-it-works/): the simulation, the "
         f"rating, the committee model and the bracket",
         f"- [Every team]({SITE_URL}/teams/): links to all {len(teams)} team "
         f"pages",
         "",
-        "## Teams",
+        "## Conferences",
         "",
     ]
+    for c in conferences(teams):
+        lines.append(f"- [{c} title race]({SITE_URL}/conference/{conf_slug(c)}/): "
+                     f"title game and championship odds, likeliest matchups, "
+                     f"tiebreakers")
+    lines += ["", "## Teams", ""]
     for t in sorted(teams, key=lambda t: t.school):
         lines.append(f"- [{t.school} playoff odds]"
                      f"({SITE_URL}/team/{slug(t.school)}/): "
                      f"{t.conference or 'Independent'}")
     return "\n".join(lines) + "\n"
+
+
+# Conference pages
+#
+# One page per conference: who wins it and who reaches the title game, the
+# pairings that game is likeliest to have, the games left that move the race
+# most and the order ties are broken in.
+
+def conferences(teams) -> list[str]:
+    """Conferences with a page, which is every one with a title to win."""
+    seen = sorted({t.conference for t in teams if has_conference(t)})
+    return [c for c in seen if sum(t.conference == c for t in teams) >= 2]
+
+
+# The tiebreak steps, as each conference's own policy words them.
+_STEP_TEXT = {
+    1: "Head-to-head results among the tied teams",
+    2: "Record against all common conference opponents",
+    3: ("Record against common conference opponents, starting with the "
+        "highest-placed and working down the standings"),
+    4: "Combined conference winning percentage of conference opponents",
+    5: "Total wins",
+    6: "Record within the division",
+}
+_RATING_STEP = {
+    "SEC": "Capped scoring margin in conference games",
+    "Big Ten": "SportSource Analytics' team rating score",
+    "ACC": "SportSource Analytics' team success ranking",
+}
+
+
+def _steps_html(conf, steps) -> str:
+    items = []
+    for code in steps:
+        if code == 7:
+            items.append(_RATING_STEP.get(conf, "The conference's ranking metric"))
+        elif code in _STEP_TEXT:
+            items.append(_STEP_TEXT[code])
+    return "<ol class=\"tiebreak\">" + "".join(f"<li>{html.escape(i)}</li>"
+                                               for i in items) + "</ol>"
+
+
+def _tiebreak_html(conf, year) -> str:
+    from ..data.conference_rules import (HOSTED, RESTART, UNEQUAL,
+                                         title_rules)
+    rules = title_rules(conf, year)
+    if rules.divisions:
+        who = (f"The {' and '.join(rules.divisions)} division winners meet in "
+               f"the title game.")
+    else:
+        who = "The top two teams in the conference standings meet in the title game."
+    where = (" It is played at the higher seed's stadium." if rules.flags & HOSTED
+             else " It is played at a neutral site.")
+    out = f"<p>{html.escape(who + where)}</p>\n"
+    if tuple(rules.two) == tuple(rules.multi):
+        out += "<p>Ties are broken in this order:</p>\n" + _steps_html(conf, rules.two)
+    else:
+        out += ("<p>Two tied teams:</p>\n" + _steps_html(conf, rules.two)
+                + "\n<p>Three or more:</p>\n" + _steps_html(conf, rules.multi))
+    notes = []
+    if rules.flags & RESTART:
+        notes.append("When a tie of three or more is cut down, the teams left "
+                     "start again from the first step.")
+    if rules.flags & UNEQUAL:
+        notes.append("Teams that play different numbers of conference games "
+                     "can tie when they have as many conference wins or losses.")
+    if notes:
+        out += f"\n<p>{html.escape(' '.join(notes))}</p>"
+    return out
+
+
+def conference_rows(state, conf, league):
+    """The conference's teams, with their records and odds, title favourite
+    first."""
+    rows = []
+    for r in league or ():
+        if r["conference"] != conf:
+            continue
+        w, l, cw, cl, _ = record(state, r["idx"])
+        rows.append({"idx": r["idx"], "team": r["team"], "p": r["p"],
+                     "record": f"{w}-{l}", "conf_record": f"{cw}-{cl}",
+                     "conf_pct": cw / max(cw + cl, 1)})
+    rows.sort(key=lambda r: (-r["p"]["win_conference"],
+                             -r["p"]["make_conf_title_game"], r["team"]))
+    return rows
+
+
+def conference_questions(state, conf, rows, pairs):
+    names = {t.idx: t.school for t in state.teams}
+    year = state.year
+    out = []
+    if rows:
+        lead = rows[0]
+        rest = " and ".join(f"{r['team']} ({_pct(r['p']['win_conference'])})"
+                            for r in rows[1:3])
+        out.append((f"Who is favored to win the {conf} in {year}?",
+                     f"{lead['team']} wins the {conf} in "
+                     f"{_pct(lead['p']['win_conference'])} of simulated seasons"
+                     + (f", ahead of {rest}." if rest else ".")))
+    if pairs:
+        a, b = names.get(pairs[0]["a"], "?"), names.get(pairs[0]["b"], "?")
+        reach = {r["idx"]: r["p"]["make_conf_title_game"] for r in rows}
+        out.append((f"Who will play in the {conf} championship game?",
+                    f"The likeliest pairing is {a} against {b}, in "
+                    f"{_pct(pairs[0]['p'])} of seasons. {a} reaches the game in "
+                    f"{_pct(reach.get(pairs[0]['a']))} and {b} in "
+                    f"{_pct(reach.get(pairs[0]['b']))}."))
+    if rows:
+        expect = sum(r["p"]["make_playoff"] for r in rows)
+        best = sorted(rows, key=lambda r: -r["p"]["make_playoff"])[:3]
+        out.append((f"How many {conf} teams will make the College Football Playoff?",
+                    f"{expect:.1f} on average across the simulated seasons. "
+                    + ", ".join(f"{r['team']} makes it in {_pct(r['p']['make_playoff'])}"
+                                for r in best) + "."))
+    return out
+
+
+def conference_head(state, conf, rows, n_sims, pairs=None, card=None):
+    url = f"{SITE_URL}/conference/{conf_slug(conf)}/"
+    title = f"{conf} title race {state.year}: championship odds and tiebreakers"
+    lead = (f"{rows[0]['team']} wins it in {_pct(rows[0]['p']['win_conference'])}. "
+            if rows else "")
+    desc = (f"{lead}Every {conf} team's chance to reach the title game and win "
+            f"the conference, the likeliest matchups and how ties are broken, "
+            f"from {_sims(n_sims)} simulated seasons.")
+    page = _page_ld(title, desc, url)
+    page["about"] = {"@type": "SportsOrganization", "name": conf,
+                     "sport": "American football"}
+    return _head(title, desc, url, card=card, card_alt=f"The {conf} title race",
+                 ld=[page,
+                     _crumbs([(SITE_NAME, SITE_URL + "/"),
+                              ("Teams", SITE_URL + "/teams/"), (conf, url)]),
+                     _faq_ld(conference_questions(state, conf, rows, pairs or []))])
+
+
+def _pair_html(pair, logos, colors, names, fbs, abbrs=None):
+    a, b = pair["a"], pair["b"]
+    wa = pair["a_wins"]
+    abbrs = abbrs or {}
+
+    def side(idx, right):
+        art = (f'<img src="{html.escape(logos[idx])}" alt="" width="22" height="22">'
+               if logos.get(idx) else '<span class="noart"></span>')
+        # A phone has room for the short name only.
+        short = html.escape(abbrs.get(idx) or names[idx])
+        nm = (f'<a href="../../team/{slug(names[idx])}/"><span class="nm-full">'
+              f'{html.escape(names[idx])}</span><span class="nm-abbr">{short}</span></a>'
+              if names[idx] in fbs else html.escape(names[idx]))
+        return (f'<span class="pr-side{" r" if right else ""}">'
+                + (f"{nm}{art}" if right else f"{art}{nm}") + "</span>")
+
+    ca = colors.get(a) or "var(--ink-2)"
+    cb = colors.get(b) or "var(--rule)"
+    return (f'<li><span class="often"><b>{_pct(pair["p"])}</b> of seasons</span>'
+            f'{side(a, False)}<b class="pr-p">{_pct(wa, 0)}</b>'
+            f'<span class="split" title="{html.escape(names[a])} wins '
+            f'{_pct(wa, 0)} of these games">'
+            f'<i style="width:{100 * wa:.1f}%;background:{html.escape(ca)}"></i>'
+            f'<i style="background:{html.escape(cb)}"></i></span>'
+            f'<b class="pr-p">{_pct(1 - wa, 0)}</b>{side(b, True)}</li>')
+
+
+def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
+    fbs = {t.school for t in state.fbs_teams}
+    by_idx = {t.idx: t for t in state.teams}
+    names = {i: t.school for i, t in by_idx.items()}
+    logos = {i: t.logo for i, t in by_idx.items() if t.logo}
+    colors = {i: t.color for i, t in by_idx.items() if t.color}
+    abbrs = {i: getattr(t, "abbreviation", "") for i, t in by_idx.items()}
+    now = datetime.now(timezone.utc)
+    pairs = [x for x in pairs or () if x["p"] >= RECORD_FLOOR][:6]
+
+    lead = ""
+    if rows:
+        top = rows[0]
+        rest = [r for r in rows[1:3] if r["p"]["win_conference"] >= 0.0005]
+        lead = (f"{_team_link(top['team'], fbs, 2)} wins the {html.escape(conf)} "
+                f"in {_pct(top['p']['win_conference'])} of {_sims(n_sims)} "
+                f"simulated seasons"
+                + (", ahead of " + " and ".join(
+                    f"{_team_link(r['team'], fbs, 2)} ({_pct(r['p']['win_conference'])})"
+                    for r in rest) if rest else "") + ".")
+        if pairs:
+            lead += (f" The likeliest title game is "
+                     f"{_team_link(names[pairs[0]['a']], fbs, 2)} against "
+                     f"{_team_link(names[pairs[0]['b']], fbs, 2)}, in "
+                     f"{_pct(pairs[0]['p'])}.")
+
+    body = ""
+    for r in rows:
+        art = (f'<img src="{html.escape(logos[r["idx"]])}" alt="" width="20" '
+               f'height="20">' if logos.get(r["idx"]) else "")
+        p = r["p"]
+        body += (f'<tr><td><a href="../../team/{slug(r["team"])}/">{art}'
+                 f'{html.escape(r["team"])}</a></td>'
+                 f'<td class="num">{r["conf_record"]}</td>'
+                 f'<td class="num ovr">{r["record"]}</td>'
+                 f'<td class="num">{_pct(p["make_conf_title_game"])}</td>'
+                 f'<td class="num"><b>{_pct(p["win_conference"])}</b></td>'
+                 f'<td class="num">{_pct(p["make_playoff"])}</td></tr>\n')
+    table = (f'<div class="tablewrap"><table class="confrace"><thead><tr>'
+             f'<th>Team</th><th class="num">Conf</th><th class="num ovr">Overall</th>'
+             f'<th class="num">Title game</th><th class="num">Wins {html.escape(conf)}</th>'
+             f'<th class="num">Playoff</th></tr></thead>\n<tbody>{body}</tbody></table></div>')
+
+    matchups = ""
+    if pairs:
+        matchups = ("<h2>Likeliest title games</h2>\n<ol class=\"pairs\">"
+                    + "".join(_pair_html(x, logos, colors, names, fbs, abbrs)
+                              for x in pairs)
+                    + "</ol>")
+
+    deciders = ""
+    games = [r for r in (stakes.week(None, expected=True) if stakes else [])
+             if r["value"] >= 0.005][:8]
+    if games:
+        deciders = (f"<h2>The games that decide the race</h2>\n"
+                    f"<p class=\"note\">Title game places each game is expected "
+                    f"to move, from what changes hands between its two results "
+                    f"and how likely each one is. Team figures are the gap in "
+                    f"title game odds, in percentage points.</p>\n"
+                    f"<ol class=\"stakes detail weeks\">\n"
+                    f"{_stakes_list(games, state, 2, True, weeks=True, what='Title game places this game is expected to move')}\n</ol>")
+
+    others = " ".join(f'<a href="../{conf_slug(c)}/">{html.escape(c)}</a>'
+                      for c in conferences(state.fbs_teams) if c != conf)
+    return f"""<h1>The {html.escape(conf)} title race</h1>
+<p class="foot">Updated {now:%B} {now.day}, after week {state.current_week() - 1}.</p>
+<p class="lead">{lead}</p>
+{table}
+{matchups}
+{deciders}
+<h2>How the {html.escape(conf)} breaks ties</h2>
+{_tiebreak_html(conf, state.year)}
+{_faq_html(conference_questions(state, conf, rows, pairs))}
+<p class="otherconfs">Other conferences: {others}</p>
+<p><a href="../../">Back to the guide</a></p>"""
+
+
+def ccg_pairs(league, state) -> dict:
+    """The title game pairings each conference's simulations produced, as the
+    site publishes them: the likeliest first, with how often each side wins."""
+    names = league.names
+    by_name = {t.school: t.idx for t in state.teams}
+    out = {}
+    for conf, d in league.ccg_pairs.items():
+        cols, tog, beat = d["cols"], d["together"], d["beat"]
+        rows = []
+        for i in range(cols.size):
+            for j in range(i + 1, cols.size):
+                n = int(tog[i, j])
+                if not n:
+                    continue
+                a, b = names[cols[i]], names[cols[j]]
+                wa = beat[i, j] / n
+                # The more likely winner of the pairing goes first.
+                if wa < 0.5:
+                    a, b, wa = b, a, 1 - wa
+                rows.append({"a": by_name[a], "b": by_name[b],
+                             "p": n / league.n_sims, "a_wins": float(wa)})
+        rows.sort(key=lambda r: -r["p"])
+        out[conf] = rows[:10]
+    return out
+
+
+def _races_home(state, league) -> str:
+    """Each conference's favourite, under the week's games on the front page."""
+    if not league:
+        return ""
+    logos = {t.idx: t.logo for t in state.teams}
+    items = ""
+    for c in conferences(state.fbs_teams):
+        rows = [r for r in league if r["conference"] == c]
+        if not rows:
+            continue
+        top = max(rows, key=lambda r: r["p"]["win_conference"])
+        art = (f'<img src="{html.escape(logos[top["idx"]])}" alt="" width="20" '
+               f'height="20">' if logos.get(top["idx"]) else '<span class="noart"></span>')
+        items += (f'<li><a href="conference/{conf_slug(c)}/">'
+                  f'<span class="cn">{html.escape(c)}</span>'
+                  f'<span class="fav">{art}{html.escape(top["team"])}'
+                  f'<b>{_pct(top["p"]["win_conference"], 0)}</b></span></a></li>\n')
+    if not items:
+        return ""
+    return f"""<section class="races-home">
+<h2>Conference title races</h2>
+<ul class="races">
+{items}</ul>
+</section>"""
+
+
+# Projected rankings
+#
+# The committee's top 25 as the model has it on the results so far. It is
+# the ranking a sample season shows for its weeks already played, with the
+# real scores and no committee noise.
+
+def rankings_head(state, projection, n_sims, card=None):
+    week = (projection or {}).get("week") or state.current_week() - 1
+    url = f"{SITE_URL}/cfp-rankings/"
+    title = f"Projected CFP rankings after week {week} ({state.year}) | {SITE_NAME}"
+    desc = (f"The College Football Playoff committee's top 25 as the model "
+            f"expects it after week {week}, the field if the season ended "
+            f"today and each team's playoff odds from {_sims(n_sims)} "
+            f"simulated seasons.")
+    return _head(title, desc, url, card=card,
+                 card_alt=f"Projected CFP rankings, week {week}",
+                 ld=[_page_ld(title, desc, url),
+                     _crumbs([(SITE_NAME, SITE_URL + "/"),
+                              ("Projected CFP rankings", url)])])
+
+
+def _field_html(projection, by_idx, fbs, year) -> str:
+    field = projection.get("field") or []
+    if len(field) != 12:
+        return ""
+    seed = {f["seed"]: f for f in field}
+
+    def team(f, depth=1):
+        t = by_idx[f["team"]]
+        art = (f'<img src="{html.escape(t.logo)}" alt="" width="20" height="20">'
+               if t.logo else '<span class="noart"></span>')
+        how = f["how"]
+        if how.endswith(" champion"):
+            how = how[:-len(" champion")] + " leader"
+        elif how.startswith("highest ranked Group of Six"):
+            how = "best Group of Six"
+        elif how == "ranked in the top 12":
+            how = "top 12"
+        else:
+            how = ""
+        note = f'<small>{html.escape(how)}</small>' if how else ""
+        return (f'<span class="ft"><b class="sd">{f["seed"]}</b>{art}'
+                f'{_team_link(t.school, fbs, depth)}{note}</span>')
+
+    byes = "".join(f"<li>{team(seed[i])}</li>" for i in range(1, 5))
+    first = "".join(f"<li>{team(seed[a])}<i>at</i>{team(seed[b])}</li>"
+                    for a, b in ((12, 5), (11, 6), (10, 7), (9, 8)))
+    out_ = ", ".join(_team_link(by_idx[i].school, fbs, 1)
+                     for i in projection.get("out") or [] if i in by_idx)
+    return f"""<h2>If the season ended today</h2>
+<p>The current conference leaders take the automatic bids, under the {year} rules:
+four power conference champions, the best-ranked Group of Six team and Notre
+Dame if it is in the top 12.</p>
+<div class="fieldnow">
+<div><h3>First-round byes</h3><ol class="ftlist">{byes}</ol></div>
+<div><h3>First round, at the higher seed</h3><ol class="ftlist pairs1">{first}</ol></div>
+</div>
+""" + (f"<p>First teams out: {out_}.</p>" if out_ else "")
+
+
+def rankings_body(state, projection, odds=()):
+    if not projection or not projection.get("order"):
+        return """<h1>Projected CFP rankings</h1>
+<p class="lead">The projection returns once enough of the season has been
+played for the committee to rank teams.</p>
+<p><a href="../">Back to the guide</a></p>"""
+    by_idx = {t.idx: t for t in state.teams}
+    fbs = {t.school for t in state.fbs_teams}
+    chance = dict(odds)
+    week = projection["week"]
+    now = datetime.now(timezone.utc)
+    order = [i for i in projection["order"] if i in by_idx][:25]
+
+    rows = ""
+    for n, i in enumerate(order, 1):
+        t = by_idx[i]
+        w, l, _, _, _ = record(state, i)
+        art = (f'<img src="{html.escape(t.logo)}" alt="" width="22" height="22">'
+               if t.logo else '<span class="noart"></span>')
+        p = chance.get(t.school)
+        rows += (f'<tr><td class="rk">{n}</td>'
+                 f'<td><a href="../team/{slug(t.school)}/">{art}{html.escape(t.school)}</a></td>'
+                 f'<td class="num">{w}-{l}</td>'
+                 f'<td class="num"><b>{_pct(p) if p is not None else "-"}</b></td></tr>\n')
+    head = ('<tr><th class="rk">Rank</th><th>Team</th><th class="num">Record</th>'
+            '<th class="num">Playoff odds</th></tr>')
+
+    return f"""<h1>Projected CFP rankings</h1>
+<p class="foot">After week {week} of the {state.year} season. Updated {now:%B} {now.day}.</p>
+<p class="lead">The selection committee's top 25 as the model expects it, from
+results through week {week}.</p>
+<div class="tablewrap"><table class="rank25"><thead>{head}</thead>
+<tbody>{rows}</tbody></table></div>
+<p class="note">The ranking is where teams stand now. Playoff odds are for the
+end of the season.</p>
+{_field_html(projection, by_idx, fbs, state.year)}
+<p><a href="../teams/">Playoff odds for every team</a> &middot;
+<a href="../how-it-works/">Methodology</a></p>"""

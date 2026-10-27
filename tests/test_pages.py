@@ -9,6 +9,7 @@ import pytest
 from cfbroot.config import SimConfig
 from cfbroot.sim import build_guide, league_all, run, run_league
 from cfbroot.web import pages
+from cfbroot.web.app import _by_record, _title_game
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +33,8 @@ def payload(season):
         "own_games": [g.as_dict() for g in guide.own_games],
         "games": [g.as_dict() for g in guide.games],
         "league": league_all(season, league),
+        "by_record": _by_record(res, season),
+        "title_game": _title_game(res),
     }
 
 
@@ -54,7 +57,8 @@ def test_a_team_page_says_what_the_team_needs(season, payload):
 
     assert team.school in said
     assert "playoff odds" in said
-    assert "remaining schedule" in said
+    assert f"What {team.school} needs" in said
+    assert "after a win" in said.lower()
     assert "{" not in body and "}" not in body     # no unfilled format fields
     # links reach other teams and the hubs, and stay inside the site
     hrefs = re.findall(r'href="([^"]+)"', body)
@@ -68,7 +72,8 @@ def test_a_team_page_carries_its_structured_data(season, payload):
     head = pages.team_head(season, team, payload, season.current_week())
     kinds = {b["@type"] for b in blocks(head)}
     assert kinds == {"WebPage", "Article", "BreadcrumbList", "FAQPage"}
-    assert f"<title>{team.school} playoff odds" in head
+    assert f"<title>{team.school} playoff chances" in head
+    assert "what it needs" in head
     assert 'name="robots"' in head
 
 
@@ -280,3 +285,80 @@ def test_the_missing_page_works_at_any_depth():
     assert 'href="/this-week/"' in html and 'href="/teams/"' in html
     assert "window.CFBROOT_INFO = true" in html
     assert 'id="didyoumean"' in html
+
+
+def test_what_a_team_needs_reads_its_records_and_games(season, payload):
+    team = season.fbs_teams[0]
+    said = text(pages.needs_text(season, team, payload))
+    recs = pages.record_rows(payload)
+    assert recs and recs == sorted(recs, key=lambda r: -r["wins"])
+    assert f"{recs[0]['wins']}-{recs[0]['losses']}" in said
+    assert "The biggest game left is" in said
+    assert sum(r["p"] for r in payload["by_record"]) == pytest.approx(1.0)
+    # every row is the team's own game, with the two results either side of now
+    for r in pages.own_rows(team, payload):
+        assert r["opponent"] != team.school
+        assert 0.0 <= min(r["win"], r["lose"]) <= max(r["win"], r["lose"]) <= 1.0
+
+
+def test_the_questions_include_what_the_team_needs(season, payload):
+    team = season.fbs_teams[0]
+    qs = [q for q, _ in pages.team_questions(season, team, payload,
+                                             season.current_week())]
+    assert f"What does {team.school} need to make the playoff?" in qs
+
+
+def test_a_conference_page_has_its_race_matchups_and_tiebreakers(season, payload):
+    conf = "SEC"
+    rows = pages.conference_rows(season, conf, payload["league"])
+    assert rows and all(r["team"] in {t.school for t in season.fbs_teams} for r in rows)
+    odds = [r["p"]["win_conference"] for r in rows]
+    assert odds == sorted(odds, reverse=True)
+    a, b = rows[0]["idx"], rows[1]["idx"]
+    pairs = [{"a": a, "b": b, "p": 0.4, "a_wins": 0.6}]
+    stakes = pages.Stakes("make_conf_title_game")
+    for t in season.fbs_teams:
+        if t.conference == conf:
+            stakes.add(t.school, payload)
+    body = pages.conference_body(season, conf, rows, payload["n_sims"], pairs, stakes)
+    said = text(body)
+    assert f"The {conf} title race" in said
+    assert "Likeliest title games" in said and "40.0% of seasons" in said
+    assert "How the SEC breaks ties" in said and "Head-to-head" in said
+    assert "{" not in body and "}" not in body
+    head = pages.conference_head(season, conf, rows, payload["n_sims"], pairs)
+    kinds = {b["@type"] for b in blocks(head)}
+    assert {"WebPage", "BreadcrumbList", "FAQPage"} <= kinds
+
+
+def test_the_title_game_pairings_are_published_likeliest_first(season):
+    league = run_league(season, SimConfig(n_sims=3000, batch_size=1500))
+    pairs = pages.ccg_pairs(league, season)
+    assert set(pairs) == set(league.ccg_pairs)
+    for rows in pairs.values():
+        assert rows == sorted(rows, key=lambda r: -r["p"])
+        assert all(r["a_wins"] >= 0.5 and r["a"] != r["b"] for r in rows)
+        assert sum(r["p"] for r in rows) <= 1.0 + 1e-9
+
+
+def test_the_rankings_page_lists_25_and_the_field(season):
+    from cfbroot.sim.sample import committee_now
+    proj = committee_now(season)
+    body = pages.rankings_body(season, proj, [])
+    said = text(body)
+    assert "Projected CFP rankings" in said
+    assert body.count('<td class="rk">') == 25
+    assert "If the season ended today" in said and "First-round byes" in said
+    assert "{" not in body and "}" not in body
+    # with nothing to show it says so rather than failing
+    assert "returns once" in text(pages.rankings_body(season, None))
+
+
+def test_the_sitemap_lists_every_page_with_its_card(season):
+    teams = season.fbs_teams
+    url = f"{pages.SITE_URL}/team/{pages.slug(teams[0].school)}/"
+    xml = pages.sitemap(teams, {url: "https://example.invalid/c.jpg"})
+    assert xml.count("<url>") == 5 + len(pages.conferences(teams)) + len(teams)
+    assert "/cfp-rankings/" in xml and "/conference/sec/" in xml
+    assert xml.count("<image:loc>") == 1
+    assert "xmlns:image=" in xml

@@ -96,7 +96,9 @@ whose model keeps the full margin.
 
 **Title games.** Selection day runs two fits, one with the conference title
 games and one without. Everyone takes the first except the teams that lost a
-title game, who take the second, so reaching a title game can only help.
+title game. A loser takes the second, moved a quarter of the way toward the
+first and never up, so a title game loss costs a quarter of what an ordinary
+loss would.
 
 ## The committee
 

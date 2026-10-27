@@ -30,7 +30,8 @@ from pathlib import Path
 
 from .app import HERE
 from . import cards, pages
-from .export import load_template, render, write_front, write_meta
+from .export import (conference_stakes, load_template, render, write_front,
+                     write_meta)
 
 # The published site is the input, so a republish of a site that has never
 # been built has nothing to read. 16 at a time keeps the whole data tree
@@ -163,7 +164,8 @@ def republish(out: Path, source: str, log=print) -> None:
     out.mkdir(parents=True)
 
     size = fetch_data(source, out / "data", log=log)
-    state = Season(json.loads((out / "data" / "state.json").read_text("utf-8")))
+    published = json.loads((out / "data" / "state.json").read_text("utf-8"))
+    state = Season(published)
     log(f"{state.year} week {state.current_week()}: "
         f"{len(state.fbs_teams)} teams, {len(state.games)} games played")
 
@@ -188,6 +190,8 @@ def republish(out: Path, source: str, log=print) -> None:
     site_card = shares.site(state.current_week(), standing)
     write_meta(out, state, teams, n_sims, template)
     stakes = pages.Stakes()
+    conf_stakes = conference_stakes(teams)
+    team_cards = {}
 
     week = state.default_week() or state.current_week()
     for i, t in enumerate(teams, 1):
@@ -195,18 +199,26 @@ def republish(out: Path, source: str, log=print) -> None:
             (out / "data" / "team" / f"{pages.slug(t.school)}.json")
             .read_text("utf-8"))
         stakes.add(t.school, guide)
+        if t.conference in conf_stakes:
+            conf_stakes[t.conference].add(t.school, guide)
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
+        card = shares.team(state, t, guide, week)
+        if card:
+            team_cards[f"{pages.SITE_URL}/team/{pages.slug(t.school)}/"] = card
         (team_dir / "index.html").write_text(
-            render(template, pages.team_head(state, t, guide, week,
-                                             shares.team(state, t, guide, week)),
+            render(template, pages.team_head(state, t, guide, week, card),
                    pages.team_body(state, t, guide, week), 2, t.school,
                    writeup=pages.team_writeup(state, t, guide, week),
                    color=t.color, photo=t.idx % 4 + 1),
             encoding="utf-8")
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
-    write_front(out, state, teams, n_sims, standing, template, site_card, stakes)
+    # A site built before these were published has none; its pages are
+    # written without them.
+    write_front(out, state, teams, n_sims, standing, template, site_card, stakes,
+                first["league"], published.get("projection"),
+                published.get("ccg_pairs"), conf_stakes, team_cards)
 
     log(f"{out}: {size / 1e6:.0f} MB in {time.perf_counter() - t0:.0f}s, "
         f"numbers unchanged from {source}")

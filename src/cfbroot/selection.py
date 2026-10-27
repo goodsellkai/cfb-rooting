@@ -246,7 +246,7 @@ COMMITTEE_SD = 0.050
 # A result against 13th is worth about 60% of one against the top team, and
 # one against 50th about 14%. A team that has not lost gets the full worst
 # loss amount; one that has not won gets no best win amount. Title games do
-# not count, since a title game only helps.
+# not count: the committee has not treated a title game loss as a bad loss.
 #
 # Chosen by scoring exponential, straight-line, logistic, tiered, rating-based
 # and count-based shapes against every committee poll of 2023-25. All of them
@@ -265,7 +265,8 @@ def result_places(state, order: list[str], through_week: int | None = None
     The worst loss is the weakest team it lost to, the best win the strongest
     team it beat. 0 means it has not lost, or has not won. A loss to a team
     that is not in the ranking at all, an FCS team, is the worst there is.
-    Title games are left out, since a title game only helps.
+    Title games are left out: the committee has not treated losing one as a
+    bad loss.
     """
     place = {t: i + 1 for i, t in enumerate(order)}
     worst = {t: 0 for t in order}

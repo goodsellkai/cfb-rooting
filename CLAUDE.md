@@ -64,7 +64,11 @@ win-loss correction to each simulated season, the same way the real one would be
 rated. `selection.py` models the committee on top of that rating: its own noise,
 best-win and worst-loss boosts, a head-to-head rule, a title-game jump, then the
 2026 field rules (four power champions, the best other champion, Notre Dame if
-top 12, at-large for the rest).
+top 12, at-large for the rest). A conference title game loss counts for a
+quarter of a regular-season loss (`CCG_LOSS_SHARE` in `config.py`, Kai's
+choice rather than a measured value): the loser's rating moves that share of
+the way from the fit without the title game toward the fit with it, never
+up, in the kernel, in `sample.py` and in `massey.rate_selection_day()` alike.
 
 **`web/`** has two faces that share everything underneath. `app.py` is a FastAPI
 dev server. `export.py` writes the same thing as files, and is what runs in CI.
@@ -121,6 +125,18 @@ section that stays on screen after the app loads and is what crawlers read.
   team's guide as the loop writes it (`pages.Stakes`). Each simulated season
   fills the same twelve places, so the swings over all teams sum to zero and
   half their absolute sum is the share of the field that changes hands.
+- **What a team needs comes from three tallies.** Its own games' two results
+  are already in its guide. The kernel also keeps every measure by
+  regular-season win total (`h_rec`), and `run_league()` splits the seasons by
+  the team's title game (won, lost, not in it) and counts each conference's
+  title game pairings. A team's JSON carries `by_record` and `title_game`;
+  `state.json` carries `ccg_pairs` and `projection`, which is what lets a
+  republish write the conference and ranking pages again.
+- **The projected CFP ranking is not simulated.** `committee_now()` rates the
+  real results through the last finished week with the same weekly system and
+  committee model a sample season uses, with no committee noise, so it is one
+  fixed answer. Its "if the season ended today" field gives the automatic
+  bids to the current conference leaders.
 - **Sunday has a build after the AP poll.** Polls are shown, never used by
   the model, and the AP's lands on Sunday afternoon, so `pages.yml` runs at 5pm
   and 6pm Central on Sundays to put it on the site. The loader looks for the
@@ -143,7 +159,10 @@ section that stays on screen after the app loads and is what crawlers read.
   `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push`.
 - **Writing**: plain and short, in READMEs, comments, commit messages and UI
   text. No em dashes, no "comprehensive", no "seamlessly", no stock AI phrasing.
-  Comments explain why, not what, and never over-explain.
+  Comments explain why, not what, and never over-explain. Site text is direct
+  and a little formal, without hedges ("the games that move the odds most",
+  not "by more than the simulations can put down to chance"), and it does not
+  describe what the reader can already see on the page.
 - **Tests and checks** run with a few thousand seasons, not millions. Do not
   benchmark unless asked.
 - **Dev servers** go through `preview_start` and `.claude/launch.json`, never a

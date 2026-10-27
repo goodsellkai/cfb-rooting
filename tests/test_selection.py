@@ -141,7 +141,9 @@ def ccg_season():
     return st
 
 
-def test_a_title_game_loss_is_dropped_and_a_win_is_kept():
+def test_a_title_game_loss_never_raises_a_rating():
+    """A beat B before losing the rematch, so counting the rematch in full
+    lifts A with B. The loss is capped at zero instead."""
     st = ccg_season()
     won, lost = massey.title_game_results(st)
     assert won == {"B"} and lost == {"A"}
@@ -150,7 +152,8 @@ def test_a_title_game_loss_is_dropped_and_a_win_is_kept():
     base = massey.rate_season(st, include_ccg=False)
     full = massey.rate_season(st, include_ccg=True)
 
-    assert merged["A"] == pytest.approx(base["A"])   # the loser never played it
+    assert full["A"] > base["A"]
+    assert merged["A"] == pytest.approx(base["A"])
     assert merged["B"] == pytest.approx(full["B"])   # the winner keeps it
     assert merged["B"] > base["B"]                   # and it helped
     assert diag["title_game_winners"] == 1

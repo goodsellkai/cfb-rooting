@@ -19,7 +19,7 @@ import math
 import numpy as np
 
 from .. import massey, selection
-from ..config import MAX_CONF_SIZE
+from ..config import CCG_LOSS_SHARE, MAX_CONF_SIZE
 from ..data.season import TO_SIMULATE, SeasonState
 from . import kernels as K
 from .kernels import TBF_HOSTED, _order_conference, _title_game_pair
@@ -169,6 +169,97 @@ def _rate(sys, ki, hpts, apts, mp, p):
                mp.correction_abs, mp.correction_passes, sys.gh_t, sys.gh_logw,
                need, np.zeros(n), out, np.zeros((n, sys.gh_t.size)))
     return out
+
+
+def committee_now(state: SeasonState, ki=None, weekly=None) -> dict | None:
+    """The committee's ranking as the model has it on the results so far, and
+    the field it would pick if the season ended there.
+
+    The steps each week of a sample season goes through, on the real scores
+    alone and with no committee noise, so there is one answer rather than a
+    spread. Only weeks that are over count, so a Saturday half played does
+    not move it. Conference leaders stand in for champions. None before the
+    committee would rank anyone, or once the title games are on.
+    """
+    week = state.current_week() - 1
+    if week not in poll_weeks(state):
+        return None
+    ki = ki if ki is not None else state.kernel_inputs()
+    p, mp = state.params, state.massey
+    sysw = (weekly or {}).get(week)
+    if sysw is None:
+        games = [g for g in state.games if not g["is_ccg"]]
+        sysw = massey.sim_system(state, games, state.fcs_games, ki.g_pwin, mp,
+                                 through_week=week)
+    teams = state.teams
+    fbs = state.fbs_teams
+    n_g = ki.g_home.size
+    hpts, apts = np.zeros(n_g), np.zeros(n_g)
+    winner = np.zeros(n_g, dtype=np.uint8)
+    wins = np.zeros(len(teams), dtype=np.int32)
+    for g in state.games:
+        if g["is_ccg"] or g["status"] == TO_SIMULATE or g["week"] > week:
+            continue
+        i = g["sim_idx"]
+        hpts[i], apts[i], winner[i] = g["home_points"], g["away_points"], g["status"]
+        wins[g["home_idx"] if g["status"] == HOME_WON else g["away_idx"]] += 1
+
+    vals = _rate(sysw, ki, hpts, apts, mp, p)
+    by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
+    a = _ap_weight(week)
+    if a > 0:
+        spread = float(np.std(list(by_school.values()))) or 1.0
+        prior = _preseason_prior(state, spread)
+        mean = float(np.mean(list(by_school.values())))
+        by_school = {t: (1 - a) * v + a * (mean + prior[t])
+                     for t, v in by_school.items()}
+    ranking = selection.rank_teams(state, by_school, through_week=week)
+
+    # Standings with the kernel's own tiebreak code, as in a sample season.
+    score = np.zeros(len(teams))
+    for t in fbs:
+        score[t.idx] = by_school[t.school]
+    cw = np.zeros(len(teams), dtype=np.int32)
+    cl = np.zeros(len(teams), dtype=np.int32)
+    for i in np.flatnonzero(ki.g_conf):
+        if not winner[i]:
+            continue
+        w, l = ((ki.g_home[i], ki.g_away[i]) if winner[i] == HOME_WON
+                else (ki.g_away[i], ki.g_home[i]))
+        cw[w] += 1
+        cl[l] += 1
+    order_buf = np.zeros(MAX_CONF_SIZE, dtype=np.int32)
+    pct = np.zeros(MAX_CONF_SIZE)
+    res = np.zeros((MAX_CONF_SIZE, MAX_CONF_SIZE), dtype=np.int32)
+    mark = np.full(len(teams), -1, dtype=np.int32)
+    leaders = {}
+    for c in state.conferences:
+        members = np.array(c.team_idxs, dtype=np.int32)
+        if not members.size or not c.crowns_champion:
+            continue
+        cg_lo, cg_hi = ki.conf_games_ptr[c.idx], ki.conf_games_ptr[c.idx + 1]
+        _order_conference(members, members.size, cw, cl, wins, score, ki.div_id,
+                          -1, ki.conf_games, cg_lo, cg_hi, ki.g_home, ki.g_away,
+                          winner, ki.conf_tb2[c.idx], ki.conf_tbm[c.idx],
+                          int(ki.conf_tbflags[c.idx]), min(2, members.size),
+                          order_buf, pct, mark, res)
+        leaders[c.name] = teams[int(members[order_buf[0]])].school
+
+    fmt = selection.playoff_format(state.year)
+    field = selection.pick_field(ranking.order, set(leaders.values()),
+                                 {t.school: t.conference for t in fbs},
+                                 rule=fmt.bids, n_byes=p.n_byes,
+                                 champion_byes=fmt.champion_byes, top12=fmt.top12)
+    idx = {t.school: t.idx for t in fbs}
+    return _clean({
+        "week": week,
+        "order": [idx[s] for s in ranking.order],
+        "field": [{"team": idx[s], "seed": i + 1, "bye": s in field.byes,
+                   "how": field.auto.get(s, "")}
+                  for i, s in enumerate(field.seeds)],
+        "out": [idx[s] for s in ranking.order if s not in field][:4],
+        "leaders": {c: idx[s] for c, s in leaders.items()},
+    })
 
 
 def sample_season(state: SeasonState, seed: int | None = None,
@@ -362,8 +453,9 @@ def sample_season(state: SeasonState, seed: int | None = None,
                         m.tg_ptr, m.tg_ref, m.tg_home, r0, r0.copy(), c0, c1,
                         np.zeros(n), np.zeros((n, m.gh_t.size)), np.zeros(n, np.uint8),
                         vec, wts)
-    ratings = {t.school: float(c0[m.node[t.idx]] if loser[m.node[t.idx]]
-                               else c1[m.node[t.idx]]) for t in fbs}
+    def rated(k):
+        return (c0[k] + CCG_LOSS_SHARE * min(0.0, c1[k] - c0[k])) if loser[k] else c1[k]
+    ratings = {t.school: float(rated(m.node[t.idx])) for t in fbs}
     ratings = {t: v + lean[t] for t, v in ratings.items()}
     ranking = selection.rank_teams(sim, ratings,
                                    through_week=massey.selection_week(sim))

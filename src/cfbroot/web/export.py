@@ -11,6 +11,8 @@ asking the server, and any static host can serve it.
       data/team/<slug>.json      one team's guide, as /api/team/<name> does
       data/season/<n>.json       a simulated season, as /api/sample does
       team/<school>/index.html   that team's page, which the app then takes over
+      conference/<name>/index.html   each conference's title race
+      cfp-rankings/index.html    the committee's ranking as the model expects it
       card/<name>-<time>.jpg     the picture a shared link shows
       sitemap.xml, robots.txt, _headers
 """
@@ -30,9 +32,10 @@ from urllib.parse import urlparse
 
 from ..config import METRIC_NAMES, SimConfig
 from ..sim import run_league
-from ..sim.sample import sample_season, weekly_systems
+from ..sim.sample import committee_now, sample_season, weekly_systems
 from . import cards, pages
-from .app import DEFAULT_SIMS, HERE, SEED, VERSIONED, _season_payload, store
+from .app import (DEFAULT_SIMS, HERE, SEED, VERSIONED, _clean,
+                  _season_payload, store)
 
 # Seasons written out for the Sim a season tab, which has no server to make
 # one on demand. This many carrying the season's results, and this many
@@ -142,6 +145,7 @@ def render(template: str, head: str, intro: str, depth: int,
                     .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
                     .replace('href="/teams/"', f'href="{base}teams/"')
                     .replace('href="/this-week/"', f'href="{base}this-week/"')
+                    .replace('href="/cfp-rankings/"', f'href="{base}cfp-rankings/"')
                     .replace('class="brand" href="/"',
                              f'class="brand" href="{base or "./"}"')
                     .replace('href="/static/', f'href="{base}static/')
@@ -154,7 +158,6 @@ def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
     (out / "robots.txt").write_text(pages.robots(), encoding="utf-8")
     (out / "llms.txt").write_text(
         pages.llms_txt(state, teams, n_sims), encoding="utf-8")
-    (out / "sitemap.xml").write_text(pages.sitemap(teams), encoding="utf-8")
     (out / "_headers").write_text(pages.headers(), encoding="utf-8")
     shutil.copy(HERE / "static" / "favicon.ico", out / "favicon.ico")
     # Served for any address at any depth, so its paths start at the root
@@ -168,14 +171,19 @@ def write_meta(out: Path, state, teams, n_sims: int, template: str) -> None:
 
 
 def write_front(out: Path, state, teams, n_sims: int, standing,
-                template: str, card: str | None = None, stakes=None) -> None:
-    """The home page, the week's biggest games, the full table and how it
-    works. ``stakes`` is gathered from every team's guide, so these go out
-    after the team pages."""
+                template: str, card: str | None = None, stakes=None,
+                league=None, projection=None, pairs=None, conf_stakes=None,
+                cards=None) -> None:
+    """The home page, the week's biggest games, the conference races, the
+    projected rankings, the full table, how it works and the sitemap.
+    ``stakes`` and ``conf_stakes`` are gathered from every team's guide, so
+    these go out after the team pages. ``league`` is any guide's table of
+    every team, ``cards`` each page's share card by address."""
     (out / "index.html").write_text(
         render(template, pages.home_head(state, n_sims, standing[:10], card),
                pages.home_body(state, teams, n_sims,
-                               standing[:10], standing[10:18], stakes), 0),
+                               standing[:10], standing[10:18], stakes,
+                               league), 0),
         encoding="utf-8")
     week = out / "this-week"
     week.mkdir(exist_ok=True)
@@ -195,6 +203,36 @@ def write_front(out: Path, state, teams, n_sims: int, standing,
         render(template, pages.how_head(state, n_sims, card),
                pages.how_body(state, n_sims), 1, info=True),
         encoding="utf-8")
+    ranked = out / "cfp-rankings"
+    ranked.mkdir(exist_ok=True)
+    (ranked / "index.html").write_text(
+        render(template, pages.rankings_head(state, projection, n_sims, card),
+               pages.rankings_body(state, projection, standing), 1, info=True),
+        encoding="utf-8")
+    for conf in pages.conferences(teams):
+        rows = pages.conference_rows(state, conf, league)
+        if not rows:
+            continue
+        where = out / "conference" / pages.conf_slug(conf)
+        where.mkdir(parents=True, exist_ok=True)
+        mine = (pairs or {}).get(conf) or []
+        (where / "index.html").write_text(
+            render(template,
+                   pages.conference_head(state, conf, rows, n_sims, mine, card),
+                   pages.conference_body(state, conf, rows, n_sims, mine,
+                                         (conf_stakes or {}).get(conf)),
+                   2, info=True),
+            encoding="utf-8")
+    cards = dict(cards or {})
+    if card:
+        cards.setdefault(pages.SITE_URL + "/", card)
+    (out / "sitemap.xml").write_text(pages.sitemap(teams, cards), encoding="utf-8")
+
+
+def conference_stakes(teams) -> dict:
+    """A tally per conference of the title game places each game moves."""
+    return {c: pages.Stakes("make_conf_title_game")
+            for c in pages.conferences(teams)}
 
 
 def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
@@ -217,6 +255,11 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     store.league = run_league(
         state, SimConfig(n_sims=n_sims, batch_size=50_000, seed=SEED),
         progress=progress)
+    # The committee's ranking on the results so far, and the weekly rating
+    # systems it shares with the sample seasons.
+    ki = state.kernel_inputs()
+    weekly = weekly_systems(state, ki)
+    projection = committee_now(state, ki, weekly)
 
     log(f"  valuing the week's finished games "
         f"({time.perf_counter() - t0:.0f}s in)")
@@ -258,22 +301,37 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS
     payload["build"] = BUILD
+    # What the conference and ranking pages read that no team's guide holds,
+    # so a republish can write them again.
+    payload["projection"] = projection
+    payload["ccg_pairs"] = _clean(pages.ccg_pairs(store.league, state))
     size = _write(out / "data" / "state.json", payload)
     teams = state.fbs_teams
     week = state.default_week() or state.current_week()
+    rank_of = {idx: n for n, idx in enumerate((projection or {}).get("order") or [], 1)}
+    conf_stakes = conference_stakes(teams)
+    league = None
+    team_cards = {}
     for i, t in enumerate(teams, 1):
         guide = store.payload(t.idx)
         guide["build"] = BUILD
+        if t.idx in rank_of:
+            guide["cfp_rank"] = {"week": projection["week"], "rank": rank_of[t.idx]}
         stakes.add(t.school, guide)
+        if t.conference in conf_stakes:
+            conf_stakes[t.conference].add(t.school, guide)
+        league = league or guide["league"]
         # Named for the team rather than its number, which is only stable
         # within one build.
         size += _write(out / "data" / "team" / f"{pages.slug(t.school)}.json",
                        guide)
         team_dir = out / "team" / pages.slug(t.school)
         team_dir.mkdir(parents=True)
+        card = shares.team(state, t, guide, week)
+        if card:
+            team_cards[f"{pages.SITE_URL}/team/{pages.slug(t.school)}/"] = card
         (team_dir / "index.html").write_text(
-            page(pages.team_head(state, t, guide, week,
-                                 shares.team(state, t, guide, week)),
+            page(pages.team_head(state, t, guide, week, card),
                  pages.team_body(state, t, guide, week), 2, t.school,
                  writeup=pages.team_writeup(state, t, guide, week),
                  color=t.color, photo=t.idx % 4 + 1),
@@ -281,12 +339,11 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
         store.payloads.clear()          # keep memory flat
         if i % 25 == 0 or i == len(teams):
             log(f"  wrote {i} / {len(teams)} teams")
-    write_front(out, state, teams, n_sims, standing, template, site_card, stakes)
+    write_front(out, state, teams, n_sims, standing, template, site_card, stakes,
+                league, projection, payload["ccg_pairs"], conf_stakes, team_cards)
 
     (out / "data" / "season").mkdir()
     (out / "data" / "season" / "fresh").mkdir()
-    ki = state.kernel_inputs()
-    weekly = weekly_systems(state, ki)
     for i in range(SAMPLE_SEASONS):
         for fresh in (False, True):
             blob = sample_season(state, SEED + i, from_start=fresh, ki=ki,

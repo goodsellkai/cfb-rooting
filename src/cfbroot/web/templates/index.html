@@ -26,7 +26,7 @@
       <button id="tab-season" class="tab" role="tab" aria-selected="false">Sim a season</button>
     </nav>
     <div id="topmeta" class="topmeta"></div>
-    <a id="howlink" class="howlink" href="/how-it-works/">How it works</a>
+    <a id="howlink" class="howlink" href="/how-it-works/">Methodology</a>
   </div>
 </header>
 
@@ -70,11 +70,11 @@
       </div>
       <div id="showseg" class="seg" role="group" aria-label="Which games">
         <button type="button" data-v="sig" aria-pressed="true"
-                title="Games whose swing the simulations can tell from noise">Significant</button>
+                title="Games with a statistically significant effect on your odds">Significant</button>
         <button type="button" data-v="all" aria-pressed="false">All games</button>
       </div>
       <label class="tog" id="playedwrap"
-             title="Mix in the games that are over, with what each result was worth">
+             title="Show completed games and the value of each result">
         <input id="showplayed" type="checkbox"> Include played
       </label>
       <input id="rootsearch" class="search" type="search" autocomplete="off"
@@ -100,6 +100,18 @@
           <span id="livecount" class="muted"></span>
         </div>
         <div id="livelist"></div>
+      </section>
+      <section id="needs" class="block needs" hidden>
+        <div class="blockhead">
+          <h2><button id="needstoggle" class="fold" type="button" aria-expanded="true"
+                      aria-controls="needsbody"><span id="needstitle">What your team needs</span></button></h2>
+          <span id="needsnote" class="muted"></span>
+        </div>
+        <div id="needsbody">
+          <p id="needssum" class="needssum"></p>
+          <div id="needslist"></div>
+          <div id="needsrec"></div>
+        </div>
       </section>
       <section id="owngames" class="block" hidden>
         <div class="blockhead"><h2 id="ownhead">Your team's games</h2></div>
@@ -160,7 +172,7 @@
       <p id="s-meta" class="s-meta"></p>
       <div class="tp-opts">
         <label id="s-freshwrap" class="tog"
-               title="Set aside this season's real results and play every game">
+               title="Simulate every game from week 1, ignoring real results">
           <input id="s-fresh" type="checkbox"> From week 1
         </label>
         <button id="s-new" type="button">New season</button>
@@ -207,10 +219,11 @@
       <a href="https://github.com/goodsellkai/cfb-rooting" target="_blank"
          rel="noopener">Source on GitHub</a>.
       Not affiliated with the College Football Playoff, the NCAA or any school.
-      Odds are model output, not betting advice.</p>
-    <p class="footlinks"><a href="/this-week/">This week's big games</a>
+      Not betting advice.</p>
+    <p class="footlinks"><a href="/this-week/">This week's key games</a>
+      <a href="/cfp-rankings/">Projected CFP rankings</a>
       <a href="/teams/">All teams</a>
-      <a href="/how-it-works/">How it works</a>
+      <a href="/how-it-works/">Methodology</a>
       <span id="footmeta"></span></p>
   </div>
 </footer>

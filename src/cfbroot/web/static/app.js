@@ -101,9 +101,9 @@ async function sameBuild(body) {
 }
 
 const CONF_TITLE = {
-  clear: "The simulations separate the two results",
-  leaning: "The direction is a lean, not a clear result",
-  thin: "Too few simulations on one side to say",
+  clear: "Significant effect on your odds",
+  leaning: "Likely effect on your odds",
+  thin: "One result almost never happens",
 };
 
 // Startup
@@ -186,10 +186,12 @@ function banner(text, ok) {
   el.hidden = !text;
 }
 
+/** What the build says about its own data, for the local app. The hosted
+ * site keeps that in the build log and out of the reader's way. */
 function showNotes() {
-  const notes = (STATE.notes || []).filter(Boolean);
+  const notes = STATIC ? [] : (STATE.notes || []).filter(Boolean);
   if (!STATE.has_api_key) {
-    banner("Could not load the real season, so this is a fake demo one. "
+    banner("The live season could not be loaded, so this is demo data. "
       + "Check the connection and restart.", false);
   } else if (notes.length) {
     banner(notes[0], true);
@@ -704,7 +706,7 @@ function setBand(idx) {
     plate.hidden = true;
   }
   if (t == null) {
-    $("teamline").textContent = "Every game left, sorted by how much it moves your "
+    $("teamline").textContent = "Every remaining game, ranked by its effect on your "
       + "team's playoff odds.";
   }
 }
@@ -748,7 +750,7 @@ function renderTeamLine(idx) {
   const pr = pollRank(idx);
   if (pr.best) bits.push(`<span>${pr.kind} No. ${pr.best}</span>`);
   if (RESULT && RESULT.team === t.name) {
-    bits.push(`<span><b>${num(RESULT.expected_wins)}</b> wins expected</span>`);
+    bits.push(`<span><b>${num(RESULT.expected_wins)}</b> projected wins</span>`);
   }
   $("teamline").innerHTML = bits.join(" &nbsp; ");
   if (RESULT && RESULT.team === t.name) renderSeasonRow();
@@ -873,7 +875,7 @@ async function loadTeam() {
       }
       showProgress(null);
       if (staleReload()) return;
-      banner("The site was rebuilt while this page was open. Reload it for "
+      banner("The site has been updated since this page was opened. Reload for "
              + "the new numbers.", false);
       return;
     }
@@ -1054,11 +1056,12 @@ function render(newTeam) {
   // seeds, so the chart is seeds only and the miss is a number.
   const seeds = RESULT.seed_distribution;
   const inField = seeds.slice(1).reduce((a, b) => a + b, 0);
-  $("seednote").textContent = `misses in ${pct(seeds[0])}`;
+  $("seednote").textContent = `out of the field in ${pct(seeds[0])}`;
   $("seeddist").hidden = inField < 0.002;
   if (inField >= 0.002) renderDist("seeddist", seeds.map((v, i) => (i ? v : 0)), String);
-  $("winsnote").textContent = `${num(RESULT.expected_wins)} expected`;
+  $("winsnote").textContent = `${num(RESULT.expected_wins)} projected`;
   renderScoreboard();
+  renderNeeds();
   renderOwnGames();
   renderRootList();
   renderLeague();
@@ -1196,11 +1199,11 @@ function gameRowsHTML(games, slots) {
   const head = `<div class="slatehead" aria-hidden="true">
       <span class="h-when">${over ? "Played" : "Kickoff" + (ZONE ? ", " + esc(ZONE) : "")}</span>
       <span>${over ? "Winner" : "Root for"}</span>
-      <span class="num" title="${over ? "Final score" : "How likely that side is to win the game"}">${over ? "Score" : "Win"}</span>
+      <span class="num" title="${over ? "Final score" : "Win probability"}">${over ? "Score" : "Win"}</span>
       ${games.every(g => g.unvalued) ? `<span class="h-od"></span><span></span><span class="h-imp"></span>` : `
       <span class="num h-od" title="${esc(metricLabel(key))}, if that side wins">Your odds</span>
       <span class="num" title="Change from the odds now, in percentage points">Change</span>
-      <span class="h-imp" title="How far apart the two results leave your odds, in points">Impact</span>`}
+      <span class="h-imp" title="Gap in your odds between the two results, in percentage points">Impact</span>`}
     </div>`;
   let body = "", slot = null;
   for (const g of games) {
@@ -1282,7 +1285,7 @@ function gameHTML(g, key, maxAbs) {
   let imp;
   if (done) {
     const move = (homeWon ? s.p_if_home : s.p_if_away) - base;
-    imp = `<div class="imp" title="What the result did to your odds">
+    imp = `<div class="imp" title="Effect of the result on your odds">
         <b class="${dirOf(move)}">${signed(move)}</b></div>`;
   } else {
     const gap = Math.abs(s.delta);
@@ -1297,13 +1300,219 @@ function gameHTML(g, key, maxAbs) {
       ${whenHTML(g, done, opp)}${side(firstHome, true)}${side(!firstHome, false)}${imp}</article>`;
 }
 
+/** The team's own games as rows of the slate. What it needs covers the games
+ * to come, so these are for Include played: the results and what each was
+ * worth. */
 function renderOwnGames() {
-  const games = ownGames();
+  const games = $("showplayed").checked ? ownGames() : [];
   const panel = $("owngames");
   if (!games.length) { panel.hidden = true; return; }
   panel.hidden = false;
   $("ownhead").textContent = `${RESULT.team} game${games.length > 1 ? "s" : ""}`;
   $("owntable").innerHTML = gameRowsHTML(games, false);
+}
+
+// What your team needs
+//
+// Every game the team has left, with where the chosen measure goes after a
+// win and after a loss: the two numbers, and the stretch between them on a
+// shared scale with today's number marked, so the games that decide the
+// season are the long ones. Then its conference title game the same way, and
+// the measure at each final record with how often the team finishes there.
+// The answer comes first, in a sentence.
+
+const ODDS_NAME = {
+  make_playoff: "Playoff odds",
+  win_conference: "{c} title odds",
+  make_conf_title_game: "Title game odds",
+  top4_seed: "Bye odds",
+  reach_quarterfinal: "Quarterfinal odds",
+  reach_semifinal: "Semifinal odds",
+  reach_title_game: "Title game odds",
+  win_national_title: "National title odds",
+  finish_ranked: "Ranked odds",
+};
+const PHRASE = {
+  make_playoff: "makes the playoff",
+  win_conference: "wins the {c}",
+  make_conf_title_game: "reaches the {c} title game",
+  top4_seed: "earns a first-round bye",
+  reach_quarterfinal: "reaches the quarterfinals",
+  reach_semifinal: "reaches the semifinals",
+  reach_title_game: "reaches the national title game",
+  win_national_title: "wins the national title",
+  finish_ranked: "finishes ranked",
+};
+// Records that come up less often than this are left off the table.
+const RECORD_FLOOR = 0.01;
+
+function confOf(idx) {
+  const c = team(idx).conference || "";
+  return /independent/i.test(c) ? "" : c;
+}
+
+/** A share of seasons, to the precision it needs. */
+function share(x) {
+  return x >= 0.1 || x === 0 ? pct(x, 0) : pct(x, 1);
+}
+
+/** The top of a scale that fits ``v`` with a little room. */
+function niceTop(v) {
+  for (const t of [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.4, 0.5, 0.6, 0.8, 1]) {
+    if (t >= v * 1.04) return t;
+  }
+  return 1;
+}
+
+function needRows(key) {
+  const me = teamIdx();
+  return RESULT.own_games.map(g => {
+    const home = g.home_idx === me;
+    const s = g.swings[key] || {};
+    return {
+      g, home, opp: home ? g.away_idx : g.home_idx, name: home ? g.away : g.home,
+      where: home || g.neutral ? "vs" : "at",
+      chance: home ? g.p_home_win : 1 - g.p_home_win,
+      win: home ? s.p_if_home : s.p_if_away,
+      lose: home ? s.p_if_away : s.p_if_home,
+      // A result too rare to measure is shown as unknown, not as a number.
+      sure: s.reliable !== false,
+    };
+  }).filter(r => Number.isFinite(r.win) && Number.isFinite(r.lose))
+    .sort((a, b) => a.g.week - b.g.week || kickoffOrder(a.g) - kickoffOrder(b.g));
+}
+
+function recordCols(key) {
+  let recs = (RESULT.by_record || []).filter(r => r.p >= RECORD_FLOOR
+                                                 && Number.isFinite(r.odds[key]));
+  // A phone fits seven; the likeliest seven, still best record first.
+  if (recs.length > 7) {
+    const keep = new Set([...recs].sort((a, b) => b.p - a.p).slice(0, 7));
+    recs = recs.filter(r => keep.has(r));
+  }
+  return recs;
+}
+
+function needsSummary(key, rows, recs) {
+  const me = teamIdx();
+  const phrase = PHRASE[key].replace("{c}", esc(confOf(me) || "conference"));
+  const who = esc(RESULT.team);
+  const out = [];
+  if (recs.length && rows.length) {
+    const top = recs[0];
+    const rec = `${top.wins}-${top.losses}`;
+    out.push(top.wins === recordOf(me).w + rows.length
+      ? `Win out to ${rec} (${share(top.p)} of seasons) and ${who} ${phrase} in <b>${pct(top.odds[key])}</b>.`
+      : `At ${rec}, its best likely finish, ${who} ${phrase} in <b>${pct(top.odds[key])}</b>.`);
+    const more = recs.slice(1, 3).map(r => `at ${r.wins}-${r.losses}, <b>${pct(r.odds[key])}</b>`);
+    if (more.length) out.push(more.join("; ").replace(/^a/, "A") + ".");
+  }
+  const sure = rows.filter(r => r.sure);
+  if (sure.length > 1) {
+    const big = sure.reduce((a, b) => (Math.abs(b.win - b.lose) > Math.abs(a.win - a.lose) ? b : a));
+    out.push(`The biggest game left is ${big.where === "at" ? "at" : "against"} ${esc(big.name)} in week ${big.g.week}.`);
+  }
+  return out.join(" ");
+}
+
+/** One row: when, who, the chance to win, and the measure after each result. */
+function needRowHTML(r, x, base, big) {
+  const g = r.g;
+  const done = finalOf(g);
+  const live = done ? null : liveOf(g);
+  const wk = selectedWeek();
+  let when = `<b>Wk ${g.week}</b><small>${esc(whenText(g, false).replace(/,? time TBA$/, ""))}</small>`;
+  let chance = `<span class="num nd-p">${pct(r.chance, 0)}</span>`;
+  let state = "";
+  if (done) {
+    const us = r.home ? done.home : done.away, them = r.home ? done.away : done.home;
+    const won = us > them;
+    when = `<b>Wk ${g.week}</b><small>Final</small>`;
+    chance = `<span class="num nd-p res ${won ? "w" : "l"}">${won ? "W" : "L"} ${us}-${them}</span>`;
+    state = won ? " won" : " lost";
+  } else if (isLive(live)) {
+    const q = liveWin(g, live);
+    when = `<b>Wk ${g.week}</b><small class="live">${esc(liveClock(live))}</small>`;
+    if (q != null) chance = `<span class="num nd-p">${pct(r.home ? q : 1 - q, 0)}</span>`;
+  }
+  // Too few seasons with the unlikely result: that side is unknown, and the
+  // bar is only today's mark.
+  const rare = r.sure ? null : (r.chance >= 0.5 ? "lose" : "win");
+  const lo = x(r.lose), hi = x(r.win);
+  const bar = rare ? "" : `<i style="left:${lo}%;width:${Math.max(0.6, hi - lo).toFixed(2)}%"></i>`;
+  const unknown = `<span class="num nd-un" title="This result almost never happens">-</span>`;
+  const label = rare ? `Week ${g.week} ${r.where} ${r.name}: ${pct(rare === "lose" ? r.win : r.lose)} after a ${rare === "lose" ? "win" : "loss"}`
+    : `Week ${g.week} ${r.where} ${r.name}: ${pct(r.win)} after a win, ${pct(r.lose)} after a loss`;
+  return `<div class="nd${big ? " big" : ""}${g.week === wk ? " on" : ""}${state}" data-week="${g.week}">
+      <span class="nd-when">${when}</span>
+      <span class="nd-opp"><i class="at">${r.where}</i><span class="who" data-team="${r.opp}">${logo(r.opp, 18)}${pollTag(r.opp)}<b>${esc(r.name)}</b>${recTag(r.opp)}</span></span>
+      ${chance}
+      ${rare === "lose" ? unknown.replace("nd-un", "nd-un nd-lo") : `<span class="num nd-lo">${pct(r.lose)}</span>`}
+      <span class="nd-bar" role="img" aria-label="${esc(label)}">${bar}<b style="left:${x(base)}%"></b></span>
+      ${rare === "win" ? unknown.replace("nd-un", "nd-un nd-hi") : `<span class="num nd-hi">${pct(r.win)}</span>`}
+    </div>`;
+}
+
+/** The conference title game as one more row: the chance to win it once
+ * there, and the measure after winning and losing it. */
+function titleRowHTML(key, x, base) {
+  const tg = RESULT.title_game;
+  const me = teamIdx();
+  const conf = confOf(me);
+  if (!tg || !conf || key === "win_conference" || key === "make_conf_title_game") return "";
+  const reach = tg.p[0] + tg.p[1];
+  const [won, lost, missed] = tg.odds[key] || [];
+  if (reach < 0.005 || !Number.isFinite(won) || !Number.isFinite(lost)) return "";
+  const lo = x(lost), hi = x(won);
+  return `<div class="nd tg">
+      <span class="nd-when"><b>Title</b><small>game</small></span>
+      <span class="nd-opp"><b>${esc(conf)} championship</b><small>Reached in ${share(reach)} of seasons${Number.isFinite(missed) ? `. Missing it: ${pct(missed)}` : ""}</small></span>
+      <span class="num nd-p" title="Chance to win it, once there">${pct(tg.p[0] / reach, 0)}</span>
+      <span class="num nd-lo">${pct(lost)}</span>
+      <span class="nd-bar" role="img" aria-label="${esc(`${conf} title game: ${pct(won)} after a win, ${pct(lost)} after a loss`)}"><i style="left:${lo}%;width:${Math.max(0.6, hi - lo).toFixed(2)}%"></i><b style="left:${x(base)}%"></b></span>
+      <span class="num nd-hi">${pct(won)}</span>
+    </div>`;
+}
+
+function renderNeeds() {
+  const key = METRIC;
+  const rows = needRows(key);
+  const panel = $("needs");
+  if (!rows.length && !RESULT.title_game) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const me = teamIdx();
+  const conf = confOf(me) || "Conference";
+  $("needstitle").textContent = `What ${RESULT.team} needs`;
+  $("needsnote").textContent = `${ODDS_NAME[key].replace("{c}", conf)} after a win or a loss`;
+
+  const base = RESULT.headline[key].p;
+  const tg = RESULT.title_game;
+  const vals = rows.flatMap(r => (r.sure ? [r.win, r.lose] : [r.chance >= 0.5 ? r.win : r.lose])).concat(base,
+    tg && tg.odds[key] ? tg.odds[key].filter(Number.isFinite) : []);
+  const top = niceTop(Math.max(...vals));
+  const x = (v) => (100 * Math.max(0, Math.min(v, top)) / top).toFixed(2);
+  const gap = Math.max(0, ...rows.filter(r => r.sure).map(r => Math.abs(r.win - r.lose)));
+  const recs = recordCols(key);
+
+  $("needssum").innerHTML = needsSummary(key, rows, recs);
+  const name = ODDS_NAME[key].replace("{c}", esc(conf));
+  $("needslist").innerHTML = `<div class="nd-grid">
+      <div class="nd-head" aria-hidden="true"><span>Week</span><span>Opponent</span>
+        <span class="num" title="${esc(RESULT.team)}'s chance to win">Win %</span>
+        <span class="num">After a loss</span>
+        <span class="nd-scale"><span>0</span><span>${pct(top, 0)}</span></span>
+        <span class="num">After a win</span></div>
+      ${rows.map(r => needRowHTML(r, x, base, r.sure && rows.length > 1 && Math.abs(r.win - r.lose) === gap)).join("")}
+      ${titleRowHTML(key, x, base)}
+    </div>
+    <p class="nd-key"><span class="nd-tick"></span>${name} now, ${pct(base)}</p>`;
+
+  $("needsrec").innerHTML = recs.length > 1 && rows.length ? `<table class="ndrec">
+      <caption>${name} by final record</caption>
+      <thead><tr><th scope="row">Record</th>${recs.map(r => `<th scope="col">${r.wins}-${r.losses}</th>`).join("")}</tr></thead>
+      <tbody><tr><th scope="row">How often</th>${recs.map(r => `<td>${share(r.p)}</td>`).join("")}</tr>
+      <tr class="odds"><th scope="row">${name}</th>${recs.map(r => `<td><b>${pct(r.odds[key], 1)}</b></td>`).join("")}</tr></tbody>
+    </table>` : "";
 }
 
 // Live now
@@ -1495,15 +1704,16 @@ function renderSeasonRow() {
 /** What the scoreboard touches, redrawn on each poll. */
 function renderLive() {
   renderScoreboard();
+  renderNeeds();
   renderOwnGames();
   renderRootList();
   renderSeasonRow();
 }
 
 const KEY_HTML = `<p class="key">
-  <span><b class="k-clear">Team</b> clear</span>
-  <span><b class="k-lean">Team</b> a lean</span>
-  <span><b>Team</b> too few seasons to be sure</span></p>`;
+  <span><b class="k-clear">Team</b> significant</span>
+  <span><b class="k-lean">Team</b> likely</span>
+  <span><b>Team</b> lopsided game</span></p>`;
 
 let LIMIT = 120;                // rows on screen before "Show more"
 
@@ -1519,8 +1729,8 @@ function renderRootList() {
   const wk = selectedWeek();
   const anyPast = shown.some(g => g.unvalued);
   const old = anyPast && replay.week
-    ? `<p class="foot">What each result was worth is worked out for week `
-      + `${replay.week} only. Earlier weeks show the score.</p>` : "";
+    ? `<p class="foot">Result values are available for week ${replay.week} `
+      + `only. Earlier weeks show final scores.</p>` : "";
   const more = games.length > shown.length
     ? `<button type="button" id="showmore" class="more">Show ${Math.min(120,
         games.length - shown.length)} more of ${games.length - shown.length}</button>` : "";
@@ -1530,11 +1740,11 @@ function renderRootList() {
     body = gameRowsHTML(shown, SORT === "time") + more + KEY_HTML + old;
   } else if (!slate) {
     body = old || (!$("showplayed").checked && wk !== null && wk < STATE.current_week
-      ? `<p class="foot">Week ${wk} is over. Turn on Include played to see its results.</p>`
+      ? `<p class="foot">Week ${wk} is complete. Turn on Include played to see results.</p>`
       : `<p class="foot">No games left on this slate.</p>`);
   } else {
-    body = `<p class="foot">No game here moves your odds enough to call. `
-      + `Switch to all games to see the rest.</p>` + old;
+    body = `<p class="foot">No game on this slate has a significant effect on `
+      + `your odds. Select All games to see every game.</p>` + old;
   }
   $("rootlist").innerHTML = body;
 
@@ -1673,7 +1883,7 @@ function tipHTML(idx, games, inSeason, tap = false) {
   // A mouse clicks the name itself; a tap has already been spent opening
   // this card, so the card carries the way through.
   const foot = !pickable ? ""
-    : !tap ? `<p class="tipfoot">Click to make this your team</p>`
+    : !tap ? `<p class="tipfoot">Click to view this team</p>`
     : idx === teamIdx() && $("seasonview").hidden ? ""
     : `<button type="button" class="tipgo" data-go="${idx}">Go to ${esc(t.name)}'s page</button>`;
   // The team's own odds on the measure you are looking at, from the league
@@ -1711,7 +1921,7 @@ function showTip(el, idx, tap) {
   if (chip) {
     const foot = tip.querySelector(".tipfoot") || tip.appendChild(document.createElement("p"));
     foot.className = "tipfoot";
-    foot.textContent = `Click to see week ${chip.dataset.week}`;
+    foot.textContent = `Click to view week ${chip.dataset.week}`;
   }
   tip.hidden = false;
   if (tap) placeTipBy(el);
@@ -1907,6 +2117,18 @@ $("season").addEventListener("click", (e) => {
     PLAYED_FOR_WEEK = false;
   }
   sel.value = chip.dataset.week;
+  sel.dispatchEvent(new Event("change"));
+});
+// A game in What your team needs puts its week on the slate, as the season
+// row does. Team names keep their own click.
+$("needslist").addEventListener("click", (e) => {
+  if (e.target.closest("[data-team]") || !RESULT) return;
+  const row = e.target.closest(".nd[data-week]");
+  if (!row) return;
+  e.stopPropagation();
+  const sel = $("week");
+  if (sel.value === row.dataset.week) return;
+  sel.value = row.dataset.week;
   sel.dispatchEvent(new Event("change"));
 });
 // Turning Include played on or off by hand makes it the reader's choice.

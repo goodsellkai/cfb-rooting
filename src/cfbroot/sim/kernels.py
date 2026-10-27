@@ -22,7 +22,7 @@ import math
 
 import numpy as np
 
-from ..config import MAX_CONF_SIZE
+from ..config import CCG_LOSS_SHARE, MAX_CONF_SIZE
 
 try:  # pragma: no cover - exercised by whichever branch the machine takes
     from numba import njit, prange
@@ -427,7 +427,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    h2h_depth,
                    n_byes, bid_rule, champion_byes, nd_idx,
                    out_hw, out_metrics,
-                   h_wins, h_wins_made, h_seed, h_rank):
+                   h_wins, h_wins_made, h_seed, h_rank, h_rec):
     n_teams = rating.shape[0]
     n_conf = conf_has_ccg.shape[0]
     n_g = g_home.shape[0]
@@ -636,9 +636,10 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 n_cc += 1
 
             # 5. The rating, as massey.rate_selection_day() does it: two
-            # fits, one with the title games and the one above without, which
-            # a title game loser keeps, so a title game can only help. A nudge
-            # on top stands in for the committee's own variability.
+            # fits, one with the title games and the one above without. A
+            # title game loser takes the one without, moved a quarter of the
+            # way toward the one with (CCG_LOSS_SHARE), and only ever down. A
+            # nudge on top stands in for the committee's own variability.
             _selection_rating(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
                               hpts, apts, m_xh, m_xa, m_xhome, m_xg, m_xwon,
                               cc_h, cc_a, cc_home, cc_g, cc_won, n_cc, cc_of,
@@ -650,7 +651,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
             for j in range(n_fbs):
                 t = fbs_idx[j]
                 k = m_node[t]
-                v = c0[k] if loser[k] else c1[k]
+                v = c0[k] + CCG_LOSS_SHARE * min(0.0, c1[k] - c0[k]) if loser[k] else c1[k]
                 if committee_sd > 0.0:
                     v += committee_sd * np.random.normal(0.0, 1.0)
                 final[t] = v
@@ -914,6 +915,15 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                         out_metrics[s, M_TITLE_GAME, j] = 1
                     if rc >= 5:
                         out_metrics[s, M_NATL, j] = 1
+
+            # Every measure by regular-season win total, for the odds at each
+            # final record.
+            for j in range(n_fbs):
+                w = wins[fbs_idx[j]]
+                if w > max_w:
+                    w = max_w
+                for m in range(N_METRICS):
+                    h_rec[c, j, w, m] += out_metrics[s, m, j]
 
 
 @njit(cache=True, inline="always")

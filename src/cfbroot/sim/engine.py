@@ -21,10 +21,13 @@ from ..config import METRIC_NAMES, ModelParams, SimConfig
 from ..data.season import SeasonState
 from ..selection import playoff_format
 from . import kernels
-from .kernels import N_METRICS
+from .kernels import M_CCG, M_WIN_CONF, N_METRICS
 
 MAX_WINS = 20
 MAX_SEED = 12
+# A team's conference title game, three ways: in it and won, in it and lost,
+# not in it. The columns of ccg_counts.
+CCG_WON, CCG_LOST, CCG_MISSED = 0, 1, 2
 
 
 @dataclass
@@ -44,6 +47,9 @@ class SimResults:
     seed_hist: np.ndarray            # (13,) focus playoff seed, 0 = missed
     rank_hist: np.ndarray            # (n_fbs+1,) focus final committee rank
     team_counts: np.ndarray          # (n_teams, M) league-wide tallies
+    wins_metric: np.ndarray          # (MAX_WINS+1, M) achieved, by win total
+    ccg_seasons: np.ndarray          # (3,) seasons won, lost or missed the CCG
+    ccg_counts: np.ndarray           # (3, M) achieved, by the same three
 
     remaining_sim_idx: np.ndarray    # kernel game index for each column G
     game_keys: list                  # the SeasonState game dict per column G
@@ -89,6 +95,12 @@ class LeagueResults:
     wins_made_playoff: np.ndarray    # (n_fbs, MAX_WINS+1)
     seed_hist: np.ndarray            # (n_fbs, MAX_SEED+1)
     rank_hist: np.ndarray            # (n_fbs, n_fbs+1)
+    wins_metric: np.ndarray          # (n_fbs, MAX_WINS+1, M)
+    ccg_seasons: np.ndarray          # (n_fbs, 3)
+    ccg_counts: np.ndarray           # (n_fbs, 3, M)
+    # Per conference: its columns, how often each pair met in the title game,
+    # and how often the row team beat the column team in it.
+    ccg_pairs: dict
 
     remaining_sim_idx: np.ndarray
     game_keys: list
@@ -120,6 +132,9 @@ class LeagueResults:
             seed_hist=self.seed_hist[j].copy(),
             rank_hist=self.rank_hist[j].copy(),
             team_counts=wide,
+            wins_metric=self.wins_metric[j].copy(),
+            ccg_seasons=self.ccg_seasons[j].copy(),
+            ccg_counts=self.ccg_counts[j].copy(),
             remaining_sim_idx=self.remaining_sim_idx, game_keys=self.game_keys,
             elapsed=self.elapsed, params=self.params, used_numba=self.used_numba)
 
@@ -169,6 +184,20 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
     h_made = np.zeros((n_chunks, n_fbs, MAX_WINS + 1), dtype=np.int64)
     h_seed = np.zeros((n_chunks, n_fbs, MAX_SEED + 1), dtype=np.int64)
     h_rank = np.zeros((n_chunks, n_fbs, n_fbs + 1), dtype=np.int64)
+    h_rec = np.zeros((n_chunks, n_fbs, MAX_WINS + 1, N_METRICS), dtype=np.int64)
+    ccg_seasons = np.zeros((n_fbs, 3), dtype=np.int64)
+    ccg_counts = np.zeros((n_fbs, 3, N_METRICS), dtype=np.int64)
+    # The title game pairings, by conference, in FBS columns.
+    slot_of = {int(t): j for j, t in enumerate(fbs_idx)}
+    conf_slots = {}
+    for c in state.conferences:
+        cols = [slot_of[i] for i in c.team_idxs if i in slot_of]
+        if c.crowns_champion and c.has_ccg and len(cols) >= 2:
+            conf_slots[c.name] = np.array(cols, dtype=np.int64)
+    together = {k: np.zeros((v.size, v.size), dtype=np.int64)
+                for k, v in conf_slots.items()}
+    beat = {k: np.zeros((v.size, v.size), dtype=np.int64)
+            for k, v in conf_slots.items()}
 
     t0 = time.perf_counter()
     done = 0
@@ -198,7 +227,7 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             p.worst_loss_boost, p.worst_loss_scale,
             p.best_win_boost, p.best_win_scale, p.h2h_depth,
             p.n_byes, bid_rule, fmt.champion_byes, nd_idx,
-            out_hw, out_metrics, h_wins, h_made, h_seed, h_rank)
+            out_hw, out_metrics, h_wins, h_made, h_seed, h_rank, h_rec)
 
         hw = out_hw[:this]
         mt = out_metrics[:this]
@@ -210,6 +239,18 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
             for mi in range(N_METRICS):
                 cond_counts[:, mi, :] += (
                     hwf @ mt[:, mi, :].astype(np.float32)).astype(np.int64)
+        in_ccg = mt[:, M_CCG, :].astype(bool)
+        champ = mt[:, M_WIN_CONF, :].astype(bool)
+        for col, mask in ((CCG_WON, in_ccg & champ), (CCG_LOST, in_ccg & ~champ),
+                          (CCG_MISSED, ~in_ccg)):
+            ccg_seasons[:, col] += mask.sum(axis=0)
+            for mi in range(N_METRICS):
+                ccg_counts[:, col, mi] += (mask & (mt[:, mi, :] == 1)).sum(axis=0)
+        for name, cols in conf_slots.items():
+            a = in_ccg[:, cols].astype(np.float32)
+            w = (in_ccg[:, cols] & champ[:, cols]).astype(np.float32)
+            together[name] += np.rint(a.T @ a).astype(np.int64)
+            beat[name] += np.rint(w.T @ a).astype(np.int64)
 
         done += this
         b += 1
@@ -222,7 +263,10 @@ def run_league(state: SeasonState, cfg: SimConfig | None = None,
         team_counts=team_counts, cond_counts=cond_counts,
         n_home_wins=n_home_wins, wins_hist=h_wins.sum(axis=0),
         wins_made_playoff=h_made.sum(axis=0), seed_hist=h_seed.sum(axis=0),
-        rank_hist=h_rank.sum(axis=0),
+        rank_hist=h_rank.sum(axis=0), wins_metric=h_rec.sum(axis=0),
+        ccg_seasons=ccg_seasons, ccg_counts=ccg_counts,
+        ccg_pairs={k: {"cols": conf_slots[k], "together": together[k],
+                       "beat": beat[k]} for k in conf_slots},
         remaining_sim_idx=ki.remaining_idx.copy(),
         game_keys=[g for g in state.games
                    if not g["is_ccg"] and g["status"] == 0],

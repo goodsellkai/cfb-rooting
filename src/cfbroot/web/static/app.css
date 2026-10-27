@@ -725,6 +725,7 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
 .boards { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
 .boards h2 { padding-bottom: 8px; border-bottom: 2px solid var(--ink); color: var(--ink); }
 .boards .foot a { color: var(--ink); font-weight: 650; }
+.boards .foot a + a { margin-left: 16px; }
 ol.race { list-style: none; margin: 0; padding: 0; font-stretch: 88%; }
 .race li { display: flex; align-items: center; gap: 9px; padding: 6px 0;
            border-bottom: 1px solid var(--rule-2); font-size: 15px; }
@@ -787,6 +788,27 @@ ul.lost li { padding: 9px 0; border-bottom: 1px solid var(--rule-2); }
 ul.lost a { color: var(--ink); font-weight: 650; }
 body.info .intro .confs table { max-width: none; }
 body.info .intro p { max-width: none; font-size: 16px; line-height: 1.62; }
+/* Methodology: the key figures in a row, then the model as numbered steps,
+   since it is a sequence each simulated season goes through in order. */
+dl.facts {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 26px 0 10px;
+  border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule);
+}
+.facts > div { padding: 12px 16px 14px 0; }
+.facts > div + div { padding-left: 16px; border-left: 1px solid var(--rule-2); }
+.facts dt { font-size: 12.5px; font-weight: 650; color: var(--muted); }
+.facts dd { margin: 4px 0 0; font-size: 25px; line-height: 1.1; font-weight: 820;
+            font-stretch: 70%; color: var(--ink); font-variant-numeric: tabular-nums; }
+ol.steps { list-style: none; counter-reset: step; margin: 6px 0 8px; padding: 0; }
+.steps > li { position: relative; counter-increment: step; padding: 2px 0 8px 46px;
+              border-bottom: 1px solid var(--rule-2); }
+.steps > li::before {
+  content: counter(step); position: absolute; left: 0; top: 13px;
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--turf); color: #fff; font-size: 14px; font-weight: 800;
+}
+.steps h3 { margin: 14px 0 4px; font-size: 18px; font-weight: 780; font-stretch: 84%; color: var(--ink); }
+.steps p { margin-bottom: 8px; }
 body.info .intro table, .writeup table {
   font-size: 14.5px; font-stretch: 90%; margin: 0 0 18px; max-width: 620px;
 }
@@ -810,6 +832,148 @@ body.info .intro img, .writeup img { width: 20px; height: 20px; object-fit: cont
 }
 .writeup p { margin: 0 0 12px; font-size: 16px; line-height: 1.62; color: var(--ink-2); }
 .writeup tr.mine td { background: var(--sel); font-weight: 700; }
+.writeup h3, .intro h3 { font-size: 16px; font-weight: 760; font-stretch: 84%; color: var(--ink);
+                         margin: 20px 0 6px; }
+
+/* What your team needs. A row per game left: the measure after a loss and
+   after a win at the two ends, and the stretch between them as a bar on one
+   scale shared by every row, with today's number a tick across it. The
+   longest bar is the game that decides most, and the only one drawn solid. */
+.needssum { margin: 12px 0 2px; font-size: 15.5px; line-height: 1.5; color: var(--ink-2);
+            max-width: 72ch; }
+.needssum:empty { display: none; }
+.needssum b { color: var(--ink); font-weight: 760; font-variant-numeric: tabular-nums; }
+.nd-grid {
+  --cols: 4.4rem minmax(0, 1fr) 3.3rem 4.4rem minmax(96px, 1.15fr) 4.4rem;
+  font-stretch: 88%; font-variant-numeric: tabular-nums;
+}
+.nd-head, .nd { display: grid; grid-template-columns: var(--cols); column-gap: 14px;
+                align-items: center; }
+.nd-head { padding: 10px 0 7px; border-bottom: 1px solid var(--rule); font-size: 12px;
+           font-weight: 650; color: var(--muted); line-height: 1.2; }
+.nd-scale { display: flex; justify-content: space-between; font-weight: 500; }
+.nd { padding: 6px 0; border-bottom: 1px solid var(--rule-2); cursor: pointer; }
+.nd:hover { background: color-mix(in srgb, var(--sel) 60%, transparent); }
+.nd.on { background: var(--sel); }
+.nd.tg { cursor: default; }
+.nd-when { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.nd-when b { font-size: 13.5px; font-weight: 760; color: var(--ink); }
+.nd-when small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; }
+.nd-when small.live { color: var(--up); font-weight: 700; }
+.nd-opp { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 15px; }
+.nd-opp .at { font-style: normal; font-size: 12px; color: var(--muted); width: 16px; flex: none; }
+.nd-opp .who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.nd-opp .who b { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nd-opp .logo { width: 18px; height: 18px; object-fit: contain; flex: none; }
+.nd.tg .nd-opp { flex-direction: column; align-items: flex-start; gap: 1px; }
+.nd.tg .nd-opp b { font-weight: 700; }
+.nd.tg .nd-opp small { font-size: 12.5px; color: var(--muted); }
+.nd-p { font-size: 14px; color: var(--ink-2); }
+.nd-p.res { font-weight: 760; white-space: nowrap; }
+.nd-p.res.w { color: var(--up); }
+.nd-p.res.l { color: var(--down); }
+.nd-lo, .nd-hi { font-size: 15px; font-weight: 720; }
+.nd-lo { color: var(--down); }
+.nd-hi { color: var(--up); }
+.nd-lo.nd-un, .nd-hi.nd-un { color: var(--muted); font-weight: 500; }
+/* a game decided since the build: the result that happened stays */
+.nd.won .nd-lo, .nd.lost .nd-hi { opacity: .35; }
+.nd-bar { position: relative; height: 22px; }
+.nd-bar::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
+                  border-top: 1px solid var(--rule); }
+.nd-bar i { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
+            background: var(--chart); opacity: .38; }
+.nd.big .nd-bar i { opacity: 1; }
+.nd-bar b, .nd-tick { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px;
+                      background: var(--ink); border-radius: 1px; }
+.nd-key { display: flex; align-items: center; gap: 7px; margin: 8px 0 0; font-size: 12.5px;
+          color: var(--muted); font-variant-numeric: tabular-nums; }
+.nd-tick { position: static; display: inline-block; height: 12px; margin: 0; }
+#needsrec { overflow-x: auto; }
+.ndrec { width: auto; margin: 18px 0 2px; font-size: 14px; font-stretch: 88%;
+         font-variant-numeric: tabular-nums; }
+.ndrec caption { caption-side: top; text-align: left; padding: 0 0 6px; font-size: 13.5px;
+                 font-weight: 760; color: var(--ink); }
+.ndrec th, .ndrec td { padding: 5px 0 5px 18px; text-align: right; white-space: nowrap;
+                       border-bottom: 1px solid var(--rule-2); }
+.ndrec th[scope="row"] { padding-left: 0; text-align: left; font-size: 12.5px; font-weight: 600;
+                         color: var(--muted); }
+.ndrec thead th[scope="col"] { font-weight: 780; color: var(--ink); border-bottom-color: var(--rule); }
+.ndrec td { color: var(--ink-2); }
+.ndrec .odds td b { color: var(--ink); font-weight: 780; }
+
+/* A table too wide for a phone scrolls on its own instead of the page. */
+.tablewrap { overflow-x: auto; margin: 0 0 18px; }
+.tablewrap table { margin-bottom: 0; }
+body.info .intro .tablewrap table { max-width: none; }
+.note { font-size: 13.5px; color: var(--muted); }
+
+/* A conference's title race */
+table.confrace td b, table.rank25 td b { color: var(--ink); font-weight: 760; }
+body.info .intro table.confrace, body.info .intro table.rank25 { min-width: 520px; }
+ol.pairs { list-style: none; margin: 4px 0 8px; padding: 0; font-stretch: 88%; }
+.pairs li {
+  display: grid; align-items: center; column-gap: 12px; padding: 9px 0;
+  grid-template-columns: 7.5rem minmax(0, 1fr) 2.6rem minmax(70px, 150px) 2.6rem minmax(0, 1fr);
+  border-bottom: 1px solid var(--rule-2);
+}
+.pairs .often { font-size: 13px; color: var(--muted); }
+.pairs .often b { font-size: 16px; color: var(--ink); font-weight: 780; margin-right: 2px; }
+.pr-side { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px;
+           font-weight: 650; color: var(--ink); }
+.pr-side.r { justify-content: flex-end; }
+.pr-side a { color: inherit; text-decoration: none; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; }
+.pr-side a:hover { text-decoration: underline; }
+.pr-side img, .pr-side .noart { width: 22px; height: 22px; object-fit: contain; flex: none; }
+.pr-side .nm-abbr { display: none; }
+.pr-p { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right; }
+.pr-p + .split + .pr-p { text-align: left; }
+.split { display: flex; gap: 2px; height: 8px; }
+.split i { display: block; height: 100%; border-radius: 2px; }
+.split i + i { flex: 1; }
+.stakes.weeks .when { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); }
+.stakes.weeks .wk { color: var(--ink-2); font-weight: 650; }
+ol.tiebreak { margin: 6px 0 14px; padding-left: 22px; color: var(--ink-2); font-size: 15.5px; }
+ol.tiebreak li { margin-bottom: 4px; padding-left: 4px; }
+.otherconfs { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.otherconfs a { color: var(--ink); font-weight: 600; }
+
+/* Projected rankings: the rank in the condensed numerals, and the field if
+   the season ended today as byes and first-round games. */
+table.rank25 td.rk, table.rank25 th.rk { width: 3.2rem; text-align: left; }
+table.rank25 td.rk { font-size: 19px; font-weight: 820; font-stretch: 70%; color: var(--ink);
+                     font-variant-numeric: tabular-nums; }
+.fieldnow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0 40px;
+            margin: 6px 0 10px; }
+.fieldnow h3 { margin-top: 8px; }
+ol.ftlist { list-style: none; margin: 0; padding: 0; font-stretch: 88%; }
+.ftlist li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 7px 0;
+             border-bottom: 1px solid var(--rule-2); }
+.ftlist i { font-style: normal; font-size: 12.5px; color: var(--muted); }
+.ft { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 650;
+      color: var(--ink); }
+.ft a { color: inherit; text-decoration: none; }
+.ft a:hover { text-decoration: underline; }
+.ft img, .ft .noart { width: 20px; height: 20px; object-fit: contain; }
+.ft .sd { min-width: 1.4em; font-size: 15px; font-weight: 820; font-stretch: 70%;
+          color: var(--muted); font-variant-numeric: tabular-nums; }
+.ft small { font-size: 12px; font-weight: 500; color: var(--muted); }
+
+/* The front page: each conference and its favourite */
+.races-home { margin: 6px 0 30px; }
+.races-home h2 { margin: 0; padding-bottom: 8px; border-bottom: 2px solid var(--ink); color: var(--ink); }
+ul.races { list-style: none; margin: 0; padding: 0; display: grid; font-stretch: 88%;
+           grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); column-gap: 32px; }
+.races li { border-bottom: 1px solid var(--rule-2); }
+.races a { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; color: var(--ink);
+           text-decoration: none; }
+.races a:hover .cn { text-decoration: underline; }
+.races .cn { font-size: 13px; font-weight: 650; color: var(--muted); }
+.races .fav { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; }
+.races .fav img, .races .noart { width: 20px; height: 20px; object-fit: contain; flex: none; }
+.races .fav b { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 14px; }
 .writeup ul { margin: 0 0 14px; padding-left: 20px; color: var(--ink-2); }
 .writeup li { margin-bottom: 4px; }
 body.season .guideonly { display: none; }
@@ -1077,6 +1241,9 @@ body.season .guideonly { display: none; }
   .boards { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .writeup > h1 { font-size: 23px; }
   .writeup p, body.info .intro p { font-size: 15.5px; }
+  dl.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts > div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .facts > div:nth-child(n+3) { border-top: 1px solid var(--rule-2); }
 
   .transport-in { gap: 8px 10px; }
   .tp-track { flex-basis: 100%; }
@@ -1098,6 +1265,34 @@ body.season .guideonly { display: none; }
 }
 @media (max-width: 380px) {
   body:not(.info) .brand span { display: none; }
+}
+/* What your team needs on a phone: who and the chance on the first line,
+   the two results and the bar between them on the second. */
+@media (max-width: 640px) {
+  .nd-grid { --cols: 3.8rem minmax(0, 1fr) 3.6rem; }
+  .nd-when small { font-size: 11px; }
+  .nd-head, .nd { column-gap: 8px; }
+  .nd-head > :nth-child(n+4) { display: none; }
+  .nd { row-gap: 3px; padding: 7px 0; }
+  .nd-lo { grid-column: 1; grid-row: 2; text-align: left; font-size: 14px; }
+  .nd-bar { grid-column: 2; grid-row: 2; height: 18px; }
+  .nd-hi { grid-column: 3; grid-row: 2; font-size: 14px; }
+  .nd-opp { font-size: 14.5px; }
+  .nd-opp .rec, .nd-opp .rk { display: none; }
+  .ndrec { font-size: 13px; }
+  .ndrec th, .ndrec td { padding-left: 12px; }
+  .pairs li { grid-template-columns: minmax(0, 1fr) 2.4rem minmax(48px, 80px) 2.4rem minmax(0, 1fr);
+              row-gap: 4px; }
+  .pairs .often { grid-column: 1 / -1; }
+  .pr-side { font-size: 14px; gap: 6px; }
+  .pr-side .nm-full { display: none; }
+  .pr-side .nm-abbr { display: inline; }
+  .stakes.weeks .when { grid-column: 2 / -1; grid-row: 2; flex-direction: row;
+                        flex-wrap: wrap; gap: 0 6px; }
+  .fieldnow { grid-template-columns: minmax(0, 1fr); }
+  table.confrace .ovr { display: none; }
+  body.info .intro table.confrace { min-width: 0; }
+  body.info .intro table.rank25 { min-width: 0; }
 }
 /* Below this the names need the room more than the odds column does; the
    change beside each team says the same thing against the band's number. */

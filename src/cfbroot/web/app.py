@@ -24,7 +24,7 @@ from ..data.season import (KernelInputs, SeasonState, before_week,
                            last_played_week)
 from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
-from ..sim.engine import LeagueResults
+from ..sim.engine import CCG_LOST, CCG_MISSED, CCG_WON, LeagueResults
 from ..sim.sample import sample_season, weekly_systems
 from .pages import slug
 
@@ -315,7 +315,42 @@ def _guide_payload(guide, res, s: SeasonState) -> dict:
         "own_games": _slim([g.as_dict() for g in guide.own_games]),
         "games": _slim([g.as_dict() for g in guide.games]),
         "league": league_all(s, res),
+        "by_record": _by_record(res, s),
+        "title_game": _title_game(res),
     })
+
+
+def _by_record(res, s: SeasonState) -> list[dict]:
+    """Every measure at each final regular-season record the team reaches,
+    and how often it gets there, best record first. ``n`` is the seasons
+    behind a row, so a record that hardly ever happens can be left out."""
+    me = res.focus_idx
+    games = sum(1 for g in s.games if not g["is_ccg"]
+                and me in (g["home_idx"], g["away_idx"]))
+    rows = []
+    for w in range(res.wins_hist.size - 1, -1, -1):
+        n = int(res.wins_hist[w])
+        if not n:
+            continue
+        rows.append({"wins": w, "losses": max(games - w, 0), "n": n,
+                     "p": n / max(res.n_sims, 1),
+                     "odds": {m: float(res.wins_metric[w, i]) / n
+                              for i, m in enumerate(res.metric_names)}})
+    return rows
+
+
+def _title_game(res) -> dict | None:
+    """The conference title game three ways: in it and won, in it and lost,
+    not in it. How often each happens, and every measure in each."""
+    seasons = res.ccg_seasons
+    if not seasons[CCG_WON] + seasons[CCG_LOST]:
+        return None
+    cols = (CCG_WON, CCG_LOST, CCG_MISSED)
+    return {"p": [float(seasons[c]) / max(res.n_sims, 1) for c in cols],
+            "n": [int(seasons[c]) for c in cols],
+            "odds": {m: [float(res.ccg_counts[c, i]) / seasons[c] if seasons[c]
+                         else None for c in cols]
+                     for i, m in enumerate(res.metric_names)}}
 
 
 # Routes
@@ -422,6 +457,61 @@ def this_week_page() -> HTMLResponse:
     for name in VERSIONED:
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+def _info_page(head: str, body: str) -> HTMLResponse:
+    """A written page in the app's shell, as the build makes one."""
+    from . import pages
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("<!--HEAD-->", head).replace(pages.INTRO_BLOCK, body)
+                .replace('<script src="/static/app.js',
+                         '<script>window.CFBROOT_INFO = true;</script>'
+                         '<script src="/static/app.js'))
+    token = _asset_token()
+    for name in VERSIONED:
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/conference/{name}/", response_class=HTMLResponse)
+def conference_page(name: str) -> HTMLResponse:
+    """A conference's title race. The games that decide it come from every
+    member's guide, so the first request builds those."""
+    from . import pages
+    state = store.get_season()
+    conf = next((c for c in pages.conferences(state.fbs_teams)
+                 if pages.conf_slug(c) == name), None)
+    if conf is None:
+        raise HTTPException(status_code=404, detail=f"unknown conference: {name}")
+    league, pairs, n_sims = [], [], DEFAULT_SIMS
+    stakes = pages.Stakes("make_conf_title_game")
+    if store.league is not None:
+        n_sims = store.league.n_sims
+        league = league_all(state, store.league.for_team(state.fbs_teams[0].idx))
+        pairs = pages.ccg_pairs(store.league, state).get(conf, [])
+        for t in state.fbs_teams:
+            if t.conference == conf:
+                stakes.add(t.school, store.payload(t.idx))
+    rows = pages.conference_rows(state, conf, league)
+    return _info_page(pages.conference_head(state, conf, rows, n_sims, pairs),
+                      pages.conference_body(state, conf, rows, n_sims, pairs, stakes))
+
+
+@app.get("/cfp-rankings/", response_class=HTMLResponse)
+def rankings_page() -> HTMLResponse:
+    from . import pages
+    from ..sim.sample import committee_now
+    state = store.get_season()
+    if store.inputs is None:
+        store.inputs = state.kernel_inputs()
+    projection = committee_now(state, store.inputs, store.weekly)
+    odds, n_sims = (), DEFAULT_SIMS
+    if store.league is not None:
+        n_sims = store.league.n_sims
+        made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
+        odds = list(zip(store.league.names, made / n_sims))
+    return _info_page(pages.rankings_head(state, projection, n_sims),
+                      pages.rankings_body(state, projection, odds))
 
 
 @app.get("/api/state")
