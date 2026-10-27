@@ -16,7 +16,7 @@ pip install -e .                      # the package, editable
 pytest -q                             # the whole suite, about a minute
 pytest tests/test_selection.py -q     # one file
 pytest -q -k tiebreak                 # one pattern
-cfbroot serve                         # local app on 127.0.0.1:8000
+cfbroot serve --sims 100000          # local app on 127.0.0.1:8000, quick to start
 cfbroot export --out site --sims 50000   # a static build, small
 cfbroot republish --out site             # the pages again, numbers as published
 cfbroot guide --team "Texas Tech"     # a rooting guide in the terminal

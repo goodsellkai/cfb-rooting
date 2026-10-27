@@ -32,12 +32,17 @@ HERE = Path(__file__).resolve().parent
 
 # One run of this size serves every team, so the app does it once at
 # start-up. It puts the error on a playoff probability at about 0.025
-# percentage points.
+# percentage points. `cfbroot serve --sims` sets it for one run.
 DEFAULT_SIMS = int(os.environ.get("CFBROOT_SIMS") or 2_500_000)
 # The second run, with the week's results set aside, only has to value games
 # that are already decided, so it is a tenth the size. Zero turns it off.
-REPLAY_SIMS = int(os.environ.get("CFBROOT_REPLAY_SIMS") or 250_000)
+_REPLAY = os.environ.get("CFBROOT_REPLAY_SIMS")
 SEED = 12345
+
+
+def replay_sims(sims: int) -> int:
+    """The replay run to go with a main run of ``sims``."""
+    return int(_REPLAY) if _REPLAY else sims // 10
 
 app = FastAPI(title="cfbroot", docs_url="/api/docs")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -82,6 +87,8 @@ class Store:
         self.lock = threading.Lock()
         self.season: SeasonState | None = None
         self.year: int = default_year()
+        self.sims = DEFAULT_SIMS
+        self.replay_sims = replay_sims(DEFAULT_SIMS)
         self.loaded_at: float = 0.0
         self.league: LeagueResults | None = None   # shared by every team
         self.replay: LeagueResults | None = None   # the same, last week set aside
@@ -89,6 +96,7 @@ class Store:
         self.replay_week = 0
         self.job: Job | None = None
         self.payloads: dict[int, dict] = {}
+        self.replayed: set[int] = set()            # payloads with last week in
         self.inputs: KernelInputs | None = None    # reused by sample seasons
         self.weekly: dict | None = None            # a system per poll week
         self.sample_ready = threading.Event()   # set once warm-up has tried
@@ -106,11 +114,11 @@ class Store:
         with self.lock:
             if self.job is not None and self.job.status != "error":
                 return self.job
-            job = self.job = Job()
+            job = self.job = Job(total=self.sims)
 
         def work() -> None:
             try:
-                cfg = SimConfig(n_sims=DEFAULT_SIMS, batch_size=50_000,
+                cfg = SimConfig(n_sims=self.sims, batch_size=min(50_000, self.sims),
                                 seed=SEED)
 
                 def progress(done: int, total: int) -> None:
@@ -131,13 +139,14 @@ class Store:
     def run_replay(self, state: SeasonState) -> None:
         """Value the games already played, on the same footing as the rest."""
         week = last_played_week(state)
-        if not REPLAY_SIMS or not week:
+        n = self.replay_sims
+        if not n or not week:
             return
         back = before_week(state, week)
         if not back.remaining_games:
             return
-        league = run_league(back, SimConfig(n_sims=REPLAY_SIMS,
-                                            batch_size=50_000, seed=SEED + 1))
+        league = run_league(back, SimConfig(n_sims=n, batch_size=min(50_000, n),
+                                            seed=SEED + 1))
         with self.lock:
             self.replay_state, self.replay, self.replay_week = back, league, week
 
@@ -174,7 +183,9 @@ class Store:
                        "own_games": _slim(own, points=True)})
 
     def payload(self, team_idx: int) -> dict:
-        """One team's guide, built on first request and kept."""
+        """One team's guide, built on first request and kept. The run that
+        values last week's results finishes after the main one, so a guide
+        asked for in between gets them on a later request."""
         if team_idx not in self.payloads:
             s = self.season
             res = self.league.for_team(team_idx)
@@ -182,9 +193,13 @@ class Store:
             # filters the client applies without asking again.
             guide = build_guide(s, res, primary="make_playoff", week=None)
             data = _guide_payload(guide, res, s)
-            data["replay"] = self.replay_payload(team_idx)
+            data["replay"] = {}
             self.payloads[team_idx] = data
-        return self.payloads[team_idx]
+        data = self.payloads[team_idx]
+        if team_idx not in self.replayed and self.replay is not None:
+            data["replay"] = self.replay_payload(team_idx)
+            self.replayed.add(team_idx)
+        return data
 
 
 store = Store()
@@ -251,7 +266,7 @@ def _season_payload(s: SeasonState) -> dict:
         "diagnostics": diag.summary() if diag is not None else "",
         "notes": s.notes,
         "has_api_key": s.source != "demo",
-        "n_sims": store.league.n_sims if store.league is not None else DEFAULT_SIMS,
+        "n_sims": store.league.n_sims if store.league is not None else store.sims,
         "source": s.source,
         "loaded_at": store.loaded_at,
         "params": s.params.to_dict(),
@@ -404,8 +419,8 @@ def how_it_works() -> HTMLResponse:
     from . import pages
     state = store.get_season()
     html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
-    html = (html.replace("<!--HEAD-->", pages.how_head(state, DEFAULT_SIMS))
-                .replace(pages.INTRO_BLOCK, pages.how_body(state, DEFAULT_SIMS)))
+    html = (html.replace("<!--HEAD-->", pages.how_head(state, store.sims))
+                .replace(pages.INTRO_BLOCK, pages.how_body(state, store.sims)))
     html = html.replace('<script src="/static/app.js',
                         '<script>window.CFBROOT_INFO = true;</script>'
                         '<script src="/static/app.js')
@@ -443,7 +458,7 @@ def this_week_page() -> HTMLResponse:
     from . import pages
     state = store.get_season()
     stakes = pages.Stakes()
-    n_sims = DEFAULT_SIMS
+    n_sims = store.sims
     if store.league is not None:
         n_sims = store.league.n_sims
         for t in state.fbs_teams:
@@ -484,7 +499,7 @@ def conference_page(name: str) -> HTMLResponse:
                  if pages.conf_slug(c) == name), None)
     if conf is None:
         raise HTTPException(status_code=404, detail=f"unknown conference: {name}")
-    league, pairs, n_sims = [], [], DEFAULT_SIMS
+    league, pairs, n_sims = [], [], store.sims
     stakes = pages.Stakes("make_conf_title_game")
     if store.league is not None:
         n_sims = store.league.n_sims
@@ -506,7 +521,7 @@ def rankings_page() -> HTMLResponse:
     if store.inputs is None:
         store.inputs = state.kernel_inputs()
     projection = committee_now(state, store.inputs, store.weekly)
-    odds, n_sims = (), DEFAULT_SIMS
+    odds, n_sims = (), store.sims
     if store.league is not None:
         n_sims = store.league.n_sims
         made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
@@ -597,8 +612,10 @@ def _warm_up() -> None:
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, year: int | None = None,
-          reload: bool = False) -> None:
+          reload: bool = False, sims: int | None = None) -> None:
     import uvicorn
     if year:
         store.year = year
+    if sims:
+        store.sims, store.replay_sims = sims, replay_sims(sims)
     uvicorn.run(app, host=host, port=port, log_level="warning")

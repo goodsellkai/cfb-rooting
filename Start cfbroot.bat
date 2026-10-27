@@ -28,7 +28,7 @@ echo.
 REM Open the browser after a short delay so the server is up first.
 start "" /min cmd /c "timeout /t 5 /nobreak >nul & start http://127.0.0.1:8000"
 
-".venv\Scripts\python.exe" -m cfbroot.cli serve --port 8000
+".venv\Scripts\python.exe" -m cfbroot.cli serve --port 8000 --sims 100000
 
 echo.
 echo Server stopped.

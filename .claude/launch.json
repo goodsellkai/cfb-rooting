@@ -4,7 +4,15 @@
     {
       "name": "cfbroot",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "cfbroot.web.app:app", "--host", "127.0.0.1", "--port", "8931"],
+      "runtimeArgs": [
+        "-m",
+        "cfbroot.cli",
+        "serve",
+        "--port",
+        "8931",
+        "--sims",
+        "100000"
+      ],
       "port": 8931
     }
   ]

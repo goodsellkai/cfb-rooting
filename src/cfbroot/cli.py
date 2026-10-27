@@ -18,7 +18,7 @@ def cmd_serve(args) -> int:
     from .web.app import serve
     host, port = args.host, args.port
     print(f"cfbroot serving on http://{host}:{port}  (ctrl-c to stop)")
-    serve(host=host, port=port, year=args.year)
+    serve(host=host, port=port, year=args.year, sims=args.sims)
     return 0
 
 
@@ -211,6 +211,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve", help="run the local web app")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--sims", type=int, default=None,
+                   help="seasons to simulate at start-up (default: 2,500,000, "
+                        "or CFBROOT_SIMS)")
     s.set_defaults(func=cmd_serve)
 
     e = sub.add_parser("export", help="write the app as a static site")
