@@ -128,8 +128,7 @@ a { color: inherit; }
 .topmeta a, .topmeta span { color: inherit; text-decoration: none; white-space: nowrap; }
 .topmeta a:hover { color: #fff; }
 .topmeta b { color: #fff; font-weight: 650; }
-/* the numbers have stopped being rebuilt */
-.topmeta .old, .topmeta .old b { color: var(--mark); }
+.topmeta .simcount { font-size: 14px; font-weight: 820; font-stretch: 72%; }
 .howlink {
   align-self: center; color: #fff; text-decoration: none; white-space: nowrap;
   font-size: 13px; font-weight: 650; font-stretch: 90%;
@@ -384,7 +383,6 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
   display: flex; flex-direction: column; min-height: 0;
 }
 .rail .block { margin-bottom: 18px; }
-.dists { display: grid; gap: 0; }
 .league { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 8px; }
 .leaguewrap { flex: 1; min-height: 180px; overflow-y: auto; overscroll-behavior: contain; }
 
@@ -717,6 +715,12 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
             letter-spacing: -.01em; margin: 0 0 12px; }
 .intro p { margin: 0 0 12px; max-width: 68ch; }
 .intro .lead { font-size: 17px; line-height: 1.55; }
+/* How many seasons stand behind the numbers, set in the scoreboard numerals */
+.intro .simstat { display: flex; flex-direction: column; gap: 6px; margin: 22px 0 4px;
+                  max-width: 52ch; }
+.simstat b { font-size: 64px; line-height: .88; font-weight: 820; font-stretch: 64%;
+             letter-spacing: -.012em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.simstat span { font-size: 15px; line-height: 1.5; color: var(--ink-2); }
 .intro .cta { font-size: 15px; margin: 18px 0 0; }
 .intro .cta a { color: var(--ink); font-weight: 750; text-decoration-color: var(--mark-line);
                 text-decoration-thickness: 3px; text-underline-offset: 4px; }
@@ -835,14 +839,28 @@ body.info .intro img, .writeup img { width: 20px; height: 20px; object-fit: cont
 .writeup h3, .intro h3 { font-size: 16px; font-weight: 760; font-stretch: 84%; color: var(--ink);
                          margin: 20px 0 6px; }
 
-/* What your team needs. A row per game left: the measure after a loss and
-   after a win at the two ends, and the stretch between them as a bar on one
-   scale shared by every row, with today's number a tick across it. The
-   longest bar is the game that decides most, and the only one drawn solid. */
-.needssum { margin: 12px 0 2px; font-size: 15.5px; line-height: 1.5; color: var(--ink-2);
-            max-width: 72ch; }
+/* The team's season, above the week: today's games when there are any, then
+   what the team needs. On a wide screen the needs block has two columns that
+   line up with the list and the rail below: the verdict and the games on the
+   left, the final records and the playoff seed on the right. */
+.outlook { max-width: var(--page); margin: 0 auto; padding: 20px var(--gutter) 6px; }
+.outlook[hidden] { display: none; }
+.outlook .block { margin-bottom: 26px; }
+.needsbody { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0 40px;
+             align-items: start; }
+.needsbody[hidden] { display: none; }
+.nd-side { padding-top: 16px; }
+/* the answer, then the numbers behind it */
+.needssum { margin: 14px 0 6px; max-width: 72ch; }
 .needssum:empty { display: none; }
+.needssum p { margin: 0 0 6px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+.needssum p.verdict { font-size: 22px; line-height: 1.15; font-weight: 800; font-stretch: 76%;
+                      letter-spacing: -.005em; color: var(--ink); margin-bottom: 6px; }
 .needssum b { color: var(--ink); font-weight: 760; font-variant-numeric: tabular-nums; }
+/* A row per game left: the measure after a loss and after a win at the two
+   ends, and the stretch between them as a bar on one scale shared by every
+   row, with today's number a tick across it. The game expected to move the
+   odds most is the only one drawn solid. */
 .nd-grid {
   --cols: 4.4rem minmax(0, 1fr) 3.3rem 4.4rem minmax(96px, 1.15fr) 4.4rem;
   font-stretch: 88%; font-variant-numeric: tabular-nums;
@@ -890,18 +908,32 @@ body.info .intro img, .writeup img { width: 20px; height: 20px; object-fit: cont
 .nd-key { display: flex; align-items: center; gap: 7px; margin: 8px 0 0; font-size: 12.5px;
           color: var(--muted); font-variant-numeric: tabular-nums; }
 .nd-tick { position: static; display: inline-block; height: 12px; margin: 0; }
-#needsrec { overflow-x: auto; }
-.ndrec { width: auto; margin: 18px 0 2px; font-size: 14px; font-stretch: 88%;
-         font-variant-numeric: tabular-nums; }
-.ndrec caption { caption-side: top; text-align: left; padding: 0 0 6px; font-size: 13.5px;
-                 font-weight: 760; color: var(--ink); }
-.ndrec th, .ndrec td { padding: 5px 0 5px 18px; text-align: right; white-space: nowrap;
-                       border-bottom: 1px solid var(--rule-2); }
-.ndrec th[scope="row"] { padding-left: 0; text-align: left; font-size: 12.5px; font-weight: 600;
-                         color: var(--muted); }
-.ndrec thead th[scope="col"] { font-weight: 780; color: var(--ink); border-bottom-color: var(--rule); }
-.ndrec td { color: var(--ink-2); }
-.ndrec .odds td b { color: var(--ink); font-weight: 780; }
+.nd-grid.flat { --cols: 4.4rem minmax(0, 1fr) 3.3rem; }
+/* Each final record: how often it happens as a bar, and the measure there.
+   The likeliest record's bar is solid. */
+table.ladder { width: 100%; font-size: 14px; font-stretch: 88%; font-variant-numeric: tabular-nums; }
+.ladder caption { caption-side: top; text-align: left; padding: 0 0 8px; font-size: 14px;
+                  font-weight: 780; font-stretch: 84%; color: var(--ink); }
+.ladder th, .ladder td { padding: 6px 0; text-align: left; white-space: nowrap;
+                         border-bottom: 1px solid var(--rule-2); }
+.ladder thead th { padding-top: 0; font-size: 12px; font-weight: 650; color: var(--muted);
+                   border-bottom-color: var(--rule); }
+.ladder th[scope="row"] { width: 3.6rem; font-weight: 780; color: var(--ink); }
+.ladder td { color: var(--ink-2); }
+.ladder .num { text-align: right; }
+.ladder td b { color: var(--ink); font-weight: 780; }
+.ladder .lw { display: inline-block; vertical-align: middle; width: 96px; height: 6px;
+              margin-right: 9px; }
+.ladder .lw i { display: block; height: 100%; border-radius: 3px; background: var(--chart);
+                opacity: .4; }
+.ladder tr.likely .lw i { opacity: 1; }
+.ladder .lp { display: inline-block; min-width: 2.6em; }
+.seedbox { margin-top: 24px; }
+.seedbox[hidden] { display: none; }
+.subhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+           padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+.subhead h3 { margin: 0; font-size: 14px; font-weight: 780; font-stretch: 84%; color: var(--ink); }
+.subhead .muted { font-size: 12.5px; }
 
 /* A table too wide for a phone scrolls on its own instead of the page. */
 .tablewrap { overflow-x: auto; margin: 0 0 18px; }
@@ -1132,10 +1164,16 @@ body.season .guideonly { display: none; }
 
 /* Below the width where the rail fits beside the list */
 @media (max-width: 1100px) {
+  /* one column: the answer, the records, the games, the seed */
+  .needsbody { display: flex; flex-direction: column; }
+  .nd-main, .nd-side { display: contents; }
+  #needssum { order: 1; }
+  #needsrec { order: 2; width: 100%; max-width: 560px; margin: 6px 0 18px; }
+  #needslist { order: 3; }
+  .seedbox { order: 4; max-width: 560px; }
   .band-in { grid-template-columns: minmax(0, 1fr); }
   .guide { grid-template-columns: minmax(0, 1fr); }
   .rail { position: static; max-height: none; }
-  .dists { grid-template-columns: 1fr 1fr; gap: 0 32px; }
   .leaguewrap { max-height: 70vh; }
   .seasongrid { grid-template-columns: minmax(0, 1fr); }
   .hero { grid-template-columns: minmax(0, 1fr); }
@@ -1184,7 +1222,6 @@ body.season .guideonly { display: none; }
   input.search { flex: 1 1 100%; width: auto; margin-left: 0; order: 9; }
 
   .guide { padding-top: 14px; }
-  .dists { grid-template-columns: minmax(0, 1fr); }
   .block { margin-bottom: 24px; }
   h2 { font-size: 16px; }
 
@@ -1269,7 +1306,10 @@ body.season .guideonly { display: none; }
 /* What your team needs on a phone: who and the chance on the first line,
    the two results and the bar between them on the second. */
 @media (max-width: 640px) {
-  .nd-grid { --cols: 3.8rem minmax(0, 1fr) 3.6rem; }
+  .nd-grid, .nd-grid.flat { --cols: 3.8rem minmax(0, 1fr) 3.6rem; }
+  .simstat b { font-size: 48px; }
+  .needssum p.verdict { font-size: 20px; }
+  .outlook { padding-top: 16px; }
   .nd-when small { font-size: 11px; }
   .nd-head, .nd { column-gap: 8px; }
   .nd-head > :nth-child(n+4) { display: none; }

@@ -301,6 +301,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     payload = _season_payload(state)
     payload["sample_seasons"] = SAMPLE_SEASONS
     payload["build"] = BUILD
+    payload["n_sims"] = n_sims
     # What the conference and ranking pages read that no team's guide holds,
     # so a republish can write them again.
     payload["projection"] = projection

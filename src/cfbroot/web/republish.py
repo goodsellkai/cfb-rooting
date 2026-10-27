@@ -174,6 +174,12 @@ def republish(out: Path, source: str, log=print) -> None:
         (out / "data" / "team" / f"{pages.slug(teams[0].school)}.json")
         .read_text("utf-8"))
     n_sims = int(first["n_sims"])
+    # The masthead says how many seasons were run; a build from before it
+    # did is given the count its team files carry.
+    if published.get("n_sims") != n_sims:
+        published["n_sims"] = n_sims
+        (out / "data" / "state.json").write_text(
+            json.dumps(published, separators=(",", ":")), encoding="utf-8")
     # Every team's file carries the whole league's table, so the standings the
     # home page ranks by, and ESPN's numbers the writeups quote, both come out
     # of the first file read.

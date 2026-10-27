@@ -57,6 +57,49 @@
 
 <main>
  <div id="guideview">
+  <section id="progress" class="progress" hidden>
+    <div class="bar"><div id="progressfill"></div></div>
+    <p id="progresstext">simulating&hellip;</p>
+  </section>
+
+  <section id="empty" class="intro">
+    <!--INTRO--><h2>Choose a team</h2><!--/INTRO-->
+  </section>
+
+  <!-- The team's season: today's games when there are any, then what it needs. -->
+  <div id="outlook" class="outlook" hidden>
+    <section id="liveblock" class="block liveblock" hidden>
+      <div class="blockhead">
+        <h2><button id="livetoggle" class="fold" type="button" aria-expanded="true"
+                    aria-controls="livelist"><span class="livedot" aria-hidden="true"></span><span id="livetitle">Live now</span></button></h2>
+        <span id="livecount" class="muted"></span>
+      </div>
+      <div id="livelist"></div>
+    </section>
+    <section id="needs" class="block needs" hidden>
+      <div class="blockhead">
+        <h2><button id="needstoggle" class="fold" type="button" aria-expanded="true"
+                    aria-controls="needsbody"><span id="needstitle">What your team needs</span></button></h2>
+        <span id="needsnote" class="muted"></span>
+      </div>
+      <div id="needsbody" class="needsbody">
+        <div class="nd-main">
+          <div id="needssum" class="needssum"></div>
+          <div id="needslist"></div>
+        </div>
+        <div class="nd-side">
+          <div id="needsrec"></div>
+          <section id="seedbox" class="seedbox">
+            <div class="subhead"><h3>Playoff seed</h3><span id="seednote" class="muted"></span></div>
+            <div id="seeddist" class="dist"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- The week: the slate's controls sit over the list they control. -->
+  <div id="tbmark" aria-hidden="true"></div>
   <div id="toolbar" class="toolbar">
     <div class="toolbar-in">
       <span id="tbctx" class="tbctx" aria-hidden="true"></span>
@@ -82,37 +125,8 @@
     </div>
   </div>
 
-  <section id="progress" class="progress" hidden>
-    <div class="bar"><div id="progressfill"></div></div>
-    <p id="progresstext">simulating&hellip;</p>
-  </section>
-
-  <section id="empty" class="intro">
-    <!--INTRO--><h2>Choose a team</h2><!--/INTRO-->
-  </section>
-
   <div id="results" class="guide" hidden>
     <div class="maincol">
-      <section id="liveblock" class="block liveblock" hidden>
-        <div class="blockhead">
-          <h2><button id="livetoggle" class="fold" type="button" aria-expanded="true"
-                      aria-controls="livelist"><span class="livedot" aria-hidden="true"></span><span id="livetitle">Live now</span></button></h2>
-          <span id="livecount" class="muted"></span>
-        </div>
-        <div id="livelist"></div>
-      </section>
-      <section id="needs" class="block needs" hidden>
-        <div class="blockhead">
-          <h2><button id="needstoggle" class="fold" type="button" aria-expanded="true"
-                      aria-controls="needsbody"><span id="needstitle">What your team needs</span></button></h2>
-          <span id="needsnote" class="muted"></span>
-        </div>
-        <div id="needsbody">
-          <p id="needssum" class="needssum"></p>
-          <div id="needslist"></div>
-          <div id="needsrec"></div>
-        </div>
-      </section>
       <section id="owngames" class="block" hidden>
         <div class="blockhead"><h2 id="ownhead">Your team's games</h2></div>
         <div id="owntable"></div>
@@ -128,16 +142,6 @@
       </section>
     </div>
     <aside class="rail">
-      <div class="dists">
-        <section class="block">
-          <div class="blockhead"><h2>Wins</h2><span id="winsnote" class="muted"></span></div>
-          <div id="winsdist" class="dist"></div>
-        </section>
-        <section class="block">
-          <div class="blockhead"><h2>Playoff seed</h2><span id="seednote" class="muted"></span></div>
-          <div id="seeddist" class="dist"></div>
-        </section>
-      </div>
       <section class="block league">
         <div class="blockhead">
           <h2 id="leaguehead">Every team</h2>

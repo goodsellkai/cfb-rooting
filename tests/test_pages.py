@@ -21,8 +21,8 @@ def season(midseason):
 def payload(season):
     team = season.fbs_teams[0].school
     res = run(season, team, SimConfig(n_sims=4000, batch_size=2000))
-    guide = build_guide(season, res, primary="make_playoff",
-                        week=season.current_week())
+    # Every week, as the build makes a team's guide; pages pick the week.
+    guide = build_guide(season, res, primary="make_playoff", week=None)
     league = run_league(season, SimConfig(n_sims=4000, batch_size=2000))
     return {
         "team": team,
@@ -292,8 +292,7 @@ def test_what_a_team_needs_reads_its_records_and_games(season, payload):
     said = text(pages.needs_text(season, team, payload))
     recs = pages.record_rows(payload)
     assert recs and recs == sorted(recs, key=lambda r: -r["wins"])
-    assert f"{recs[0]['wins']}-{recs[0]['losses']}" in said
-    assert "The biggest game left is" in said
+    assert "The game that decides the most is" in said
     assert sum(r["p"] for r in payload["by_record"]) == pytest.approx(1.0)
     # every row is the team's own game, with the two results either side of now
     for r in pages.own_rows(team, payload):
@@ -362,3 +361,43 @@ def test_the_sitemap_lists_every_page_with_its_card(season):
     assert "/cfp-rankings/" in xml and "/conference/sec/" in xml
     assert xml.count("<image:loc>") == 1
     assert "xmlns:image=" in xml
+
+
+def _own(team, opp, chance, win, lose, week):
+    """One of the team's games as a guide carries it, at home."""
+    return {"home": team.school, "away": opp, "home_idx": team.idx, "away_idx": -1,
+            "week": week, "neutral": False, "p_home_win": chance,
+            "swings": {"make_playoff": {"p_if_home": win, "p_if_away": lose,
+                                        "reliable": True}}}
+
+
+def test_the_deciding_game_is_the_toughest_not_the_easiest(season):
+    """A loss to a weak team would cost a contender the most, but it almost
+    never happens; the game that decides the season is the close one."""
+    team = season.fbs_teams[0]
+    w = pages.record(season, team.idx)[0]
+    payload = {
+        "own_games": [_own(team, "Easy State", 0.95, 0.90, 0.30, 10),
+                      _own(team, "Big Rival", 0.50, 0.95, 0.60, 11)],
+        "by_record": [
+            {"wins": w + 2, "losses": 0, "n": 50_000, "p": 0.47, "odds": {"make_playoff": 0.95}},
+            {"wins": w + 1, "losses": 1, "n": 50_000, "p": 0.50, "odds": {"make_playoff": 0.70}},
+            {"wins": w, "losses": 2, "n": 50_000, "p": 0.03, "odds": {"make_playoff": 0.20}}],
+    }
+    said = text(pages.needs_text(season, team, payload))
+    assert "decides the most is against Big Rival in week 11" in said
+    assert f"{team.school} can afford one loss." in said
+
+
+def test_a_team_that_must_win_out_is_told_so(season):
+    team = season.fbs_teams[0]
+    w = pages.record(season, team.idx)[0]
+    payload = {
+        "own_games": [_own(team, "Big Rival", 0.55, 0.80, 0.10, 11)],
+        "by_record": [
+            {"wins": w + 1, "losses": 0, "n": 50_000, "p": 0.55, "odds": {"make_playoff": 0.80}},
+            {"wins": w, "losses": 1, "n": 50_000, "p": 0.45, "odds": {"make_playoff": 0.10}}],
+    }
+    said = text(pages.needs_text(season, team, payload))
+    assert f"{team.school} has to win out." in said
+    assert "Its last game is against Big Rival" in said

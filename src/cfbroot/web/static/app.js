@@ -226,6 +226,11 @@ function metaItem(text, value, href, title, cls) {
 
 const ASSETS = STATIC ? BASE + "static/" : "/static/";
 
+/** 2500000 as "2.5 million". */
+function simsWord(n) {
+  return n >= 1e6 ? `${+(n / 1e6).toFixed(2)} million` : n.toLocaleString();
+}
+
 function renderTopMeta() {
   const pw = STATE.poll_weeks || {};
   const poll = pw.cfp ? metaItem("CFP poll", "week " + pw.cfp, LINKS.poll)
@@ -238,14 +243,10 @@ function renderTopMeta() {
   const rating = STATE.rating_label === "FPI"
     ? metaItem("FPI", ago(STATE.ratings_updated) || "-", LINKS.fpi, carried)
     : metaItem(STATE.rating_label, ago(STATE.ratings_updated) || "-", null, carried);
-  const age = STATE.loaded_at ? Date.now() / 1000 - STATE.loaded_at : 0;
-  const stale = age > 86400;
-  const sims = STATE.loaded_at
-    ? metaItem("Simulated", ago(new Date(1000 * STATE.loaded_at).toISOString()),
-           null,
-           stale ? "The numbers have not been rebuilt for a day. Results "
-                   + "since then are not in them." : "",
-           stale ? "old" : "") : "";
+  // How many seasons stand behind every number, and when they were run.
+  const when = STATE.loaded_at ? ago(new Date(1000 * STATE.loaded_at).toISOString()) : "";
+  const count = STATE.n_sims ? `<b class="simcount">${esc(simsWord(STATE.n_sims))}</b> seasons simulated` : "Simulated";
+  const sims = when ? `<span>${count} <b>${esc(when)}</b></span>` : "";
   $("topmeta").innerHTML = poll + rating + sims;
 }
 
@@ -828,9 +829,11 @@ function setMetric(key) {
  * odds the list is moving, and from where. */
 function watchToolbar() {
   if (!("IntersectionObserver" in window)) return;
+  // The mark sits just above the toolbar, so once it has scrolled off the
+  // top the toolbar is the one holding the top of the screen.
   new IntersectionObserver(([e]) => {
-    $("toolbar").classList.toggle("stuck", !e.isIntersecting);
-  }).observe($("band"));
+    $("toolbar").classList.toggle("stuck", !e.isIntersecting && e.boundingClientRect.top < 0);
+  }).observe($("tbmark"));
 }
 
 function renderToolbarContext() {
@@ -1046,20 +1049,21 @@ function render(newTeam) {
   document.body.classList.add("hasteam");
   $("share").hidden = false;
   $("empty").hidden = true;
+  $("outlook").hidden = false;
   $("results").hidden = false;
   const idx = teamIdx();
+  if (newTeam) fitMetric();
   renderTeamLine(idx);
   renderPath(newTeam);
   renderToolbarContext();
-  renderDist("winsdist", RESULT.wins_distribution, (i) => i);
   // Missing out is already on the road above, and as a bar it dwarfs the
-  // seeds, so the chart is seeds only and the miss is a number.
+  // seeds, so the chart is seeds only and the miss is a number. A team with
+  // no real chance of a seed has no chart.
   const seeds = RESULT.seed_distribution;
   const inField = seeds.slice(1).reduce((a, b) => a + b, 0);
   $("seednote").textContent = `out of the field in ${pct(seeds[0])}`;
-  $("seeddist").hidden = inField < 0.002;
+  $("seedbox").hidden = inField < 0.002;
   if (inField >= 0.002) renderDist("seeddist", seeds.map((v, i) => (i ? v : 0)), String);
-  $("winsnote").textContent = `${num(RESULT.expected_wins)} projected`;
   renderScoreboard();
   renderNeeds();
   renderOwnGames();
@@ -1314,12 +1318,18 @@ function renderOwnGames() {
 
 // What your team needs
 //
-// Every game the team has left, with where the chosen measure goes after a
-// win and after a loss: the two numbers, and the stretch between them on a
-// shared scale with today's number marked, so the games that decide the
-// season are the long ones. Then its conference title game the same way, and
-// the measure at each final record with how often the team finishes there.
-// The answer comes first, in a sentence.
+// The answer comes first: whether the team can afford a loss, has to win out
+// or needs help, read off its odds at each final record. Then the games it
+// has left, each with the chosen measure after a win and after a loss and the
+// stretch between them on one scale, today's number marked. The game that
+// decides the most is the one expected to move the odds furthest: the gap
+// between its two results weighted by how likely each is. For a contender
+// that is its toughest game, not the one whose upset would hurt most. Beside
+// them, each final record with how often it happens and the measure there.
+//
+// A team opens on the race it is really in, so one out of the playoff picture
+// sees its conference race rather than a column of zeros, and one with no
+// race left sees its record and its bowl chances.
 
 const ODDS_NAME = {
   make_playoff: "Playoff odds",
@@ -1343,8 +1353,21 @@ const PHRASE = {
   win_national_title: "wins the national title",
   finish_ranked: "finishes ranked",
 };
-// Records that come up less often than this are left off the table.
+const GOAL = {
+  make_playoff: "make the playoff",
+  win_conference: "win the {c}",
+  make_conf_title_game: "reach the {c} title game",
+  top4_seed: "earn a first-round bye",
+  reach_quarterfinal: "reach the quarterfinals",
+  reach_semifinal: "reach the semifinals",
+  reach_title_game: "reach the national title game",
+  win_national_title: "win the national title",
+  finish_ranked: "finish ranked",
+};
+// Records that come up less often than this are left off the ladder, and a
+// record needs this many seasons behind it before it decides the answer.
 const RECORD_FLOOR = 0.01;
+const RECORD_SEASONS = 1000;
 
 function confOf(idx) {
   const c = team(idx).conference || "";
@@ -1364,55 +1387,134 @@ function niceTop(v) {
   return 1;
 }
 
+/** Still to be decided, one way or the other. */
+function inPlay(key) {
+  const h = RESULT.headline[key];
+  return !!h && h.p >= 0.005 && h.p <= 0.995;
+}
+
+/** The measure a new team opens on: the reader's own choice while it is still
+ * in play for this team, otherwise the race the team is in. Only a reader's
+ * click is saved, so the next team starts from their choice again. */
+function fitMetric() {
+  const steps = new Set(pathSteps().map(([k]) => k));
+  let saved = null;
+  try { saved = localStorage.getItem("cfbroot.metric"); } catch { /* private mode */ }
+  METRIC = saved && steps.has(saved) ? saved : "make_playoff";
+  if (inPlay(METRIC)) return;
+  const sure = RESULT.headline.make_playoff && RESULT.headline.make_playoff.p > 0.995;
+  const races = sure ? ["top4_seed", "reach_semifinal", "win_national_title"]
+    : ["make_playoff", "win_conference", "make_conf_title_game", "finish_ranked"];
+  METRIC = races.find(k => steps.has(k) && inPlay(k)) || METRIC;
+}
+
 function needRows(key) {
   const me = teamIdx();
   return RESULT.own_games.map(g => {
     const home = g.home_idx === me;
     const s = g.swings[key] || {};
+    const chance = home ? g.p_home_win : 1 - g.p_home_win;
+    const win = home ? s.p_if_home : s.p_if_away;
+    const lose = home ? s.p_if_away : s.p_if_home;
+    // A result too rare to measure is shown as unknown, not as a number.
+    const sure = s.reliable !== false;
     return {
       g, home, opp: home ? g.away_idx : g.home_idx, name: home ? g.away : g.home,
-      where: home || g.neutral ? "vs" : "at",
-      chance: home ? g.p_home_win : 1 - g.p_home_win,
-      win: home ? s.p_if_home : s.p_if_away,
-      lose: home ? s.p_if_away : s.p_if_home,
-      // A result too rare to measure is shown as unknown, not as a number.
-      sure: s.reliable !== false,
+      where: home || g.neutral ? "vs" : "at", chance, win, lose, sure,
+      // How far the game is expected to move the odds, either way.
+      move: sure ? 2 * chance * (1 - chance) * Math.abs(win - lose) : 0,
     };
   }).filter(r => Number.isFinite(r.win) && Number.isFinite(r.lose))
     .sort((a, b) => a.g.week - b.g.week || kickoffOrder(a.g) - kickoffOrder(b.g));
 }
 
-function recordCols(key) {
-  let recs = (RESULT.by_record || []).filter(r => r.p >= RECORD_FLOOR
-                                                 && Number.isFinite(r.odds[key]));
-  // A phone fits seven; the likeliest seven, still best record first.
-  if (recs.length > 7) {
-    const keep = new Set([...recs].sort((a, b) => b.p - a.p).slice(0, 7));
-    recs = recs.filter(r => keep.has(r));
-  }
-  return recs;
+/** The record row for a win total, when enough seasons end there. */
+function recordAt(key, wins) {
+  const r = (RESULT.by_record || []).find(x => x.wins === wins);
+  return r && r.n >= RECORD_SEASONS && Number.isFinite(r.odds[key]) ? r : null;
 }
 
-function needsSummary(key, rows, recs) {
+/** Six wins makes a team bowl eligible. */
+function bowlOdds() {
+  return (RESULT.wins_distribution || []).slice(6).reduce((a, b) => a + b, 0);
+}
+
+function titleGame(key) {
+  const tg = RESULT.title_game;
+  const conf = confOf(teamIdx());
+  if (!tg || !conf || key === "win_conference" || key === "make_conf_title_game") return null;
+  const reach = tg.p[0] + tg.p[1];
+  const [won, lost, missed] = tg.odds[key] || [];
+  if (reach < 0.005 || !Number.isFinite(won) || !Number.isFinite(lost)) return null;
+  return { conf, reach, winp: tg.p[0] / reach, won, lost, missed };
+}
+
+/** The verdict, then the numbers behind it, then the game that decides most. */
+function needsSummary(key, rows, tg, flat) {
   const me = teamIdx();
-  const phrase = PHRASE[key].replace("{c}", esc(confOf(me) || "conference"));
   const who = esc(RESULT.team);
-  const out = [];
-  if (recs.length && rows.length) {
-    const top = recs[0];
-    const rec = `${top.wins}-${top.losses}`;
-    out.push(top.wins === recordOf(me).w + rows.length
-      ? `Win out to ${rec} (${share(top.p)} of seasons) and ${who} ${phrase} in <b>${pct(top.odds[key])}</b>.`
-      : `At ${rec}, its best likely finish, ${who} ${phrase} in <b>${pct(top.odds[key])}</b>.`);
-    const more = recs.slice(1, 3).map(r => `at ${r.wins}-${r.losses}, <b>${pct(r.odds[key])}</b>`);
-    if (more.length) out.push(more.join("; ").replace(/^a/, "A") + ".");
+  const conf = esc(confOf(me) || "conference");
+  const phrase = PHRASE[key].replace("{c}", conf);
+  const goal = GOAL[key].replace("{c}", conf);
+  const rec = (r) => `${r.wins}-${r.losses}`;
+  const odds = (r) => `<b>${pct(r.odds[key])}</b>`;
+  const bowl = bowlOdds();
+  const bowlLine = bowl >= 0.02 && bowl <= 0.98
+    ? `It reaches six wins and a bowl in <b>${share(bowl)}</b> of seasons.` : "";
+  let lead = "", detail = [];
+
+  if (flat) {
+    lead = bowlLine ? `${who} reaches six wins and bowl eligibility in ${share(bowl)} of seasons.`
+      : `${who} is projected to win ${num(RESULT.expected_wins, 1)} games.`;
+    const likely = [...(RESULT.by_record || [])].sort((a, b) => b.p - a.p)[0];
+    return `<p class="verdict">${lead}</p>`
+      + (likely ? `<p>Its likeliest finish is ${rec(likely)}, in ${share(likely.p)} of seasons.</p>` : "");
   }
-  const sure = rows.filter(r => r.sure);
-  if (sure.length > 1) {
-    const big = sure.reduce((a, b) => (Math.abs(b.win - b.lose) > Math.abs(a.win - a.lose) ? b : a));
-    out.push(`The biggest game left is ${big.where === "at" ? "at" : "against"} ${esc(big.name)} in week ${big.g.week}.`);
+
+  const n = RESULT.own_games.length;
+  const best = recordOf(me).w + n;
+  const r0 = n ? recordAt(key, best) : null;
+  const r1 = n ? recordAt(key, best - 1) : null;
+  const r2 = n ? recordAt(key, best - 2) : null;
+  const o0 = r0 && r0.odds[key], o1 = r1 && r1.odds[key], o2 = r2 && r2.odds[key];
+  if (r2 && o2 >= 0.6) {
+    lead = `${who} can lose twice and still ${goal}.`;
+    detail.push(`At ${rec(r2)} it ${phrase} in ${odds(r2)}.`);
+  } else if (r1 && o1 >= 0.6) {
+    lead = `${who} can afford one loss.`;
+    detail.push(`At ${rec(r1)} it ${phrase} in ${odds(r1)}`
+      + (r2 ? `, at ${rec(r2)} in ${odds(r2)}.` : "."));
+  } else if (r0 && o0 >= 0.5 && (!r1 || o1 < 0.25)) {
+    lead = `${who} has to win out.`;
+    detail.push(`At ${rec(r0)} it ${phrase} in ${odds(r0)}`
+      + (r1 ? `, at ${rec(r1)} in ${odds(r1)}.` : "."));
+  } else if (r0 && o0 >= 0.25) {
+    lead = `Winning out puts ${who} at ${pct(o0)}.`;
+    if (r1) detail.push(`At ${rec(r1)} it ${phrase} in ${odds(r1)}.`);
+  } else if (r0 && o0 >= 0.005) {
+    lead = `${who} needs help even if it wins out.`;
+    detail.push(`At ${rec(r0)} it ${phrase} in ${odds(r0)}.`);
+  } else if (r0) {
+    detail.push(`Even at ${rec(r0)}, ${who} ${phrase} in ${odds(r0)} of seasons.`);
   }
-  return out.join(" ");
+
+  const sure = rows.filter(r => r.sure && r.move > 0);
+  if (sure.length && n > 1) {
+    const big = sure.reduce((a, b) => (b.move > a.move ? b : a));
+    detail.push(`The game that decides the most is ${big.where === "at" ? "at" : "against"} `
+      + `${esc(big.name)} in week ${big.g.week}: <b>${pct(big.win)}</b> with a win, `
+      + `<b>${pct(big.lose)}</b> with a loss.`);
+  } else if (sure.length) {
+    const r = sure[0];
+    detail.push(`Its last game is ${r.where === "at" ? "at" : "against"} ${esc(r.name)}: `
+      + `<b>${pct(r.win)}</b> with a win, <b>${pct(r.lose)}</b> with a loss.`);
+  } else if (!rows.length && tg) {
+    lead = `Everything rides on the ${esc(tg.conf)} title game.`;
+    detail.push(`A win puts ${who} at <b>${pct(tg.won)}</b>, a loss at <b>${pct(tg.lost)}</b>.`);
+  }
+  if (bowlLine) detail.push(bowlLine);
+  return (lead ? `<p class="verdict">${lead}</p>` : "")
+    + (detail.length ? `<p>${detail.join(" ")}</p>` : "");
 }
 
 /** One row: when, who, the chance to win, and the measure after each result. */
@@ -1435,84 +1537,105 @@ function needRowHTML(r, x, base, big) {
     when = `<b>Wk ${g.week}</b><small class="live">${esc(liveClock(live))}</small>`;
     if (q != null) chance = `<span class="num nd-p">${pct(r.home ? q : 1 - q, 0)}</span>`;
   }
-  // Too few seasons with the unlikely result: that side is unknown, and the
-  // bar is only today's mark.
+  const head = `<div class="nd${big ? " big" : ""}${g.week === wk ? " on" : ""}${state}" data-week="${g.week}">
+      <span class="nd-when">${when}</span>
+      <span class="nd-opp"><i class="at">${r.where}</i><span class="who" data-team="${r.opp}">${logo(r.opp, 18)}${pollTag(r.opp)}<b>${esc(r.name)}</b>${recTag(r.opp)}</span></span>
+      ${chance}`;
+  if (!x) return head + "</div>";
+  // The unlikely side of a lopsided game is unknown, and the bar is only
+  // today's mark.
   const rare = r.sure ? null : (r.chance >= 0.5 ? "lose" : "win");
   const lo = x(r.lose), hi = x(r.win);
   const bar = rare ? "" : `<i style="left:${lo}%;width:${Math.max(0.6, hi - lo).toFixed(2)}%"></i>`;
-  const unknown = `<span class="num nd-un" title="This result almost never happens">-</span>`;
+  const unknown = (cls) => `<span class="num nd-un ${cls}" title="This result almost never happens">-</span>`;
   const label = rare ? `Week ${g.week} ${r.where} ${r.name}: ${pct(rare === "lose" ? r.win : r.lose)} after a ${rare === "lose" ? "win" : "loss"}`
     : `Week ${g.week} ${r.where} ${r.name}: ${pct(r.win)} after a win, ${pct(r.lose)} after a loss`;
-  return `<div class="nd${big ? " big" : ""}${g.week === wk ? " on" : ""}${state}" data-week="${g.week}">
-      <span class="nd-when">${when}</span>
-      <span class="nd-opp"><i class="at">${r.where}</i><span class="who" data-team="${r.opp}">${logo(r.opp, 18)}${pollTag(r.opp)}<b>${esc(r.name)}</b>${recTag(r.opp)}</span></span>
-      ${chance}
-      ${rare === "lose" ? unknown.replace("nd-un", "nd-un nd-lo") : `<span class="num nd-lo">${pct(r.lose)}</span>`}
+  return `${head}
+      ${rare === "lose" ? unknown("nd-lo") : `<span class="num nd-lo">${pct(r.lose)}</span>`}
       <span class="nd-bar" role="img" aria-label="${esc(label)}">${bar}<b style="left:${x(base)}%"></b></span>
-      ${rare === "win" ? unknown.replace("nd-un", "nd-un nd-hi") : `<span class="num nd-hi">${pct(r.win)}</span>`}
+      ${rare === "win" ? unknown("nd-hi") : `<span class="num nd-hi">${pct(r.win)}</span>`}
     </div>`;
 }
 
 /** The conference title game as one more row: the chance to win it once
- * there, and the measure after winning and losing it. */
-function titleRowHTML(key, x, base) {
-  const tg = RESULT.title_game;
-  const me = teamIdx();
-  const conf = confOf(me);
-  if (!tg || !conf || key === "win_conference" || key === "make_conf_title_game") return "";
-  const reach = tg.p[0] + tg.p[1];
-  const [won, lost, missed] = tg.odds[key] || [];
-  if (reach < 0.005 || !Number.isFinite(won) || !Number.isFinite(lost)) return "";
-  const lo = x(lost), hi = x(won);
+ * there, and the measure after winning and after losing it. */
+function titleRowHTML(tg, x, base) {
+  if (!tg) return "";
+  const lo = x(tg.lost), hi = x(tg.won);
   return `<div class="nd tg">
       <span class="nd-when"><b>Title</b><small>game</small></span>
-      <span class="nd-opp"><b>${esc(conf)} championship</b><small>Reached in ${share(reach)} of seasons${Number.isFinite(missed) ? `. Missing it: ${pct(missed)}` : ""}</small></span>
-      <span class="num nd-p" title="Chance to win it, once there">${pct(tg.p[0] / reach, 0)}</span>
-      <span class="num nd-lo">${pct(lost)}</span>
-      <span class="nd-bar" role="img" aria-label="${esc(`${conf} title game: ${pct(won)} after a win, ${pct(lost)} after a loss`)}"><i style="left:${lo}%;width:${Math.max(0.6, hi - lo).toFixed(2)}%"></i><b style="left:${x(base)}%"></b></span>
-      <span class="num nd-hi">${pct(won)}</span>
+      <span class="nd-opp"><b>${esc(tg.conf)} championship</b><small>Reached in ${share(tg.reach)} of seasons${Number.isFinite(tg.missed) ? `. Missing it: ${pct(tg.missed)}` : ""}</small></span>
+      <span class="num nd-p" title="Chance to win it, once there">${pct(tg.winp, 0)}</span>
+      <span class="num nd-lo">${pct(tg.lost)}</span>
+      <span class="nd-bar" role="img" aria-label="${esc(`${tg.conf} title game: ${pct(tg.won)} after a win, ${pct(tg.lost)} after a loss`)}"><i style="left:${lo}%;width:${Math.max(0.6, hi - lo).toFixed(2)}%"></i><b style="left:${x(base)}%"></b></span>
+      <span class="num nd-hi">${pct(tg.won)}</span>
     </div>`;
+}
+
+/** Each final record: how often the team ends there, and the measure there.
+ * The likeliest record is marked. A team with no race left gets the first
+ * two columns, which are its season in brief. */
+function ladderHTML(key, flat) {
+  let recs = (RESULT.by_record || []).filter(r => r.p >= RECORD_FLOOR);
+  if (recs.length > 7) {
+    const keep = new Set([...recs].sort((a, b) => b.p - a.p).slice(0, 7));
+    recs = recs.filter(r => keep.has(r));
+  }
+  if (recs.length < 2) return "";
+  const most = Math.max(...recs.map(r => r.p));
+  const name = ODDS_NAME[key].replace("{c}", esc(confOf(teamIdx()) || "Conference"));
+  return `<table class="ladder">
+      <caption>${flat ? "Final record" : `${name} by final record`}</caption>
+      <thead><tr><th scope="col">Record</th><th scope="col">How often</th>
+        ${flat ? "" : `<th scope="col" class="num">${esc(shortOdds(key))}</th>`}</tr></thead>
+      <tbody>${recs.map(r => `<tr${r.p === most ? ' class="likely"' : ""}>
+        <th scope="row">${r.wins}-${r.losses}</th>
+        <td><span class="lw"><i style="width:${(100 * r.p / most).toFixed(1)}%"></i></span><span class="lp">${share(r.p)}</span></td>
+        ${flat ? "" : `<td class="num"><b>${r.n >= RECORD_SEASONS ? pct(r.odds[key], 1) : "-"}</b></td>`}</tr>`).join("")}
+      </tbody></table>`;
+}
+
+/** The measure's name as a column head. */
+function shortOdds(key) {
+  return { make_playoff: "Playoff", win_conference: "Title", make_conf_title_game: "Title game",
+           top4_seed: "Bye", finish_ranked: "Ranked" }[key] || shortLabel(key);
 }
 
 function renderNeeds() {
   const key = METRIC;
   const rows = needRows(key);
+  const tg = titleGame(key);
   const panel = $("needs");
-  if (!rows.length && !RESULT.title_game) { panel.hidden = true; return; }
+  if (!rows.length && !tg) { panel.hidden = true; return; }
   panel.hidden = false;
-  const me = teamIdx();
-  const conf = confOf(me) || "Conference";
-  $("needstitle").textContent = `What ${RESULT.team} needs`;
-  $("needsnote").textContent = `${ODDS_NAME[key].replace("{c}", conf)} after a win or a loss`;
-
+  const conf = confOf(teamIdx()) || "Conference";
   const base = RESULT.headline[key].p;
-  const tg = RESULT.title_game;
-  const vals = rows.flatMap(r => (r.sure ? [r.win, r.lose] : [r.chance >= 0.5 ? r.win : r.lose])).concat(base,
-    tg && tg.odds[key] ? tg.odds[key].filter(Number.isFinite) : []);
-  const top = niceTop(Math.max(...vals));
-  const x = (v) => (100 * Math.max(0, Math.min(v, top)) / top).toFixed(2);
-  const gap = Math.max(0, ...rows.filter(r => r.sure).map(r => Math.abs(r.win - r.lose)));
-  const recs = recordCols(key);
+  // Nothing left to move: the games are listed with the chance to win them.
+  const flat = Math.max(base, ...rows.map(r => Math.max(r.win, r.lose))) < 0.005;
+  $("needstitle").textContent = `What ${RESULT.team} needs`;
+  $("needsnote").textContent = flat ? "The games left"
+    : `${ODDS_NAME[key].replace("{c}", conf)} after a win or a loss`;
 
-  $("needssum").innerHTML = needsSummary(key, rows, recs);
-  const name = ODDS_NAME[key].replace("{c}", esc(conf));
-  $("needslist").innerHTML = `<div class="nd-grid">
+  let x = null, top = 1;
+  if (!flat) {
+    const vals = rows.flatMap(r => (r.sure ? [r.win, r.lose] : [r.chance >= 0.5 ? r.win : r.lose]))
+      .concat(base, tg ? [tg.won, tg.lost] : []);
+    top = niceTop(Math.max(...vals));
+    x = (v) => (100 * Math.max(0, Math.min(v, top)) / top).toFixed(2);
+  }
+  const most = Math.max(0, ...rows.map(r => r.move));
+  $("needssum").innerHTML = needsSummary(key, rows, tg, flat);
+  $("needslist").innerHTML = (rows.length || tg) ? `<div class="nd-grid${flat ? " flat" : ""}">
       <div class="nd-head" aria-hidden="true"><span>Week</span><span>Opponent</span>
         <span class="num" title="${esc(RESULT.team)}'s chance to win">Win %</span>
-        <span class="num">After a loss</span>
+        ${flat ? "" : `<span class="num">After a loss</span>
         <span class="nd-scale"><span>0</span><span>${pct(top, 0)}</span></span>
-        <span class="num">After a win</span></div>
-      ${rows.map(r => needRowHTML(r, x, base, r.sure && rows.length > 1 && Math.abs(r.win - r.lose) === gap)).join("")}
-      ${titleRowHTML(key, x, base)}
+        <span class="num">After a win</span>`}</div>
+      ${rows.map(r => needRowHTML(r, x, base, !flat && rows.length > 1 && r.move > 0 && r.move === most)).join("")}
+      ${flat ? "" : titleRowHTML(tg, x, base)}
     </div>
-    <p class="nd-key"><span class="nd-tick"></span>${name} now, ${pct(base)}</p>`;
-
-  $("needsrec").innerHTML = recs.length > 1 && rows.length ? `<table class="ndrec">
-      <caption>${name} by final record</caption>
-      <thead><tr><th scope="row">Record</th>${recs.map(r => `<th scope="col">${r.wins}-${r.losses}</th>`).join("")}</tr></thead>
-      <tbody><tr><th scope="row">How often</th>${recs.map(r => `<td>${share(r.p)}</td>`).join("")}</tr>
-      <tr class="odds"><th scope="row">${name}</th>${recs.map(r => `<td><b>${pct(r.odds[key], 1)}</b></td>`).join("")}</tr></tbody>
-    </table>` : "";
+    ${flat ? "" : `<p class="nd-key"><span class="nd-tick"></span>${ODDS_NAME[key].replace("{c}", esc(conf))} now, ${pct(base)}</p>`}` : "";
+  $("needsrec").innerHTML = rows.length ? ladderHTML(key, flat) : "";
 }
 
 // Live now
@@ -2193,7 +2316,7 @@ document.querySelectorAll("button.fold").forEach(b => b.addEventListener("click"
 let refit = 0;
 window.addEventListener("resize", () => {
   cancelAnimationFrame(refit);
-  refit = requestAnimationFrame(() => ["winsdist", "seeddist"].forEach(id => fitDist($(id))));
+  refit = requestAnimationFrame(() => fitDist($("seeddist")));
 });
 for (const id of ["week", "showplayed"]) {
   $(id).addEventListener("change", () => {

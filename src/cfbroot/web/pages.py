@@ -139,10 +139,6 @@ def home_questions(state, n_sims, race=()):
          f"simulated season is rated with Kenneth Massey's model, ranked by a "
          f"model of the selection committee and played through the 12-team "
          f"bracket."),
-        ("How often do the numbers update?",
-         "Every 30 minutes on Saturdays, on Sunday evening after the AP poll "
-         "and once a day during the week. Live scores update on the site as "
-         "games are played."),
     ]
 
 
@@ -229,8 +225,21 @@ PHRASES = {
     "win_national_title": "wins the national title",
     "finish_ranked": "finishes ranked",
 }
-# A final record that comes up in fewer seasons than this is left out.
+# A final record that comes up in fewer seasons than this is left out, and
+# one needs this many seasons behind it before it decides what a team needs.
 RECORD_FLOOR = 0.005
+RECORD_SEASONS = 1000
+GOALS = {
+    "make_playoff": "make the playoff",
+    "win_conference": "win the {c}",
+    "make_conf_title_game": "reach the {c} title game",
+    "top4_seed": "earn a first-round bye",
+    "reach_quarterfinal": "reach the quarterfinals",
+    "reach_semifinal": "reach the semifinals",
+    "reach_title_game": "reach the national title game",
+    "win_national_title": "win the national title",
+    "finish_ranked": "finish ranked",
+}
 
 
 def conf_slug(conference: str) -> str:
@@ -243,8 +252,8 @@ def has_conference(team) -> bool:
 
 
 def own_rows(team, payload, key="make_playoff"):
-    """The team's games left, with its chance in each and the measure after
-    a win and after a loss."""
+    """The team's games left, with its chance in each, the measure after a
+    win and after a loss, and how far the game is expected to move it."""
     rows = []
     for g in sorted(payload.get("own_games") or (),
                     key=lambda g: (g["week"], g.get("start_date") or "")):
@@ -255,13 +264,17 @@ def own_rows(team, payload, key="make_playoff"):
         ph = g.get("p_home_win")
         if win is None or lose is None or ph is None:
             continue
+        chance = ph if home else 1 - ph
+        # too few seasons with the unlikely result to measure it
+        sure = s.get("reliable") is not False
         rows.append({"week": g["week"], "home": home,
                      "where": "vs" if home or g.get("neutral") else "at",
                      "opponent": g["away"] if home else g["home"],
-                     "chance": ph if home else 1 - ph,
-                     "win": win, "lose": lose, "game": g,
-                     # too few seasons with the unlikely result to measure it
-                     "sure": s.get("reliable") is not False})
+                     "chance": chance, "win": win, "lose": lose, "game": g,
+                     "sure": sure,
+                     # the gap between the results, weighted by how likely
+                     # each is: the toughest game, not the easiest one to lose
+                     "move": 2 * chance * (1 - chance) * abs(win - lose) if sure else 0.0})
     return rows
 
 
@@ -270,40 +283,69 @@ def record_rows(payload):
     return [r for r in payload.get("by_record") or () if r["p"] >= RECORD_FLOOR]
 
 
+def _record_at(payload, wins):
+    for r in payload.get("by_record") or ():
+        if r["wins"] == wins and r["n"] >= RECORD_SEASONS:
+            return r
+    return None
+
+
 def needs_text(state, team, payload, key="make_playoff", name=None):
-    """What the team needs, in two or three sentences. ``name`` links an
-    opponent; the plain name otherwise."""
+    """What the team needs: whether it can afford a loss, has to win out or
+    needs help, the game that decides the most, its title game and its bowl
+    chances where those are in doubt. ``name`` links an opponent."""
     name = name or html.escape
     school = html.escape(team.school)
     conf = html.escape(team.conference or "conference")
     phrase = PHRASES[key].format(c=conf)
+    goal = GOALS[key].format(c=conf)
     games = own_rows(team, payload, key)
+    left = len(payload.get("own_games") or ())
     w, _, _, _, _ = record(state, team.idx)
     out = []
-    recs = record_rows(payload)
-    if recs and games:
-        top = recs[0]
-        rec = f"{top['wins']}-{top['losses']}"
-        if top["wins"] == w + len(games):
-            out.append(f"If {school} wins out to finish {rec}, which happens in "
-                       f"{_pct(top['p'])} of seasons, it {phrase} in "
-                       f"{_pct(top['odds'][key])}.")
-        else:
-            out.append(f"At {rec}, its best likely finish, {school} {phrase} in "
-                       f"{_pct(top['odds'][key])}.")
-        more = [f"{r['wins']}-{r['losses']}" for r in recs[1:3]]
-        if more:
-            odds = [_pct(r["odds"][key]) for r in recs[1:3]]
-            out.append(f"At {more[0]} that falls to {odds[0]}"
-                       + (f", and at {more[1]} to {odds[1]}." if len(more) > 1
-                          else "."))
-    sure = [r for r in games if r["sure"]]
-    if sure:
-        big = max(sure, key=lambda r: abs(r["win"] - r["lose"]))
+
+    def rec(r):
+        return f"{r['wins']}-{r['losses']}"
+
+    def odds(r):
+        return _pct(r["odds"][key])
+
+    if left:
+        r0, r1, r2 = (_record_at(payload, w + left - k) for k in range(3))
+        o0, o1, o2 = (r["odds"][key] if r else None for r in (r0, r1, r2))
+        if r2 and o2 >= 0.6:
+            out += [f"{school} can lose twice and still {goal}.",
+                    f"At {rec(r2)} it {phrase} in {odds(r2)}."]
+        elif r1 and o1 >= 0.6:
+            out += [f"{school} can afford one loss.",
+                    f"At {rec(r1)} it {phrase} in {odds(r1)}"
+                    + (f", at {rec(r2)} in {odds(r2)}." if r2 else ".")]
+        elif r0 and o0 >= 0.5 and (not r1 or o1 < 0.25):
+            out += [f"{school} has to win out.",
+                    f"At {rec(r0)} it {phrase} in {odds(r0)}"
+                    + (f", at {rec(r1)} in {odds(r1)}." if r1 else ".")]
+        elif r0 and o0 >= 0.25:
+            out.append(f"Winning out puts {school} at {odds(r0)}."
+                       + (f" At {rec(r1)} it {phrase} in {odds(r1)}." if r1 else ""))
+        elif r0 and o0 >= 0.005:
+            out += [f"{school} needs help even if it wins out.",
+                    f"At {rec(r0)} it {phrase} in {odds(r0)}."]
+        elif r0:
+            out.append(f"Even at {rec(r0)}, {school} {phrase} in {odds(r0)} of seasons.")
+
+    sure = [r for r in games if r["move"] > 0]
+    if sure and left > 1:
+        big = max(sure, key=lambda r: r["move"])
         where = "at" if big["where"] == "at" else "against"
-        out.append(f"The biggest game left is {where} {name(big['opponent'])} in "
-                   f"week {big['week']}: a win puts {school} at "
-                   f"{_pct(big['win'])}, a loss at {_pct(big['lose'])}.")
+        out.append(f"The game that decides the most is {where} "
+                   f"{name(big['opponent'])} in week {big['week']}: "
+                   f"{_pct(big['win'])} with a win, {_pct(big['lose'])} with a loss.")
+    elif sure:
+        r = sure[0]
+        where = "at" if r["where"] == "at" else "against"
+        out.append(f"Its last game is {where} {name(r['opponent'])}: "
+                   f"{_pct(r['win'])} with a win, {_pct(r['lose'])} with a loss.")
+
     tg = payload.get("title_game")
     if tg and key not in ("win_conference", "make_conf_title_game"):
         reach = tg["p"][0] + tg["p"][1]
@@ -314,6 +356,10 @@ def needs_text(state, team, payload, key="make_playoff", name=None):
                        f"losing it at {_pct(lost)}"
                        + (f"; missing it leaves {_pct(missed)}." if missed is not None
                           else "."))
+
+    bowl = sum((payload.get("wins_distribution") or [])[6:])
+    if 0.02 <= bowl <= 0.98:
+        out.append(f"It reaches six wins and a bowl in {_pct(bowl)} of seasons.")
     return " ".join(out)
 
 
@@ -648,9 +694,9 @@ def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None,
 <h1>Root for the right team</h1>
 <p class="lead">The game that matters most is often one your team is not
 playing in.</p>
-<p>The rest of the {state.year} season is simulated {_sims(n_sims)} times.
-Each season is rated, ranked by a model of the selection committee and played
-through the 12-team bracket. <a href="how-it-works/">Methodology</a></p>
+<p class="simstat"><b>{_sims(n_sims)}</b><span>simulated seasons behind every
+number, each one rated, ranked the way the selection committee works and
+played through the 12-team bracket. <a href="how-it-works/">Methodology</a></span></p>
 <p class="cta"><a href="#team">Pick your team</a> or start with one of these.</p>
 </div>
 
@@ -923,9 +969,9 @@ percentage points.</p>
 
 
 def how_head(state, n_sims, card=None):
-    desc = (f"How the playoff odds are calculated: {_sims(n_sims)} simulated "
-            f"seasons, a power rating fitted to each, a model of the selection "
-            f"committee and a significance test for every game's effect.")
+    desc = (f"How the playoff odds are made: the rest of the season played "
+            f"{_sims(n_sims)} times, every season rated and ranked the way the "
+            f"selection committee works, and every game's effect tested.")
     url = f"{SITE_URL}/how-it-works/"
     title = f"Methodology: how the playoff odds are calculated | {SITE_NAME}"
     return _head(title, desc, url, card=card,
@@ -941,12 +987,11 @@ def how_body(state, n_sims):
     quarter = {0.25: "a quarter", 0.5: "half"}.get(CCG_LOSS_SHARE,
                                                   f"{CCG_LOSS_SHARE:.0%}")
     return f"""<h1>Methodology</h1>
-<p class="lead">The rest of the {state.year} season is simulated
-{_sims(n_sims)} times. Each simulated season is rated, ranked by a model of
-the College Football Playoff selection committee and played through the
-12-team bracket. A team's odds are the share of seasons in which an outcome
-happens, and a game's impact is the difference in those odds between the
-seasons each team wins it.</p>
+<p class="lead">Every number on this site comes from playing the rest of the
+{state.year} season {_sims(n_sims)} times. Each time, every remaining game is
+played, the teams are ranked the way the selection committee ranks them, and
+the 12-team bracket is played to a champion. A team's playoff odds are the
+share of those seasons in which it made the field.</p>
 
 <dl class="facts">
 <div><dt>Simulated seasons</dt><dd>{_sims(n_sims)}</dd></div>
@@ -955,67 +1000,60 @@ seasons each team wins it.</p>
 <div><dt>Playoff field</dt><dd>12 teams</dd></div>
 </dl>
 
-<h2>The model</h2>
+<h2>One simulated season</h2>
 <ol class="steps">
-<li><h3>Simulating games</h3>
-<p>Each remaining game is given a score margin centred on the gap between the
-teams' ESPN Football Power Index (FPI) ratings, plus {p.hfa:.2f} points for
-the home team, measured against closing betting lines. Each margin is drawn
-with a spread of {p.sigma:.1f} points, measured on real results. Each
-simulated season also sets every team's strength around its rating and holds
-it for all of that team's games, the way a team's level carries through a
-real season.</p>
-<p>FPI updates once a day. Between updates, every finished game moves both
-teams' ratings by the share FPI itself would apply, so a team is simulated at
-its post-game strength the same day.</p></li>
-<li><h3>Rating each season</h3>
-<p>Every simulated season is rated from scratch with Kenneth Massey's model: a
-maximum likelihood fit of the scores, followed by a Bayesian correction for
-wins and losses against strength of schedule. Margin of victory counts, with
-diminishing returns, in line with how the committee treats lopsided
-results.</p></li>
-<li><h3>Ranking like the committee</h3>
-<p>The committee model starts from that rating and adds the committee's own
-variability, credit for wins over strong teams, a penalty for losses to weak
-ones, head-to-head results between close teams and a boost for conference
-champions. A conference championship game loss counts for {quarter} of a
-regular-season loss.</p></li>
-<li><h3>Conference titles and the field</h3>
-<p>Conference standings are settled by each league's published tiebreakers and
-the championship games are played. The field follows the {state.year} format:
-the four highest-ranked power conference champions, the highest-ranked
-champion of the other conferences, Notre Dame if it is ranked in the top 12,
-and at-large teams for the remaining places. The four highest seeds receive
-first-round byes.</p></li>
+<li><h3>The games</h3>
+<p>Each game gets a score. The expected margin is the gap between the two
+teams' ratings in ESPN's Football Power Index, plus {p.hfa:.2f} points for
+the home team, a figure taken from closing betting lines. The simulated
+margin lands around that the way real ones do, with a spread of
+{p.sigma:.1f} points.</p>
+<p>A team's strength is set once for the whole simulated season. A team that
+plays above its rating in October tends to do it in November too, and the
+simulation keeps that.</p>
+<p>FPI is published once a day. When a game ends before the next update,
+both teams' ratings move by the amount FPI itself would move them, so a
+Saturday result counts on Saturday.</p></li>
+<li><h3>The rating</h3>
+<p>When the regular season is over, the simulated season is rated from
+scratch with Kenneth Massey's method: a fit of every score, then an
+adjustment for wins and losses against the schedule each team played. Margin
+of victory counts, with diminishing returns past a comfortable win.</p></li>
+<li><h3>The committee</h3>
+<p>The committee does not sort teams by one rating, and neither does the model.
+Starting from the rating, wins over good teams earn credit, losses to weak
+teams cost, a team stays above a close rival it beat, and conference
+champions move up. A conference title game loss counts for {quarter} of a
+regular-season loss. Each simulated season also draws its own version of the
+committee's judgment.</p></li>
+<li><h3>The field</h3>
+<p>Standings are settled with each conference's published tiebreakers and
+the title games are played. The field follows the {state.year} rules: the
+four power conference champions, the highest-ranked Group of Six team, Notre
+Dame if it is in the top 12, and at-large teams for the rest. Seeds 1 to 4
+get byes.</p></li>
 <li><h3>The bracket</h3>
-<p>Every playoff game is simulated, so a national title means winning each
-round, not finishing first in the rankings.</p></li>
-<li><h3>Measuring a game's impact</h3>
-<p>All games are simulated in the same run. Splitting the seasons by the
-result of one game and comparing a team's odds in each half gives that game's
-impact with every other result held in common, without a second
-simulation.</p></li>
+<p>Seeds 5 to 8 host the first round, and every later game is at a neutral
+site. A national champion here has won the bracket: three games for a team
+with a bye, four for everyone else.</p></li>
 </ol>
 
-<h2>Statistical significance</h2>
-<p>A guide compares several hundred games at once. Each difference carries a
-confidence interval, and the full set is tested with a false discovery rate
-correction, so the games marked significant are those whose effects hold up
-across every comparison.</p>
+<h2>What a game is worth</h2>
+<p>Every remaining game is played in every simulated season, so one game's
+effect can be read straight from the results. Split the seasons by who won
+that game and compare a team's odds in the two halves. Everything else that
+happened is shared between the halves, so the difference belongs to that
+game alone.</p>
+<p>A team's guide weighs several hundred games at once. Each difference is
+tested, and the whole set is corrected together for false discoveries. A
+game is marked significant when its effect survives that correction.</p>
 
 <h2>Data</h2>
-<p>Schedules, results and live scores come from ESPN. Team ratings come from
-ESPN's Football Power Index. AP Top 25 and committee rankings come from the
-published polls.</p>
+<p>Schedules, scores and live games come from ESPN, and team ratings from
+ESPN's Football Power Index. Rankings come from the AP poll and the College
+Football Playoff committee.</p>
 
-<h2>Updates</h2>
-<p>The odds are recalculated every 30 minutes from Friday evening through
-Saturday night, on Sunday evening after the AP poll is released and every
-morning during the week. Live scores update on the site while games are in
-progress.</p>
-
-<p>The source code is on
-<a href="https://github.com/goodsellkai/cfb-rooting">GitHub</a>.</p>
+<p>The code is on <a href="https://github.com/goodsellkai/cfb-rooting">GitHub</a>.</p>
 <p><a href="../">Back to the guide</a></p>"""
 
 
@@ -1129,7 +1167,7 @@ def llms_txt(state, teams, n_sims) -> str:
         "Football Playoff, winning its conference and winning the national "
         "title, its remaining schedule with a win probability for every game, "
         "and the games elsewhere in the country whose result moves its odds "
-        "most. The odds are recalculated every 30 minutes on game days.",
+        "most.",
         "",
         "## Pages",
         "",

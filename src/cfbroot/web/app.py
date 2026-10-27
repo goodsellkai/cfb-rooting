@@ -251,6 +251,7 @@ def _season_payload(s: SeasonState) -> dict:
         "diagnostics": diag.summary() if diag is not None else "",
         "notes": s.notes,
         "has_api_key": s.source != "demo",
+        "n_sims": store.league.n_sims if store.league is not None else DEFAULT_SIMS,
         "source": s.source,
         "loaded_at": store.loaded_at,
         "params": s.params.to_dict(),

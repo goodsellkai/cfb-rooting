@@ -131,7 +131,11 @@ section that stays on screen after the app loads and is what crawlers read.
   the team's title game (won, lost, not in it) and counts each conference's
   title game pairings. A team's JSON carries `by_record` and `title_game`;
   `state.json` carries `ccg_pairs` and `projection`, which is what lets a
-  republish write the conference and ranking pages again.
+  republish write the conference and ranking pages again. The game named as
+  deciding the most is the one expected to move the odds furthest, 2p(1-p)
+  times the gap between its results, so a contender's is its toughest game
+  rather than the easy one whose upset would hurt most. A team opens on the
+  race it is in (`fitMetric()` in app.js), not on a measure stuck at 0 or 100.
 - **The projected CFP ranking is not simulated.** `committee_now()` rates the
   real results through the last finished week with the same weekly system and
   committee model a sample season uses, with no committee noise, so it is one

@@ -6,8 +6,7 @@ by how much.
 **[cfbroot.com](https://cfbroot.com/)**
 
 The site simulates the rest of the season 2.5 million times and reports, for
-every remaining game, how much each result moves your team's odds. It is
-rebuilt hourly on game days.
+every remaining game, how much each result moves your team's odds.
 
 ## The idea
 
