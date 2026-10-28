@@ -47,9 +47,9 @@ M_SF = 5
 M_TITLE_GAME = 6
 M_NATL = 7
 M_RANKED = 8          # in the committee's final top 25
-M_BOWL = 9            # six wins, at most one of them over a non-FBS side
+M_SIX = 9             # six regular-season wins
 N_METRICS = 10
-BOWL_WINS = 6
+SIX_WINS = 6
 
 # Automatic bid rules, passed as bid_rule.
 BIDS_2026 = 0         # power champions plus the best Group of Six team
@@ -454,7 +454,6 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
         losses = np.zeros(n_teams, dtype=np.int32)
         cwins = np.zeros(n_teams, dtype=np.int32)
         closses = np.zeros(n_teams, dtype=np.int32)
-        fcs_wins = np.zeros(n_teams, dtype=np.int32)
         score = np.zeros(n_teams, dtype=np.float64)
         final = np.zeros(n_teams, dtype=np.float64)
         g_at_home = np.zeros(n_g, dtype=np.float64)
@@ -531,7 +530,6 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 losses[t] = 0
                 cwins[t] = 0
                 closses[t] = 0
-                fcs_wins[t] = 0
             for i in range(n_g):
                 h = g_home[i]
                 a = g_away[i]
@@ -543,8 +541,6 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                     l = h
                 wins[w] += 1
                 losses[l] += 1
-                if not is_fbs[l]:
-                    fcs_wins[w] += 1
                 if g_conf[i]:
                     cwins[w] += 1
                     closses[l] += 1
@@ -889,10 +885,8 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 out_metrics[s, M_CCG, j] = in_ccg[t]
                 if rank_of[t] < 25:
                     out_metrics[s, M_RANKED, j] = 1
-                # Only one win over a non-FBS side counts toward a bowl.
-                extra = fcs_wins[t] - 1 if fcs_wins[t] > 1 else 0
-                if wins[t] - extra >= BOWL_WINS:
-                    out_metrics[s, M_BOWL, j] = 1
+                if wins[t] >= SIX_WINS:
+                    out_metrics[s, M_SIX, j] = 1
                 w = wins[t]
                 if w > max_w:
                     w = max_w

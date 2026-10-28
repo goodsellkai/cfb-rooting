@@ -103,9 +103,10 @@ section that stays on screen after the app loads and is what crawlers read.
   conference title and title game odds show `0.00%`, and only when no simulated
   season produced it (Kai's rule): `pct(x, d, zero)` and `pctOf()` in app.js,
   `_pct(x, digits, zero)` in pages.py.
-- **A bowl is a measure like the rest.** The kernel counts six wins with at most
-  one over a non-FBS side (`M_BOWL`), so the band, the guide and the record
-  chart treat it as they treat the playoff.
+- **Six wins is a measure like the rest** (`M_SIX`, every regular-season win
+  counted), so the band, the guide and the record chart treat it as they
+  treat the playoff. Kai named it for the wins rather than a bowl, since a
+  five-win team can still get a bowl.
 - **Data files are named for the team, not its index.** Indices only mean
   something within one build, and a page open across a rebuild would ask for a
   file that no longer exists.
@@ -155,15 +156,19 @@ section that stays on screen after the app loads and is what crawlers read.
   title game pairings. A team's JSON carries `by_record` and `title_game`;
   `state.json` carries `ccg_pairs` and `projection`, which is what lets a
   republish write the conference and ranking pages again. The game named as
-  deciding the most is the one expected to move the odds furthest, 2p(1-p)
-  times the gap between its results, so a contender's is its toughest game
-  rather than the easy one whose upset would hurt most. A team opens on the
+  deciding the most is the one that spreads the odds furthest, the gap
+  between its results times the square root of p(1-p), so a contender's is a
+  hard game it has to win rather than the easy one whose upset would hurt
+  most; the square root keeps a coin flip that barely moves the odds from
+  outranking it (Kai found 2p(1-p) leaned on likelihood too much). A team opens on the
   race it is in (`fitMetric()` in app.js), not on a measure stuck at 0 or 100.
 - **The projected CFP ranking is not simulated.** `committee_now()` rates the
   real results through the last finished week with the same weekly system and
   committee model a sample season uses, with no committee noise, so it is one
   fixed answer. Its "if the season ended today" field gives the automatic
-  bids to the current conference leaders.
+  bids to the current conference leaders. Once the committee publishes, the
+  rankings page shows its top 25 instead (`state.polls["cfp"]`), and the
+  field is picked from that order, the model's below it.
 - **Sunday has a build after the AP poll.** Polls are shown, never used by
   the model, and the AP's lands on Sunday afternoon, so `pages.yml` runs at 5pm
   and 6pm Central on Sundays to put it on the site. The loader looks for the
@@ -174,7 +179,7 @@ section that stays on screen after the app loads and is what crawlers read.
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,
   its score, and each build's odds table. Nothing on the site reads or links
   it, and Kai asked that it stay that way. Without the token the build skips it.
-- **`pages.py` only reads seven things off a season** and nine off a team, which
+- **`pages.py` only reads eight things off a season** and nine off a team, which
   is what makes the republish possible. `tests/test_republish.py` pins that list.
   Reading something new there means adding it to `republish.Season` too, or the
   republished page quietly loses a sentence.

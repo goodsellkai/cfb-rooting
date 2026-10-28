@@ -801,7 +801,7 @@ function renderTeamLine(idx) {
 // The road: every measure, in the order a season reaches them
 
 const PATH = [
-  ["make_bowl", "Bowl game", "Bowl"],
+  ["six_wins", "6 wins", "6 wins"],
   ["finish_ranked", "Finish ranked", "Ranked"],
   ["make_conf_title_game", "{c} title game", "CCG"],
   ["win_conference", "Win {c}", "Conf"],
@@ -943,9 +943,12 @@ async function loadTeam() {
     RESULT = body;
     render(true);
     // Each team has its own address on the hosted site, so a link to what
-    // is on screen goes to the same place.
+    // is on screen goes to the same place. The local app keeps its address
+    // but still takes the team's written section.
     if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
       history.pushState({ team: t.name }, "", `${BASE}team/${t.slug}/`);
+      loadWriteup(t);
+    } else if (!STATIC && t.slug) {
       loadWriteup(t);
     }
     return;
@@ -1334,17 +1337,19 @@ function renderOwnGames() {
 //
 // The games a team has left as a dumbbell chart: the chosen measure after a
 // loss and after a win on one scale, today's number a line down it. The game
-// that decides the most is the one expected to move the odds furthest: the
-// gap between its two results weighted by how likely each is. For a contender
-// that is its toughest game, not the one whose upset would hurt most. Beside
+// that decides the most spreads the odds furthest: the gap between its two
+// results weighted by how uncertain it is. For a contender that is a hard
+// game it has to win, not the one whose upset would hurt most, nor a coin
+// flip that barely moves its odds. Beside
 // them, the measure at every final record the team reaches, with how often
 // it ends there, and where it lands in the bracket.
 //
 // A team opens on the race it is really in, so one out of the playoff picture
-// sees its conference race or its bowl chances rather than a column of zeros.
+// sees its conference race or its chances of six wins rather than a column of
+// zeros.
 
 const ODDS_NAME = {
-  make_bowl: "Bowl odds",
+  six_wins: "Six-win odds",
   make_playoff: "Playoff odds",
   win_conference: "{c} title odds",
   make_conf_title_game: "Title game odds",
@@ -1353,7 +1358,7 @@ const ODDS_NAME = {
   finish_ranked: "Ranked odds",
 };
 const GOAL = {
-  make_bowl: "reach a bowl game",
+  six_wins: "win six games",
   make_playoff: "make the playoff",
   win_conference: "win the {c}",
   make_conf_title_game: "reach the {c} title game",
@@ -1401,7 +1406,7 @@ function fitMetric() {
   if (inPlay(METRIC)) return;
   const sure = RESULT.headline.make_playoff && RESULT.headline.make_playoff.p > 0.995;
   const races = sure ? ["top4_seed", "win_national_title"]
-    : ["make_playoff", "win_conference", "make_conf_title_game", "finish_ranked", "make_bowl"];
+    : ["make_playoff", "win_conference", "make_conf_title_game", "finish_ranked", "six_wins"];
   METRIC = races.find(k => steps.has(k) && inPlay(k)) || METRIC;
 }
 
@@ -1422,8 +1427,11 @@ function needRows(key) {
     return {
       g, home, opp: home ? g.away_idx : g.home_idx, name: home ? g.away : g.home,
       where: home || g.neutral ? "vs" : "at", chance, win, lose, sure, rare,
-      // How far the game is expected to move the odds, either way.
-      move: sure ? 2 * chance * (1 - chance) * Math.abs(win - lose) : 0,
+      // How widely the game spreads the odds: the gap between its results
+      // times the spread of a coin that lands a win with its chance. A toss-up
+      // counts for more than a likely win, but not so much more that a game
+      // that hardly matters outranks one that does.
+      move: sure ? Math.sqrt(chance * (1 - chance)) * Math.abs(win - lose) : 0,
     };
   }).filter(r => Number.isFinite(r.win) || Number.isFinite(r.lose))
     .sort((a, b) => a.g.week - b.g.week || kickoffOrder(a.g) - kickoffOrder(b.g));
@@ -1433,7 +1441,7 @@ function needRows(key) {
 function titleGame(key) {
   const tg = RESULT.title_game;
   const conf = confOf(teamIdx());
-  if (!tg || !conf || ["win_conference", "make_conf_title_game", "make_bowl"].includes(key)) return null;
+  if (!tg || !conf || ["win_conference", "make_conf_title_game", "six_wins"].includes(key)) return null;
   const reach = tg.p[0] + tg.p[1];
   const [won, lost, missed] = tg.odds[key] || [];
   if (reach < 0.005 || !Number.isFinite(won) || !Number.isFinite(lost)) return null;
@@ -1534,7 +1542,7 @@ function recordsHTML(key, flat) {
 
 /** The measure's name as a column head. */
 function shortOdds(key) {
-  return { make_bowl: "Bowl", make_playoff: "Playoff", win_conference: "Title",
+  return { six_wins: "6 wins", make_playoff: "Playoff", win_conference: "Title",
            make_conf_title_game: "Title game", top4_seed: "Bye", finish_ranked: "Ranked" }[key]
     || shortLabel(key);
 }
@@ -1858,14 +1866,15 @@ function renderLeague() {
   const showEspn = rows.some(r => r.espn && r.espn[key] != null);
   $("leaguehead").textContent = metricLabel(key).replace(/ \(.*\)$/, "");
   let html = `<table class="lg"><thead><tr>
-    <th class="num">#</th><th>Team</th><th class="num">Odds</th>
+    <th class="num">#</th><th>Team</th><th class="num">Record</th><th class="num">Odds</th>
     ${showEspn ? '<th class="num" title="What ESPN gives for the same thing, '
       + 'from its FPI page">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
-    const p = r.p[key];
+    const rec = recordOf(r.idx);
     html += `<tr${r.idx === me ? ' class="mine"' : ""}><td class="num">${i + 1}</td>
       <td class="t"><span class="teamcell" data-team="${r.idx}">${logo(r.idx, 16)}${pollTag(r.idx)}<span class="tn">${esc(r.team)}</span></span></td>
-      <td class="num lgo"><span class="lgbar" aria-hidden="true"><i style="width:${(100 * p).toFixed(2)}%"></i></span><b>${pctOf(p, key)}</b></td>
+      <td class="num muted">${rec.w}-${rec.l}</td>
+      <td class="num"><b>${pctOf(r.p[key], key)}</b></td>
       ${showEspn ? `<td class="num muted">${r.espn && r.espn[key] != null
         ? pct(r.espn[key]) : "-"}</td>` : ""}</tr>`;
   });

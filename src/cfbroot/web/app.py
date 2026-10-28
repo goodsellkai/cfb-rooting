@@ -450,8 +450,15 @@ def team_page(name: str) -> HTMLResponse:
     team = next((t for t in state.fbs_teams if slug(t.school) == name), None)
     if team is None:
         raise HTTPException(status_code=404, detail=f"unknown team: {name}")
+    from . import pages
     html = _shell()
     html = html.replace("<!--HEAD-->", f"<title>{team.school} | CFB Rooting Guide</title>")
+    # The written section, as the build puts on every team page, once the
+    # simulation it quotes is done.
+    if store.league is not None:
+        week = state.default_week() or state.current_week()
+        html = html.replace("<!--WRITEUP-->", pages.team_writeup(
+            state, team, store.payload(team.idx), week))
     html = html.replace('<script src="/static/app.js',
                         f'<script>window.CFBROOT_TEAM = {json.dumps(team.school)};</script>'
                         '<script src="/static/app.js')

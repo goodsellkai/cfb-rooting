@@ -359,6 +359,31 @@ def test_the_rankings_page_lists_25_and_the_field(season):
     assert "returns once" in text(pages.rankings_body(season, None))
 
 
+def test_the_rankings_page_shows_the_committee_once_it_ranks(season):
+    """Once the committee publishes, its order is the page's, and the field if
+    the season ended today is picked from it."""
+    from cfbroot.sim.sample import committee_now
+    proj = committee_now(season)
+    order = list(proj["order"][:25])
+    order[0], order[1] = order[1], order[0]
+    saved = dict(season.polls), dict(season.poll_weeks)
+    try:
+        season.polls["cfp"] = {i: k + 1 for k, i in enumerate(order)}
+        season.poll_weeks["cfp"] = 10
+        body = pages.rankings_body(season, proj, [])
+        head = pages.rankings_head(season, proj, 2_500_000)
+    finally:
+        season.polls.clear(), season.polls.update(saved[0])
+        season.poll_weeks.clear(), season.poll_weeks.update(saved[1])
+    names = {t.idx: t.school for t in season.teams}
+    said = text(body)
+    assert said.strip().startswith("CFP rankings") and "selection committee's top 25" in said
+    first, second = names[order[0]], names[order[1]]
+    assert said.index(first) < said.index(second)
+    assert body.count('<li class="pod">') == 4
+    assert "<title>CFP rankings, week 10" in head
+
+
 def test_the_sitemap_lists_every_page_with_its_card(season):
     teams = season.fbs_teams
     url = f"{pages.SITE_URL}/team/{pages.slug(teams[0].school)}/"

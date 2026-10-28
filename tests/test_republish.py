@@ -95,7 +95,7 @@ def test_the_writeup_can_quote_espn():
 def test_every_attribute_pages_reads_exists():
     """A new read in pages.py should fail here, not silently on the live site."""
     s = Season(published(GAMES, TEAMS))
-    for name in ("year", "games", "fbs_teams", "teams", "polls"):
+    for name in ("year", "games", "fbs_teams", "teams", "polls", "poll_weeks"):
         assert hasattr(s, name), name
     for name in ("current_week", "default_week"):
         assert callable(getattr(s, name)), name

@@ -60,8 +60,9 @@ class Team:
 class Season:
     """A stand-in for `SeasonState`, built from the published state file.
 
-    `pages.py` reads seven things off a season: the year, the current week,
-    the default week, every team, the FBS teams, the games and the polls.
+    `pages.py` reads eight things off a season: the year, the current week,
+    the default week, every team, the FBS teams, the games, the polls and the
+    weeks of the polls.
     Everything else a real
     `SeasonState` carries exists to run the simulation, which is the part
     being skipped.
@@ -112,6 +113,8 @@ class Season:
         # The share cards put the team's poll rank next to its record.
         self.polls = {k: {int(i): r for i, r in v.items()}
                       for k, v in (payload.get("polls") or {}).items()}
+        # The committee's ranking replaces the projection once it is out.
+        self.poll_weeks = dict(payload.get("poll_weeks") or {})
 
     def current_week(self) -> int:
         return self._week

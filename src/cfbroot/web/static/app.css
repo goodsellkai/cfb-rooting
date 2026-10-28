@@ -685,12 +685,6 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
 .lg td, .stand td { padding: 5px 6px; border-bottom: 1px solid var(--rule-2); white-space: nowrap; }
 .lg td:first-child, .lg th:first-child { padding-left: 2px; color: var(--muted); }
 .lg tr.mine td, .stand tr.mine td { background: var(--sel); font-weight: 700; }
-/* each team's odds with a short bar on a 0 to 100 scale, then ESPN's number */
-.lg .lgo { white-space: nowrap; }
-.lgbar { display: inline-block; vertical-align: middle; width: 36px; height: 7px; margin: -2px 7px 0 0; }
-.lgbar i { display: block; height: 100%; min-width: 1px; border-radius: 0 2px 2px 0;
-           background: var(--chart); }
-.lg tr.mine .lgbar i { background: var(--ink); }
 .lg tbody tr:hover td, .stand tbody tr:hover td { background: var(--sel); }
 .teamcell { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
 .teamcell .tn { overflow: hidden; text-overflow: ellipsis; }

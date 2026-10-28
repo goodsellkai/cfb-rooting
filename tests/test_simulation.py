@@ -283,12 +283,11 @@ def test_the_record_and_title_game_tallies_add_up(midseason):
     assert (lg.wins_metric[:, :, playoff] == lg.wins_made_playoff).all()
     assert (lg.ccg_seasons.sum(axis=1) == lg.n_sims).all()
     assert (lg.ccg_counts.sum(axis=1) == lg.team_counts).all()
-    # A bowl takes six wins: never below that, and every time at eight or
-    # more, which leaves six even if two came against non-FBS sides.
-    bowl = METRIC_NAMES.index("make_bowl")
-    assert lg.wins_metric[:, :6, bowl].sum() == 0
-    assert (lg.wins_metric[:, 8:, bowl] == lg.wins_hist[:, 8:]).all()
-    assert lg.team_counts[:, bowl].sum() > 0
+    # Six wins is every season at six or more and none below.
+    six = METRIC_NAMES.index("six_wins")
+    assert lg.wins_metric[:, :6, six].sum() == 0
+    assert (lg.wins_metric[:, 6:, six] == lg.wins_hist[:, 6:]).all()
+    assert lg.team_counts[:, six].sum() > 0
     for d in lg.ccg_pairs.values():
         met, beat = d["together"], d["beat"]
         off = met - np.diag(np.diag(met))

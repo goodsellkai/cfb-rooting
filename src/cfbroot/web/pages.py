@@ -251,7 +251,7 @@ PHRASES = {
     "reach_title_game": "reaches the national title game",
     "win_national_title": "wins the national title",
     "finish_ranked": "finishes ranked",
-    "make_bowl": "reaches a bowl game",
+    "six_wins": "wins six games",
 }
 # A final record that comes up in fewer seasons than this is left out, and
 # one needs this many seasons behind it before it decides what a team needs.
@@ -267,7 +267,7 @@ GOALS = {
     "reach_title_game": "reach the national title game",
     "win_national_title": "win the national title",
     "finish_ranked": "finish ranked",
-    "make_bowl": "reach a bowl game",
+    "six_wins": "win six games",
 }
 
 
@@ -282,7 +282,8 @@ def has_conference(team) -> bool:
 
 def own_rows(team, payload, key="make_playoff"):
     """The team's games left, with its chance in each, the measure after a
-    win and after a loss, and how far the game is expected to move it."""
+    win and after a loss, and how widely the game spreads it: the gap times
+    the square root of p(1-p), as app.js has it."""
     rows = []
     for g in sorted(payload.get("own_games") or (),
                     key=lambda g: (g["week"], g.get("start_date") or "")):
@@ -303,7 +304,8 @@ def own_rows(team, payload, key="make_playoff"):
                      "sure": sure,
                      # the gap between the results, weighted by how likely
                      # each is: the toughest game, not the easiest one to lose
-                     "move": 2 * chance * (1 - chance) * abs(win - lose) if sure else 0.0})
+                     "move": (chance * (1 - chance)) ** 0.5 * abs(win - lose)
+                             if sure else 0.0})
     return rows
 
 
@@ -742,7 +744,7 @@ played through the 12-team bracket. <a href="how-it-works/">Methodology</a></spa
 {edge}
     </ol>
     <p class="foot"><a href="teams/">All {len(teams)} teams</a>
-    <a href="cfp-rankings/">Projected CFP rankings</a></p>
+    <a href="cfp-rankings/">CFP rankings</a></p>
   </div>
 </div>
 </div>
@@ -1124,7 +1126,7 @@ def not_found(base: str = "/") -> str:
 <li><a href="{base}">Pick your team</a> and see which games to root for</li>
 <li><a href="{base}this-week/">The games that matter most this week</a></li>
 <li><a href="{base}teams/">Playoff odds for every team</a></li>
-<li><a href="{base}cfp-rankings/">Projected CFP rankings</a></li>
+<li><a href="{base}cfp-rankings/">CFP rankings</a></li>
 <li><a href="{base}how-it-works/">Methodology</a></li>
 </ul>"""
 
@@ -1224,9 +1226,9 @@ def llms_txt(state, teams, n_sims) -> str:
         f"- [Home]({SITE_URL}/): the playoff race this week",
         f"- [This week]({SITE_URL}/this-week/): the week's games ranked by "
         f"their effect on the playoff race",
-        f"- [Projected CFP rankings]({SITE_URL}/cfp-rankings/): the "
-        f"committee's top 25 as the model expects it, and the field if the "
-        f"season ended today",
+        f"- [CFP rankings]({SITE_URL}/cfp-rankings/): the committee's top "
+        f"25, as the model expects it until the committee publishes its own, "
+        f"and the field if the season ended today",
         f"- [Methodology]({SITE_URL}/how-it-works/): the simulation, the "
         f"rating, the committee model and the bracket",
         f"- [Every team]({SITE_URL}/teams/): links to all {len(teams)} team "
@@ -1641,19 +1643,55 @@ def _races_home(state, league) -> str:
 # the ranking a sample season shows for its weeks already played, with the
 # real scores and no committee noise.
 
+def _cfp(state):
+    """The committee's latest ranking, by team, and its week, once it has
+    published one."""
+    ranks = (getattr(state, "polls", None) or {}).get("cfp") or {}
+    week = (getattr(state, "poll_weeks", None) or {}).get("cfp")
+    return ({int(i): int(r) for i, r in ranks.items()}, week) if ranks else ({}, None)
+
+
+def _committee_field(state, projection, ranks):
+    """The field if the season ended today, picked from the committee's own
+    ranking where it ranks a team and the model's below that, with today's
+    conference leaders as the champions."""
+    from .. import selection
+    names = {t.idx: t.school for t in state.teams}
+    rest = [i for i in (projection or {}).get("order") or [] if i not in ranks]
+    order = [names[i] for i in sorted(ranks, key=ranks.get) + rest if i in names]
+    leaders = {names[i] for i in ((projection or {}).get("leaders") or {}).values()
+               if i in names}
+    fmt = selection.playoff_format(state.year)
+    field = selection.pick_field(order, leaders,
+                                 {t.school: t.conference for t in state.fbs_teams},
+                                 rule=fmt.bids, champion_byes=fmt.champion_byes,
+                                 top12=fmt.top12)
+    idx = {s: i for i, s in names.items()}
+    return {"field": [{"team": idx[s], "seed": k + 1, "bye": s in field.byes,
+                       "how": field.auto.get(s, "")} for k, s in enumerate(field.seeds)],
+            "out": [idx[s] for s in order if s not in field][:4]}
+
+
 def rankings_head(state, projection, n_sims, card=None):
-    week = (projection or {}).get("week") or state.current_week() - 1
+    ranks, cfp_week = _cfp(state)
     url = f"{SITE_URL}/cfp-rankings/"
-    title = f"Projected CFP rankings after week {week} ({state.year}) | {SITE_NAME}"
-    desc = (f"The College Football Playoff committee's top 25 as the model "
-            f"expects it after week {week}, the field if the season ended "
-            f"today and each team's playoff odds from {_sims(n_sims)} "
-            f"simulated seasons.")
-    return _head(title, desc, url, card=card,
-                 card_alt=f"Projected CFP rankings, week {week}",
+    if ranks:
+        title = f"CFP rankings, week {cfp_week} ({state.year}) | {SITE_NAME}"
+        desc = (f"The College Football Playoff committee's top 25, week "
+                f"{cfp_week}, the field if the season ended today and each "
+                f"team's playoff odds from {_sims(n_sims)} simulated seasons.")
+        name = f"CFP rankings, week {cfp_week}"
+    else:
+        week = (projection or {}).get("week") or state.current_week() - 1
+        title = f"Projected CFP rankings after week {week} ({state.year}) | {SITE_NAME}"
+        desc = (f"The College Football Playoff committee's top 25 as the model "
+                f"expects it after week {week}, the field if the season ended "
+                f"today and each team's playoff odds from {_sims(n_sims)} "
+                f"simulated seasons.")
+        name = f"Projected CFP rankings, week {week}"
+    return _head(title, desc, url, card=card, card_alt=name,
                  ld=[_page_ld(title, desc, url),
-                     _crumbs([(SITE_NAME, SITE_URL + "/"),
-                              ("Projected CFP rankings", url)])])
+                     _crumbs([(SITE_NAME, SITE_URL + "/"), ("CFP rankings", url)])])
 
 
 def _field_html(projection, by_idx, fbs, depth=1) -> str:
@@ -1700,7 +1738,11 @@ def _field_html(projection, by_idx, fbs, depth=1) -> str:
 
 
 def _field_home(state, projection) -> str:
-    """The field if the season ended today, on the front page."""
+    """The field if the season ended today, on the front page: from the
+    committee's ranking once it has one."""
+    ranks, _ = _cfp(state)
+    if ranks and projection:
+        projection = _committee_field(state, projection, ranks)
     if not projection or len(projection.get("field") or []) != 12:
         return ""
     by_idx = {t.idx: t for t in state.teams}
@@ -1708,11 +1750,12 @@ def _field_home(state, projection) -> str:
     return ("<div>" + _field_html(projection, by_idx, fbs, depth=0)
             .replace("<h2>If the season ended today</h2>",
                      "<h2>The playoff if the season ended today</h2>")
-            + '<p class="foot"><a href="cfp-rankings/">Projected CFP rankings</a></p></div>')
+            + '<p class="foot"><a href="cfp-rankings/">CFP rankings</a></p></div>')
 
 
 def rankings_body(state, projection, odds=()):
-    if not projection or not projection.get("order"):
+    ranks, cfp_week = _cfp(state)
+    if not ranks and (not projection or not projection.get("order")):
         return """<h1>Projected CFP rankings</h1>
 <p class="lead">The projection returns once enough of the season has been
 played for the committee to rank teams.</p>
@@ -1720,9 +1763,20 @@ played for the committee to rank teams.</p>
     by_idx = {t.idx: t for t in state.teams}
     fbs = {t.school for t in state.fbs_teams}
     chance = dict(odds)
-    week = projection["week"]
     now = datetime.now(timezone.utc)
-    order = [i for i in projection["order"] if i in by_idx][:25]
+    if ranks:
+        order = [i for i in sorted(ranks, key=ranks.get) if i in by_idx][:25]
+        field = _committee_field(state, projection, ranks) if projection else None
+        h1 = "CFP rankings"
+        said = (f"The selection committee's top 25, week {cfp_week} of the "
+                f"{state.year} season. Updated {now:%B} {now.day}.")
+    else:
+        order = [i for i in projection["order"] if i in by_idx][:25]
+        field = projection
+        h1 = "Projected CFP rankings"
+        said = (f"The committee's top 25 as the model expects it after week "
+                f"{projection['week']} of the {state.year} season. Updated "
+                f"{now:%B} {now.day}.")
 
     rows = ""
     for n, i in enumerate(order, 1):
@@ -1739,13 +1793,12 @@ played for the committee to rank teams.</p>
     head = ('<tr><th class="rk">Rank</th><th>Team</th><th class="num">Record</th>'
             '<th class="num">Final playoff odds</th></tr>')
 
-    return f"""<h1>Projected CFP rankings</h1>
-<p class="foot">The committee's top 25 as the model expects it after week {week} of
-the {state.year} season. Updated {now:%B} {now.day}.</p>
+    return f"""<h1>{h1}</h1>
+<p class="foot">{said}</p>
 <div class="rankwrap">
 <div class="tablewrap"><table class="rank25"><thead>{head}</thead>
 <tbody>{rows}</tbody></table></div>
-{_field_html(projection, by_idx, fbs)}
+{_field_html(field, by_idx, fbs) if field else ""}
 </div>
 <p><a href="../teams/">Playoff odds for every team</a> &middot;
 <a href="../how-it-works/">Methodology</a></p>"""
