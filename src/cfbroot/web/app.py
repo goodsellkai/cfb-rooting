@@ -26,6 +26,7 @@ from ..model import provenance as model_provenance
 from ..sim import build_guide, league_all, run_league
 from ..sim.engine import CCG_LOST, CCG_MISSED, CCG_WON, LeagueResults
 from ..sim.sample import sample_season, weekly_systems
+from . import clinch
 from .pages import slug
 
 HERE = Path(__file__).resolve().parent
@@ -55,7 +56,7 @@ async def missing_page(request, exc):
     if exc.status_code != 404 or request.url.path.startswith("/api/"):
         return await http_exception_handler(request, exc)
     from . import pages
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = (html.replace("<!--HEAD-->", pages.not_found_head())
                 .replace(pages.INTRO_BLOCK, pages.not_found("/")))
     html = html.replace('<script src="/static/app.js',
@@ -214,6 +215,10 @@ GAME_KEYS = ("home", "away", "home_idx", "away_idx", "week", "neutral",
              "p_home_win", "start_date", "time_set", "broadcast")
 SWING_KEYS = ("p_if_home", "p_if_away", "delta", "lo", "hi", "home",
               "sig_week", "sig_all", "reliable")
+# The rounds of the bracket are odds a team page shows, not measures it
+# switches the guide to, so their swings stay out of the payload.
+SWING_METRICS = frozenset(METRIC_NAMES) - {"reach_quarterfinal", "reach_semifinal",
+                                           "reach_title_game"}
 
 
 def _slim(games, points=False):
@@ -222,7 +227,7 @@ def _slim(games, points=False):
         keys = GAME_KEYS + (("home_points", "away_points") if points else ())
         row = {k: g[k] for k in keys if k in g}
         row["swings"] = {m: {k: s[k] for k in SWING_KEYS if k in s}
-                         for m, s in g["swings"].items()}
+                         for m, s in g["swings"].items() if m in SWING_METRICS}
         out.append(row)
     return out
 
@@ -231,7 +236,9 @@ def _clean(obj):
     """Make numpy scalars and NaNs safe for JSON.
 
     Probabilities are rounded to six places, which is far finer than anything
-    shown and keeps a full-precision float from taking twenty characters.
+    shown and keeps a full-precision float from taking twenty characters. A
+    value too small for six places stays above zero, since the page shows a
+    zero only for what never happened in any simulated season.
     """
     if isinstance(obj, dict):
         return {k: _clean(v) for k, v in obj.items()}
@@ -241,7 +248,9 @@ def _clean(obj):
         return int(obj)
     if isinstance(obj, (np.floating, float)):
         f = float(obj)
-        return None if not np.isfinite(f) else round(f, 6)
+        if not np.isfinite(f):
+            return None
+        return round(f, 6) or (float(np.copysign(1e-6, f)) if f else 0.0)
     if isinstance(obj, (np.bool_,)):
         return bool(obj)
     return obj
@@ -267,6 +276,8 @@ def _season_payload(s: SeasonState) -> dict:
         "notes": s.notes,
         "has_api_key": s.source != "demo",
         "n_sims": store.league.n_sims if store.league is not None else store.sims,
+        # Who has a title game spot locked or is out of the race, by records.
+        "conf_status": clinch.statuses(s),
         "source": s.source,
         "loaded_at": store.loaded_at,
         "params": s.params.to_dict(),
@@ -386,10 +397,46 @@ def _asset_token() -> str:
     return "-".join(stamps)
 
 
+def _shell() -> str:
+    """The page template, with the strip of links to every page filled in."""
+    from . import pages
+    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    try:
+        teams = store.get_season().fbs_teams
+    except Exception:  # noqa: BLE001
+        teams = []          # no season: the page says so once the script runs
+    return html.replace("<!--SUBNAV-->", pages.subnav(teams))
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
-    html = html.replace("<!--HEAD-->", "<title>CFB Rooting Guide</title>")
+    """The front page as the build writes it: the race, the week's biggest
+    games, the field if the season ended today and the conference races,
+    once the simulation is done."""
+    from . import pages
+    from ..sim.sample import committee_now
+    html = _shell()
+    head = "<title>CFB Rooting Guide</title>"
+    try:
+        state = store.get_season()
+    except Exception:  # noqa: BLE001
+        state = None
+    if state is not None and store.league is not None:
+        n = store.league.n_sims
+        made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
+        standing = sorted(zip(store.league.names, made / n), key=lambda r: (-r[1], r[0]))
+        stakes = pages.Stakes()
+        for t in state.fbs_teams:
+            stakes.add(t.school, store.payload(t.idx))
+        league = league_all(state, store.league.for_team(state.fbs_teams[0].idx))
+        if store.inputs is None:
+            store.inputs = state.kernel_inputs()
+        projection = committee_now(state, store.inputs, store.weekly)
+        head = pages.home_head(state, n, standing[:10])
+        html = html.replace(pages.INTRO_BLOCK, pages.home_body(
+            state, state.fbs_teams, n, standing[:10], standing[10:18], stakes,
+            league, projection))
+    html = html.replace("<!--HEAD-->", head)
     token = _asset_token()
     for name in VERSIONED:
         html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
@@ -403,7 +450,7 @@ def team_page(name: str) -> HTMLResponse:
     team = next((t for t in state.fbs_teams if slug(t.school) == name), None)
     if team is None:
         raise HTTPException(status_code=404, detail=f"unknown team: {name}")
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = html.replace("<!--HEAD-->", f"<title>{team.school} | CFB Rooting Guide</title>")
     html = html.replace('<script src="/static/app.js',
                         f'<script>window.CFBROOT_TEAM = {json.dumps(team.school)};</script>'
@@ -418,7 +465,7 @@ def team_page(name: str) -> HTMLResponse:
 def how_it_works() -> HTMLResponse:
     from . import pages
     state = store.get_season()
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = (html.replace("<!--HEAD-->", pages.how_head(state, store.sims))
                 .replace(pages.INTRO_BLOCK, pages.how_body(state, store.sims)))
     html = html.replace('<script src="/static/app.js',
@@ -438,7 +485,7 @@ def teams_page() -> HTMLResponse:
     if store.league is not None:
         made = store.league.team_counts[:, METRIC_NAMES.index("make_playoff")]
         odds = list(zip(store.league.names, made / store.league.n_sims))
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = (html.replace("<!--HEAD-->", pages.teams_head(state))
                 .replace(pages.INTRO_BLOCK,
                          pages.teams_body(state, state.fbs_teams, odds)))
@@ -463,7 +510,7 @@ def this_week_page() -> HTMLResponse:
         n_sims = store.league.n_sims
         for t in state.fbs_teams:
             stakes.add(t.school, store.payload(t.idx))
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = (html.replace("<!--HEAD-->", pages.this_week_head(state, n_sims))
                 .replace(pages.INTRO_BLOCK, pages.this_week_body(state, n_sims, stakes)))
     html = html.replace('<script src="/static/app.js',
@@ -478,7 +525,7 @@ def this_week_page() -> HTMLResponse:
 def _info_page(head: str, body: str) -> HTMLResponse:
     """A written page in the app's shell, as the build makes one."""
     from . import pages
-    html = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    html = _shell()
     html = (html.replace("<!--HEAD-->", head).replace(pages.INTRO_BLOCK, body)
                 .replace('<script src="/static/app.js',
                          '<script>window.CFBROOT_INFO = true;</script>'

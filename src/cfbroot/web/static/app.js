@@ -2,9 +2,19 @@
 
 const $ = (id) => document.getElementById(id);
 
-/* Percentages always show two decimals. */
-const pct = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
-  ? "-" : (100 * x).toFixed(d) + "%";
+/* Percentages always show two decimals. A chance that rounds to nothing reads
+ * as under the smallest step shown, since a simulation cannot rule a thing
+ * out. ``zero`` lets a true zero through, for the conference measures, where
+ * no simulated season producing it is worth saying. */
+const pct = (x, d = 2, zero = false) => {
+  if (x === null || x === undefined || Number.isNaN(x)) return "-";
+  const step = 10 ** -d;
+  if (Math.abs(100 * x) < step / 2 && !(zero && x === 0)) return `<${step.toFixed(d)}%`;
+  return (100 * x).toFixed(d) + "%";
+};
+const EXACT_ZERO = new Set(["win_conference", "make_conf_title_game"]);
+/** A measure's chance, with that measure's rule for zero. */
+const pctOf = (x, key, d = 2) => pct(x, d, EXACT_ZERO.has(key));
 const signed = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
   ? "-" : (x >= 0 ? "+" : "−") + (100 * Math.abs(x)).toFixed(d);
 const num = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x))
@@ -150,6 +160,8 @@ async function boot() {
     return;
   }
   renderTopMeta();
+  markSubnav();
+  focusableTeams();
   if (window.CFBROOT_INFO) {          // a page that is only words
     if ($("didyoumean")) suggestTeam();
     return;
@@ -176,6 +188,26 @@ async function boot() {
     loadTeam();
   } else {
     setBand(null);
+  }
+}
+
+/** The strip of links says which page this is. */
+function markSubnav() {
+  for (const a of document.querySelectorAll("#subnav a")) {
+    if (new URL(a.href, location.href).pathname === location.pathname) {
+      a.setAttribute("aria-current", "page");
+    }
+  }
+}
+
+/** Team links on the written pages carry their team, so hovering one opens
+ * its card as hovering any other team name does. */
+function tagTeamLinks() {
+  if (!STATE) return;
+  if (!tagTeamLinks.slugs) tagTeamLinks.slugs = new Map(STATE.teams.map(t => [t.slug, t.idx]));
+  for (const a of document.querySelectorAll('a[href*="team/"]:not([data-team])')) {
+    const m = /team\/([^/?#]+)\/?$/.exec(a.getAttribute("href") || "");
+    if (m && tagTeamLinks.slugs.has(m[1])) a.dataset.team = tagTeamLinks.slugs.get(m[1]);
   }
 }
 
@@ -683,6 +715,7 @@ function setBand(idx) {
     band.style.setProperty("--team-fg", light ? "#0f1712" : "#ffffff");
     // On a yellow or near-white band the marker has to be dark to show.
     band.style.setProperty("--team-mark", light ? "#0f1712" : "var(--mark)");
+    band.style.setProperty("--team-mark-ink", light ? "#ffffff" : "#0f1712");
     band.style.setProperty("--photo-blend", light ? "screen" : "multiply");
     const [h, c] = teamTint(rgb);
     const root = document.documentElement;
@@ -691,7 +724,7 @@ function setBand(idx) {
     root.classList.add("tinted");
   } else {
     document.documentElement.classList.remove("tinted");
-    for (const v of ["--team", "--team-fg", "--team-mark", "--photo-blend"]) {
+    for (const v of ["--team", "--team-fg", "--team-mark", "--team-mark-ink", "--photo-blend"]) {
       band.style.removeProperty(v);
     }
   }
@@ -745,9 +778,16 @@ function renderTeamLine(idx) {
   const t = team(idx);
   const r = recordOf(idx);
   const bits = [];
-  const conf = t.conference && !/independent/i.test(t.conference)
-    ? ` (${r.cw}-${r.cl} ${esc(t.conference)})` : "";
+  const inConf = t.conference && !/independent/i.test(t.conference);
+  // The conference names its own page, the race the team is in.
+  const conf = inConf ? ` (${r.cw}-${r.cl} <a class="conflink" href="${BASE}conference/${slugOf(t.conference)}/">${esc(t.conference)}</a>)` : "";
   bits.push(`<span><b>${r.w}-${r.l}</b>${conf}</span>`);
+  const cs = STATE.conf_status || {};
+  if (inConf && (cs.clinched || []).includes(idx)) {
+    bits.push(`<span class="clchip in">Clinched ${esc(t.conference)} title game</span>`);
+  } else if (inConf && (cs.out || []).includes(idx)) {
+    bits.push(`<span class="clchip out">Out of the ${esc(t.conference)} title race</span>`);
+  }
   const pr = pollRank(idx);
   if (pr.best) bits.push(`<span>${pr.kind} No. ${pr.best}</span>`);
   if (RESULT && RESULT.team === t.name) {
@@ -761,14 +801,12 @@ function renderTeamLine(idx) {
 // The road: every measure, in the order a season reaches them
 
 const PATH = [
+  ["make_bowl", "Bowl game", "Bowl"],
   ["finish_ranked", "Finish ranked", "Ranked"],
   ["make_conf_title_game", "{c} title game", "CCG"],
   ["win_conference", "Win {c}", "Conf"],
   ["make_playoff", "Make the playoff", "Playoff"],
   ["top4_seed", "Top-4 seed", "Bye"],
-  ["reach_quarterfinal", "Quarterfinal", "QF"],
-  ["reach_semifinal", "Semifinal", "SF"],
-  ["reach_title_game", "National title game", "Final"],
   ["win_national_title", "Win national title", "Title"],
 ];
 
@@ -802,12 +840,13 @@ function renderPath(grow) {
   const el = $("path");
   el.classList.toggle("short", steps.length < PATH.length);
   el.innerHTML = steps.map(([k, label, short]) => {
+    const said = pctOf(RESULT.headline[k].p, k);
     const p = (100 * RESULT.headline[k].p).toFixed(2);
     const full = label.replace("{c}", conf);
     return `<button type="button" class="step" data-key="${k}"
-        aria-pressed="${k === METRIC}" title="${esc(metricLabel(k))}: ${pct(RESULT.headline[k].p)}">
+        aria-pressed="${k === METRIC}" title="Show who to root for to ${esc(GOAL[k].replace("{c}", conf))}: ${said}">
       <span class="col" data-p="${p}" style="--p:${grow ? 0 : p}"><i></i>
-        <span class="v">${num(+p)}<small>%</small></span></span>
+        <span class="v">${esc(said).replace("%", "<small>%</small>")}</span></span>
       <span class="k"><span class="full">${esc(full)}</span><span class="short">${esc(short)}</span></span>
     </button>`;
   }).join("");
@@ -843,7 +882,7 @@ function renderToolbarContext() {
   const idx = teamIdx();
   if (idx == null) { $("tbctx").innerHTML = ""; return; }
   $("tbctx").innerHTML = `${logo(idx, 20)}${esc(RESULT.team)}
-    <span class="muted">${esc(metricLabel(METRIC))}</span> ${pct(RESULT.headline[METRIC].p)}`;
+    <span class="muted">${esc(metricLabel(METRIC))}</span> ${pctOf(RESULT.headline[METRIC].p, METRIC)}`;
 }
 
 // Loading
@@ -1259,12 +1298,13 @@ function gameHTML(g, key, maxAbs) {
     const lead = done
       ? `<span class="num pr" title="Final score">${isHome ? done.home : done.away}</span>`
       : isLive(live)
-        ? `<span class="num pr now" title="Score now">${isHome ? live.hp : live.ap}</span>`
+        ? `<span class="num pr now" title="Score now, and the chance to win from here"><b>${isHome ? live.hp : live.ap}</b>${
+            liveWin(g, live) == null ? "" : `<small class="lwp">${pct(isHome ? liveWin(g, live) : 1 - liveWin(g, live), 0)}</small>`}</span>`
         : `<span class="num pr">${pct(isHome ? pHome : 1 - pHome, 0)}</span>`;
     const name = isHome ? g.home : g.away;
     const f = Math.min(1, Math.abs(d) / maxAbs).toFixed(4);
-    const tip = done ? `Effect of the result on your odds: ${pct(p)}, ${signed(d)}`
-      : `${metricLabel(key)} if ${name} wins: ${pct(p)}, ${signed(d)}. ${CONF_TITLE[conf]}`;
+    const tip = done ? `Effect of the result on your odds: ${pctOf(p, key)}, ${signed(d)}`
+      : `${metricLabel(key)} if ${name} wins: ${pctOf(p, key)}, ${signed(d)}. ${CONF_TITLE[conf]}`;
     return `<div class="${cls}">
       <span class="nm"><i class="at">${at}</i><span class="who" data-team="${idx}">${logo(idx, 18)}${pollTag(idx)}<b>${esc(name)}</b>${recTag(idx)}</span>${over}</span>
       ${lead}
@@ -1290,59 +1330,41 @@ function renderOwnGames() {
   $("owntable").innerHTML = gameRowsHTML(games, false);
 }
 
-// What your team needs
+// The rest of the season
 //
-// The answer comes first, in one line: whether the team can afford a loss,
-// has to win out or needs help, read off its odds at each final record. Then
-// the games it has left as a dumbbell chart, the chosen measure after a loss
-// and after a win on one scale, today's number a line down it. The game that
-// decides the most is the one expected to move the odds furthest: the gap
-// between its two results weighted by how likely each is. For a contender
+// The games a team has left as a dumbbell chart: the chosen measure after a
+// loss and after a win on one scale, today's number a line down it. The game
+// that decides the most is the one expected to move the odds furthest: the
+// gap between its two results weighted by how likely each is. For a contender
 // that is its toughest game, not the one whose upset would hurt most. Beside
-// them, each final record as a column as wide as it is likely, filled to the
-// measure there.
+// them, the measure at every final record the team reaches, with how often
+// it ends there, and where it lands in the bracket.
 //
 // A team opens on the race it is really in, so one out of the playoff picture
-// sees its conference race rather than a column of zeros, and one with no
-// race left sees its record and its bowl chances.
+// sees its conference race or its bowl chances rather than a column of zeros.
 
 const ODDS_NAME = {
+  make_bowl: "Bowl odds",
   make_playoff: "Playoff odds",
   win_conference: "{c} title odds",
   make_conf_title_game: "Title game odds",
   top4_seed: "Bye odds",
-  reach_quarterfinal: "Quarterfinal odds",
-  reach_semifinal: "Semifinal odds",
-  reach_title_game: "Title game odds",
   win_national_title: "National title odds",
   finish_ranked: "Ranked odds",
 };
-const PHRASE = {
-  make_playoff: "makes the playoff",
-  win_conference: "wins the {c}",
-  make_conf_title_game: "reaches the {c} title game",
-  top4_seed: "earns a first-round bye",
-  reach_quarterfinal: "reaches the quarterfinals",
-  reach_semifinal: "reaches the semifinals",
-  reach_title_game: "reaches the national title game",
-  win_national_title: "wins the national title",
-  finish_ranked: "finishes ranked",
-};
 const GOAL = {
+  make_bowl: "reach a bowl game",
   make_playoff: "make the playoff",
   win_conference: "win the {c}",
   make_conf_title_game: "reach the {c} title game",
   top4_seed: "earn a first-round bye",
-  reach_quarterfinal: "reach the quarterfinals",
-  reach_semifinal: "reach the semifinals",
-  reach_title_game: "reach the national title game",
   win_national_title: "win the national title",
   finish_ranked: "finish ranked",
 };
-// Records that come up less often than this are left off the chart, and a
-// record needs this many seasons behind it before it decides the answer.
-const RECORD_FLOOR = 0.01;
-const RECORD_SEASONS = 1000;
+// A final record needs this many simulated seasons before the chart gives
+// its odds, and a game's result this many before its dumbbell shows it.
+const RECORD_MIN = 100;
+const RESULT_MIN = 200;
 
 function confOf(idx) {
   const c = team(idx).conference || "";
@@ -1378,92 +1400,44 @@ function fitMetric() {
   METRIC = saved && steps.has(saved) ? saved : "make_playoff";
   if (inPlay(METRIC)) return;
   const sure = RESULT.headline.make_playoff && RESULT.headline.make_playoff.p > 0.995;
-  const races = sure ? ["top4_seed", "reach_semifinal", "win_national_title"]
-    : ["make_playoff", "win_conference", "make_conf_title_game", "finish_ranked"];
+  const races = sure ? ["top4_seed", "win_national_title"]
+    : ["make_playoff", "win_conference", "make_conf_title_game", "finish_ranked", "make_bowl"];
   METRIC = races.find(k => steps.has(k) && inPlay(k)) || METRIC;
 }
 
 function needRows(key) {
   const me = teamIdx();
+  const n = RESULT.n_sims || 0;
   return RESULT.own_games.map(g => {
     const home = g.home_idx === me;
     const s = g.swings[key] || {};
     const chance = home ? g.p_home_win : 1 - g.p_home_win;
     const win = home ? s.p_if_home : s.p_if_away;
     const lose = home ? s.p_if_away : s.p_if_home;
-    // A result too rare to measure is shown as unknown, not as a number.
-    const sure = s.reliable !== false;
+    // A result that came up in too few seasons to put a number on is left
+    // off; one that came up in a few hundred is shown, however unlikely.
+    const rare = !Number.isFinite(lose) || n * (1 - chance) < RESULT_MIN ? "lose"
+      : !Number.isFinite(win) || n * chance < RESULT_MIN ? "win" : null;
+    const sure = s.reliable !== false && !rare;
     return {
       g, home, opp: home ? g.away_idx : g.home_idx, name: home ? g.away : g.home,
-      where: home || g.neutral ? "vs" : "at", chance, win, lose, sure,
+      where: home || g.neutral ? "vs" : "at", chance, win, lose, sure, rare,
       // How far the game is expected to move the odds, either way.
       move: sure ? 2 * chance * (1 - chance) * Math.abs(win - lose) : 0,
     };
-  }).filter(r => Number.isFinite(r.win) && Number.isFinite(r.lose))
+  }).filter(r => Number.isFinite(r.win) || Number.isFinite(r.lose))
     .sort((a, b) => a.g.week - b.g.week || kickoffOrder(a.g) - kickoffOrder(b.g));
 }
 
-/** The record row for a win total, when enough seasons end there. */
-function recordAt(key, wins) {
-  const r = (RESULT.by_record || []).find(x => x.wins === wins);
-  return r && r.n >= RECORD_SEASONS && Number.isFinite(r.odds[key]) ? r : null;
-}
-
-/** Six wins makes a team bowl eligible. */
-function bowlOdds() {
-  return (RESULT.wins_distribution || []).slice(6).reduce((a, b) => a + b, 0);
-}
-
+/** The title game, for a measure it can still move. */
 function titleGame(key) {
   const tg = RESULT.title_game;
   const conf = confOf(teamIdx());
-  if (!tg || !conf || key === "win_conference" || key === "make_conf_title_game") return null;
+  if (!tg || !conf || ["win_conference", "make_conf_title_game", "make_bowl"].includes(key)) return null;
   const reach = tg.p[0] + tg.p[1];
   const [won, lost, missed] = tg.odds[key] || [];
   if (reach < 0.005 || !Number.isFinite(won) || !Number.isFinite(lost)) return null;
   return { conf, reach, winp: tg.p[0] / reach, won, lost, missed };
-}
-
-/** The answer in one line. The numbers behind it are the charts under it. */
-function needsSummary(key, rows, tg, flat) {
-  const me = teamIdx();
-  const who = esc(RESULT.team);
-  const conf = esc(confOf(me) || "conference");
-  const phrase = PHRASE[key].replace("{c}", conf);
-  const goal = GOAL[key].replace("{c}", conf);
-  const rec = (r) => `${r.wins}-${r.losses}`;
-  let lead = "";
-
-  if (flat) {
-    const bowl = bowlOdds();
-    lead = bowl >= 0.02 && bowl <= 0.98
-      ? `${who} reaches six wins and a bowl in ${share(bowl)} of seasons.`
-      : `${who} is projected to win ${num(RESULT.expected_wins, 1)} games.`;
-    return `<p class="verdict">${lead}</p>`;
-  }
-
-  const n = RESULT.own_games.length;
-  const best = recordOf(me).w + n;
-  const r0 = n ? recordAt(key, best) : null;
-  const r1 = n ? recordAt(key, best - 1) : null;
-  const r2 = n ? recordAt(key, best - 2) : null;
-  const o0 = r0 && r0.odds[key], o1 = r1 && r1.odds[key], o2 = r2 && r2.odds[key];
-  if (r2 && o2 >= 0.6) {
-    lead = `${who} can lose twice and still ${goal}.`;
-  } else if (r1 && o1 >= 0.6) {
-    lead = `${who} can afford one loss.`;
-  } else if (r0 && o0 >= 0.5 && (!r1 || o1 < 0.25)) {
-    lead = `${who} has to win out.`;
-  } else if (r0 && o0 >= 0.25) {
-    lead = `Winning out puts ${who} at ${pct(o0)}.`;
-  } else if (r0 && o0 >= 0.005) {
-    lead = `${who} needs help even if it wins out.`;
-  } else if (r0) {
-    lead = `Even at ${rec(r0)}, ${who} ${phrase} in ${pct(o0)} of seasons.`;
-  } else if (!rows.length && tg) {
-    lead = `Everything rides on the ${esc(tg.conf)} title game.`;
-  }
-  return lead ? `<p class="verdict">${lead}</p>` : "";
 }
 
 /** A game's two results on the shared scale: a ring where a loss leaves the
@@ -1471,21 +1445,24 @@ function needsSummary(key, rows, tg, flat) {
  * other, each labelled on its outer side. ``rare`` names a result too rare
  * to measure, which is left off; ``past`` the result that happened, which
  * stays while the other fades. */
-function dumbbellHTML(lose, win, x, { rare = null, past = null, label = "" } = {}) {
-  const xl = +x(lose), xw = +x(win);
-  // The lower of the two is labelled on its left, the higher on its right.
-  const winRight = xw >= xl;
-  const end = (kind, xv, v, right) => `<span class="db-dot ${kind}${past && past !== kind ? " gone" : ""}" style="left:${xv}%"></span>`
-    + `<span class="db-v ${kind}${right ? " r" : " l"}${past && past !== kind ? " gone" : ""}" style="left:${xv}%">${pct(v)}</span>`;
+function dumbbellHTML(lose, win, x, key, { rare = null, past = null, label = "" } = {}) {
+  const xl = +x(Number.isFinite(lose) ? lose : 0), xw = +x(Number.isFinite(win) ? win : 0);
+  // The lower of the two is labelled on its left, the higher on its right;
+  // a dot on its own is labelled on whichever side has the room.
+  const winRight = rare ? xw <= 50 : xw >= xl;
+  const loseRight = rare ? xl <= 50 : !winRight;
+  const gone = (kind) => (past && past !== kind ? " gone" : "");
+  const end = (kind, xv, v, right) => `<span class="db-dot ${kind}${gone(kind)}" style="left:${xv}%"></span>`
+    + `<span class="db-v ${kind}${right ? " r" : " l"}${gone(kind)}" style="left:${xv}%">${pctOf(v, key)}</span>`;
   const line = rare ? "" : `<i class="db-line${winRight ? "" : " flip"}" style="left:${Math.min(xl, xw)}%;width:${Math.abs(xw - xl).toFixed(2)}%"></i>`;
   return `<span class="nd-bar" role="img" aria-label="${esc(label)}"><span class="db">${line}`
-    + (rare === "lose" ? "" : end("loss", xl, lose, !winRight))
+    + (rare === "lose" ? "" : end("loss", xl, lose, loseRight))
     + (rare === "win" ? "" : end("win", xw, win, winRight))
     + `</span></span>`;
 }
 
 /** One row: when, who, the chance to win, and the measure after each result. */
-function needRowHTML(r, x, big) {
+function needRowHTML(r, x, key, big) {
   const g = r.g;
   const done = finalOf(g);
   const live = done ? null : liveOf(g);
@@ -1502,7 +1479,8 @@ function needRowHTML(r, x, big) {
     past = won ? "win" : "loss";
   } else if (isLive(live)) {
     const q = liveWin(g, live);
-    when = `<b>Wk ${g.week}</b><small class="live">${esc(liveClock(live))}</small>`;
+    const us = r.home ? live.hp : live.ap, them = r.home ? live.ap : live.hp;
+    when = `<b>Wk ${g.week}</b><small class="live">${esc(liveClock(live))}, ${us}-${them}</small>`;
     if (q != null) chance = `<span class="num nd-p">${pct(r.home ? q : 1 - q, 0)}</span>`;
   }
   const tag = big ? `<span class="nd-tag">Biggest game</span>` : "";
@@ -1511,66 +1489,54 @@ function needRowHTML(r, x, big) {
       <span class="nd-opp"><i class="at">${r.where}</i><span class="who" data-team="${r.opp}">${logo(r.opp, 18)}${pollTag(r.opp)}<b>${esc(r.name)}</b>${recTag(r.opp)}</span>${tag}</span>
       ${chance}`;
   if (!x) return head + "</div>";
-  // The unlikely side of a lopsided game is unknown, and is left off.
-  const rare = r.sure ? null : (r.chance >= 0.5 ? "lose" : "win");
-  const label = rare ? `Week ${g.week} ${r.where} ${r.name}: ${pct(rare === "lose" ? r.win : r.lose)} after a ${rare === "lose" ? "win" : "loss"}`
-    : `Week ${g.week} ${r.where} ${r.name}: ${pct(r.win)} after a win, ${pct(r.lose)} after a loss`;
-  return head + dumbbellHTML(r.lose, r.win, x, { rare, past, label }) + "</div>";
+  const label = r.rare ? `Week ${g.week} ${r.where} ${r.name}: ${pctOf(r.rare === "lose" ? r.win : r.lose, key)} after a ${r.rare === "lose" ? "win" : "loss"}`
+    : `Week ${g.week} ${r.where} ${r.name}: ${pctOf(r.win, key)} after a win, ${pctOf(r.lose, key)} after a loss`;
+  return head + dumbbellHTML(r.lose, r.win, x, key, { rare: r.rare, past, label }) + "</div>";
 }
 
 /** The conference title game as one more row: the chance to win it once
  * there, and the measure after winning and after losing it. */
-function titleRowHTML(tg, x) {
+function titleRowHTML(tg, x, key) {
   if (!tg) return "";
   return `<div class="nd tg">
       <span class="nd-when"><b>Title</b><small>game</small></span>
       <span class="nd-opp"><b>${esc(tg.conf)} championship</b><small>Reached in ${share(tg.reach)}</small></span>
       <span class="num nd-p" title="Chance to win it, once there">${pct(tg.winp, 0)}</span>
-      ${dumbbellHTML(tg.lost, tg.won, x, { label: `${tg.conf} title game: ${pct(tg.won)} after a win, ${pct(tg.lost)} after a loss` })}
+      ${dumbbellHTML(tg.lost, tg.won, x, key, { label: `${tg.conf} title game: ${pctOf(tg.won, key)} after a win, ${pctOf(tg.lost, key)} after a loss` })}
     </div>`;
 }
 
-/** Each final record as a column as wide as it is likely, filled to the
- * measure there, so the filled share of the whole chart is the team's odds.
- * A team with no race left gets plain columns, as tall as they are likely.
- * Under the columns, the records that make a team bowl eligible. */
-function mosaicHTML(key, flat) {
-  let recs = (RESULT.by_record || []).filter(r => r.p >= RECORD_FLOOR);
-  if (recs.length > 7) {
-    const keep = new Set([...recs].sort((a, b) => b.p - a.p).slice(0, 7));
-    recs = recs.filter(r => keep.has(r));
-  }
+/** Every final record the team reaches in enough seasons, best first. Above
+ * the line, the measure at that record; under it, how often the team ends
+ * there. The unlikely ones are in, so even losing out has a number. A team
+ * with no race left gets how often alone. */
+function recordsHTML(key, flat) {
+  const recs = (RESULT.by_record || [])
+    .filter(r => r.n >= RECORD_MIN && Number.isFinite(r.odds[key]));
   if (recs.length < 2) return "";
   const most = Math.max(...recs.map(r => r.p));
-  const name = ODDS_NAME[key].replace("{c}", esc(confOf(teamIdx()) || "Conference"));
-  // The bowl bracket only says something when the team might miss one.
-  const bowl = bowlOdds();
-  const eligible = recs.filter(r => r.wins >= 6);
-  const bracket = bowl >= 0.02 && bowl <= 0.98 && eligible.length && eligible.length < recs.length;
+  const name = ODDS_NAME[key].replace("{c}", confOf(teamIdx()) || "Conference");
+  const label = (v) => esc(v).replace("%", "<small>%</small>");
   const cols = recs.map(r => {
-    const known = r.n >= RECORD_SEASONS && Number.isFinite(r.odds[key]);
-    const h = flat ? r.p / most : (known ? r.odds[key] : 0);
-    const said = `${r.wins}-${r.losses} in ${share(r.p)} of seasons`
-      + (flat ? "" : `: ${shortOdds(key).toLowerCase()} odds ${known ? pct(r.odds[key]) : "unknown"}`);
-    const v = flat ? share(r.p) : (known ? pct(r.odds[key]) : "-");
-    const on = bracket && r.wins >= 6;
-    const b = !bracket ? "" : `<div class="mz-b${on ? " on" : ""}${r === eligible[eligible.length - 1] ? " last" : ""}">${
-      r === eligible[0] ? `<span>Bowl eligible, ${share(bowl)}</span>` : ""}</div>`;
-    return `<div class="mz-c${r.p === most ? " likely" : ""}" style="flex-grow:${r.p.toFixed(4)}" title="${esc(said)}">
-        <div class="mz-plot${!flat && h >= 0.3 ? " in" : ""}" style="--h:${(100 * h).toFixed(2)}"><i></i><span class="mz-v">${v}</span></div>
-        <div class="mz-x"><b>${r.wins}-${r.losses}</b>${flat ? "" : `<small>${share(r.p)}</small>`}</div>${b}
-      </div>`;
+    const o = r.odds[key];
+    const said = `${r.wins}-${r.losses}: ` + (flat ? "" : `${name.toLowerCase()} ${pctOf(o, key)}, `)
+      + `in ${share(r.p)} of seasons`;
+    const often = `<span class="${flat ? "rc-up" : "rc-dn"}" style="--h:${(100 * r.p / most).toFixed(2)}"><i></i><span class="rc-v">${label(share(r.p))}</span></span>`;
+    const up = flat ? "" : `<span class="rc-up" style="--h:${(100 * o).toFixed(2)}"><i></i><span class="rc-v">${label(pctOf(o, key))}</span></span>`;
+    return `<div class="rc-c${r.p === most ? " likely" : ""}" title="${esc(said)}">
+        ${flat ? often : up}<span class="rc-x">${r.wins}-${r.losses}</span>${flat ? "" : often}</div>`;
   }).join("");
-  return `<figure class="mosaic${flat ? " flat" : ""}">
-      <figcaption><b>${flat ? "Final record" : `${name} by final record`}</b>${flat ? "" : "<span>Width shows how often</span>"}</figcaption>
-      <div class="mz">${cols}</div>
+  return `<figure class="recs${flat ? " flat" : ""}">
+      <figcaption><b>${flat ? "Final record" : `${esc(name)} by final record`}</b><span>${flat ? "How often" : "Below, how often"}</span></figcaption>
+      <div class="rc">${cols}</div>
     </figure>`;
 }
 
 /** The measure's name as a column head. */
 function shortOdds(key) {
-  return { make_playoff: "Playoff", win_conference: "Title", make_conf_title_game: "Title game",
-           top4_seed: "Bye", finish_ranked: "Ranked" }[key] || shortLabel(key);
+  return { make_bowl: "Bowl", make_playoff: "Playoff", win_conference: "Title",
+           make_conf_title_game: "Title game", top4_seed: "Bye", finish_ranked: "Ranked" }[key]
+    || shortLabel(key);
 }
 
 /** Where the team lands when it makes the field: every seed on one scale,
@@ -1596,20 +1562,20 @@ function renderNeeds() {
   panel.hidden = false;
   const conf = confOf(teamIdx()) || "Conference";
   const base = RESULT.headline[key].p;
+  const known = (v) => (Number.isFinite(v) ? v : 0);
   // Nothing left to move: the games are listed with the chance to win them.
-  const flat = Math.max(base, ...rows.map(r => Math.max(r.win, r.lose))) < 0.005;
-  $("needstitle").textContent = `What ${RESULT.team} needs`;
+  const flat = Math.max(base, ...rows.map(r => Math.max(known(r.win), known(r.lose)))) < 0.005;
   // The key to the chart, in the heading's place for a note.
   $("needsnote").innerHTML = flat ? "The games left"
     : `<span>${esc(ODDS_NAME[key].replace("{c}", conf))}</span>
        <span class="lgk"><i class="db-dot loss"></i>after a loss</span>
        <span class="lgk"><i class="db-dot win"></i>after a win</span>
-       <span class="lgk"><i class="lg-now"></i>now ${pct(base)}</span>`;
+       <span class="lgk"><i class="lg-now"></i>now ${pctOf(base, key)}</span>`;
 
   let x = null, top = 1, bottom = 0;
   if (!flat) {
-    const vals = rows.flatMap(r => (r.sure ? [r.win, r.lose] : [r.chance >= 0.5 ? r.win : r.lose]))
-      .concat(base, tg ? [tg.won, tg.lost] : []);
+    const vals = rows.flatMap(r => [r.rare === "win" ? null : r.win, r.rare === "lose" ? null : r.lose])
+      .filter(Number.isFinite).concat(base, tg ? [tg.won, tg.lost] : []);
     top = niceTop(Math.max(...vals));
     // A team whose every result sits high gets the stretch they sit in, in
     // four even steps, rather than a scale from zero with them in one corner.
@@ -1622,15 +1588,14 @@ function renderNeeds() {
   // Each tick to as many places as it needs: 50%, 12.5%, 1.25%.
   const tick = (v) => `${+(Math.round(v * 1e4) / 100).toFixed(2)}%`;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => `<span style="left:${100 * f}%">${tick(bottom + (top - bottom) * f)}</span>`).join("");
-  $("needssum").innerHTML = needsSummary(key, rows, tg, flat);
   $("needslist").innerHTML = (rows.length || tg) ? `<div class="nd-grid${flat ? " flat" : ""}" style="--now:${flat ? 0 : x(base)}%">
       <div class="nd-head" aria-hidden="true"><span>Week</span><span>Opponent</span>
         <span class="num" title="${esc(RESULT.team)}'s chance to win">Win</span>
         ${flat ? "" : `<span class="nd-scale"><span class="db">${ticks}</span></span>`}</div>
-      ${rows.map(r => needRowHTML(r, x, !flat && rows.length > 1 && r.move > 0 && r.move === most)).join("")}
-      ${flat ? "" : titleRowHTML(tg, x)}
+      ${rows.map(r => needRowHTML(r, x, key, !flat && rows.length > 1 && r.move > 0 && r.move === most)).join("")}
+      ${flat ? "" : titleRowHTML(tg, x, key)}
     </div>` : "";
-  $("needsrec").innerHTML = rows.length ? mosaicHTML(key, flat) : "";
+  $("needsrec").innerHTML = rows.length ? recordsHTML(key, flat) : "";
 }
 
 // Live now
@@ -1682,7 +1647,7 @@ function scoreTileHTML({ g, own, l }) {
         <span class="sb-team"><span class="who" data-team="${idx}">${logo(idx, 20)}${pollTag(idx)}<b><span class="nm-full">${esc(isHome ? g.home : g.away)}</span><span class="nm-abbr">${esc(team(idx).abbr || (isHome ? g.home : g.away))}</span></b>${recTag(idx)}</span>${ball}</span>
         ${cells}<span class="sb-tot${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</span>
         <span class="sb-win">${win}</span>
-        <span class="sb-odds ${dirOf(p - base)}" title="${esc(metricLabel(key))} if ${esc(isHome ? g.home : g.away)} wins: ${pct(p)}, ${signed(p - base)}">${pct(p)}</span></div>`;
+        <span class="sb-odds ${dirOf(p - base)}" title="${esc(metricLabel(key))} if ${esc(isHome ? g.home : g.away)} wins: ${pctOf(p, key)}, ${signed(p - base)}">${pctOf(p, key)}</span></div>`;
   };
   const sit = [l.down, l.redzone ? "red zone" : ""].filter(Boolean).join(", ");
   const tv = g.broadcast || l.tv || "";
@@ -1712,7 +1677,7 @@ function tickerHTML(list) {
       const t = team(idx);
       const score = isHome ? l.hp : l.ap;
       const ahead = score > (isHome ? l.ap : l.hp);
-      return `<span class="tk-side${ahead ? " ahead" : ""}"><span class="who" data-team="${idx}">${logo(idx, 16)}<span class="tk-n">${esc(t.abbr || t.name)}</span></span><b class="tk-s${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</b></span>`;
+      return `<span class="tk-side${ahead ? " ahead" : ""}"><span class="who" data-team="${idx}">${logo(idx, 16)}<span class="tk-n"><span class="nm-full">${esc(t.name)}</span><span class="nm-abbr">${esc(t.abbr || t.name)}</span></span></span><b class="tk-s${SCORED.has(plainName(isHome ? g.home : g.away)) ? " new" : ""}">${score}</b></span>`;
     };
     return `<div class="tk${isLive(l) ? "" : " over"}" data-game="${esc(gameKey(g))}">
       <span class="tk-top"><span class="tk-clock">${esc(liveClock(l))}</span>
@@ -1732,7 +1697,7 @@ function renderScoreboard() {
   const odds = liveOdds();
   $("livecount").innerHTML = odds
     ? `<span class="lv-k">${esc(shortLabel(METRIC))} odds with today's results</span>
-       <b class="lv-p">${pct(odds.p)}</b>
+       <b class="lv-p">${pctOf(odds.p, METRIC)}</b>
        <span class="lv-d ${dirOf(odds.p - odds.base)}">${signed(odds.p - odds.base)}</span>` : "";
   $("livecount").title = `Your odds as the build had them, moved by each game that has `
     + `finished since. Games still on count once they end.`;
@@ -1889,23 +1854,20 @@ function renderLeague() {
   const rows = RESULT.league
     .filter(r => LEAGUE_SCOPE === "all" || r.conference === conf)
     .sort((a, b) => b.p[key] - a.p[key]);
-  // ESPN publishes its own odds on some of these, and not on others. Where
-  // it does, its number is a tick on the bar.
+  // ESPN publishes its own odds on some of these, and not on others.
   const showEspn = rows.some(r => r.espn && r.espn[key] != null);
   $("leaguehead").textContent = metricLabel(key).replace(/ \(.*\)$/, "");
   let html = `<table class="lg"><thead><tr>
-    <th class="num">#</th><th>Team</th>
-    <th class="lgo">${showEspn ? '<span class="lgk" title="What ESPN gives for the same '
-      + 'thing, from its FPI page"><i class="lg-espn"></i>ESPN</span>' : ""}</th>
-    <th class="num">Odds</th></tr></thead><tbody>`;
+    <th class="num">#</th><th>Team</th><th class="num">Odds</th>
+    ${showEspn ? '<th class="num" title="What ESPN gives for the same thing, '
+      + 'from its FPI page">ESPN</th>' : ""}</tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const p = r.p[key];
-    const e = showEspn && r.espn ? r.espn[key] : null;
     html += `<tr${r.idx === me ? ' class="mine"' : ""}><td class="num">${i + 1}</td>
       <td class="t"><span class="teamcell" data-team="${r.idx}">${logo(r.idx, 16)}${pollTag(r.idx)}<span class="tn">${esc(r.team)}</span></span></td>
-      <td class="lgo"${e != null ? ` title="ESPN: ${pct(e)}"` : ""}><span class="lgbar"><i style="width:${(100 * p).toFixed(2)}%"></i>${
-        e != null ? `<s style="left:${(100 * e).toFixed(2)}%"></s>` : ""}</span></td>
-      <td class="num"><b>${pct(p)}</b></td></tr>`;
+      <td class="num lgo"><span class="lgbar" aria-hidden="true"><i style="width:${(100 * p).toFixed(2)}%"></i></span><b>${pctOf(p, key)}</b></td>
+      ${showEspn ? `<td class="num muted">${r.espn && r.espn[key] != null
+        ? pct(r.espn[key]) : "-"}</td>` : ""}</tr>`;
   });
   const wrap = $("league");
   wrap.innerHTML = html + "</tbody></table>";
@@ -2010,7 +1972,7 @@ function tipHTML(idx, games, inSeason, tap = false) {
   // be the real season's.
   const lg = !inSeason && RESULT ? RESULT.league.find(r => r.idx === idx) : null;
   const odds = lg && lg.p[METRIC] != null
-    ? `<div class="tipodds" title="${esc(metricLabel(METRIC))}"><b>${pct(lg.p[METRIC])}</b>
+    ? `<div class="tipodds" title="${esc(metricLabel(METRIC))}"><b>${pctOf(lg.p[METRIC], METRIC)}</b>
         <span>${esc(shortLabel(METRIC))}</span></div>` : "";
   return `<div class="tiphead">${logo(idx, 26)}<div class="tipwho">
       <div class="tipname">${esc(t.name)} <span class="muted">${w}-${l}</span>
@@ -2127,6 +2089,7 @@ window.addEventListener("scroll", () => {
 // beside the name, Enter does what a click does, and Escape closes it. In the
 // season row the chip is the button and the logo inside it is not a stop.
 function focusableTeams() {
+  tagTeamLinks();
   for (const el of document.querySelectorAll("[data-team]:not([tabindex])")) {
     if (el.closest("#season, #teamtip, a, button")) continue;
     el.tabIndex = 0;
@@ -2172,6 +2135,8 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("#teamtip") || e.target.closest("#season")) return;
   const el = e.target.closest("[data-team]");
   if (el && STATE) {
+    // A link goes where it says; its card was only the preview.
+    if (el.closest("a[href]")) { hideTip(); return; }
     const idx = Number(el.dataset.team);
     if (touched()) {
       // A second tap on the same name closes its card.
@@ -2238,7 +2203,7 @@ $("season").addEventListener("click", (e) => {
   sel.value = chip.dataset.week;
   sel.dispatchEvent(new Event("change"));
 });
-// A game in What your team needs puts its week on the slate, as the season
+// A game in the rest of the season puts its week on the slate, as the season
 // row does. Team names keep their own click.
 $("needslist").addEventListener("click", (e) => {
   if (e.target.closest("[data-team]") || !RESULT) return;

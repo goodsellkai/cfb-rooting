@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .app import HERE
-from . import cards, pages
+from . import cards, clinch, pages
 from .export import (conference_stakes, load_template, render, write_front,
                      write_meta)
 
@@ -93,6 +93,20 @@ class Season:
              "home_points": g["home_points"], "away_points": g["away_points"],
              "neutral": g["neutral"], "conference_game": g["conference"]}
             for g in payload["played"]
+        ]
+        # The games left, for the title races. The published rows do not
+        # say which are conference games; two teams of one conference
+        # playing in the regular season always is one.
+        conf = {t.idx: t.conference for t in self.teams
+                if t.is_fbs and t.conference and "independent" not in t.conference.lower()}
+        self.games += [
+            {"week": g["week"], "completed": False, "is_ccg": False,
+             "home_idx": g["home"], "away_idx": g["away"],
+             "home": by_idx[g["home"]].school, "away": by_idx[g["away"]].school,
+             "home_points": None, "away_points": None, "neutral": g["neutral"],
+             "conference_game": conf.get(g["home"]) is not None
+                                and conf.get(g["home"]) == conf.get(g["away"])}
+            for g in payload.get("upcoming") or []
         ]
 
         # The share cards put the team's poll rank next to its record.
@@ -167,7 +181,8 @@ def republish(out: Path, source: str, log=print) -> None:
     published = json.loads((out / "data" / "state.json").read_text("utf-8"))
     state = Season(published)
     log(f"{state.year} week {state.current_week()}: "
-        f"{len(state.fbs_teams)} teams, {len(state.games)} games played")
+        f"{len(state.fbs_teams)} teams, "
+        f"{sum(g['completed'] for g in state.games)} games played")
 
     teams = state.fbs_teams
     first = json.loads(
@@ -176,8 +191,12 @@ def republish(out: Path, source: str, log=print) -> None:
     n_sims = int(first["n_sims"])
     # The masthead says how many seasons were run; a build from before it
     # did is given the count its team files carry.
-    if published.get("n_sims") != n_sims:
+    # The title races are worked out from the records, so a republish can
+    # say who has clinched without the build having done it.
+    status = clinch.statuses(state)
+    if published.get("n_sims") != n_sims or published.get("conf_status") != status:
         published["n_sims"] = n_sims
+        published["conf_status"] = status
         (out / "data" / "state.json").write_text(
             json.dumps(published, separators=(",", ":")), encoding="utf-8")
     # Every team's file carries the whole league's table, so the standings the
@@ -191,7 +210,7 @@ def republish(out: Path, source: str, log=print) -> None:
         t.espn_odds = espn.get(t.school)
 
     shutil.copytree(HERE / "static", out / "static")
-    template = load_template(str(int(time.time())))
+    template = load_template(str(int(time.time())), teams)
     shares = cards.Cards(out, state, log)
     site_card = shares.site(state.current_week(), standing)
     write_meta(out, state, teams, n_sims, template)

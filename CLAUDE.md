@@ -93,9 +93,19 @@ section that stays on screen after the app loads and is what crawlers read.
   `sim/` invalidates it and costs a minute and a half on the next run.
 - **Every published number passes a guard.** `export.py` refuses to publish if the
   playoff probabilities do not add up to the field size.
-- **Payload size is deliberate.** `GAME_KEYS`, `SWING_KEYS` and `_clean()` exist
-  to keep a team's JSON near 150 KB gzipped. `_clean()` also turns NaN into null;
+- **Payload size is deliberate.** `GAME_KEYS`, `SWING_KEYS`, `SWING_METRICS` and
+  `_clean()` exist to keep a team's JSON near 150 KB gzipped. The bracket rounds
+  are still simulated and in the league table, but no page switches the guide
+  to them, so their per-game swings are left out. `_clean()` also turns NaN into
+  null, and keeps a chance too small for six places at 1e-6 rather than zero;
   anything added to a payload must go through it.
+- **Zero means never.** A chance that rounds to nothing shows as `<0.01%`. Only
+  conference title and title game odds show `0.00%`, and only when no simulated
+  season produced it (Kai's rule): `pct(x, d, zero)` and `pctOf()` in app.js,
+  `_pct(x, digits, zero)` in pages.py.
+- **A bowl is a measure like the rest.** The kernel counts six wins with at most
+  one over a non-FBS side (`M_BOWL`), so the band, the guide and the record
+  chart treat it as they treat the playoff.
 - **Data files are named for the team, not its index.** Indices only mean
   something within one build, and a page open across a rebuild would ask for a
   file that no longer exists.
@@ -121,10 +131,23 @@ section that stays on screen after the app loads and is what crawlers read.
   Games still on do not count until they end (Kai asked for that). It adds
   games' effects, so it is an estimate, and the next build replaces it.
 - **The front page and `/this-week/` go out after the team pages.** They rank
-  the week's games by playoff places in play, which is gathered from every
-  team's guide as the loop writes it (`pages.Stakes`). Each simulated season
-  fills the same twelve places, so the swings over all teams sum to zero and
-  half their absolute sum is the share of the field that changes hands.
+  the week's games by the playoff places each is expected to move, which is
+  gathered from every team's guide as the loop writes it (`pages.Stakes`). Each
+  simulated season fills the same twelve places, so the swings over all teams
+  sum to zero and half their absolute sum is the share of the field that
+  changes hands; times 2p(1-p), a lopsided game counts for less than a toss-up.
+- **Title race status is worked out from records, not simulated.**
+  `web/clinch.py` says a team has clinched a title game spot when at most one
+  other can finish level with it or ahead (ties count against it), and is out
+  when two must finish ahead even if it wins out and wins every tie, so
+  neither is ever claimed wrongly. It also finds the ways a team clinches this
+  week. `tests/test_clinch.py` checks it against every outcome of small random
+  conferences. `state.json` carries `conf_status` for the team pages; a
+  republish works it out again, and its stand-in season carries the games left
+  from `upcoming` for that.
+- **Every page has the strip of links under the masthead.** `pages.subnav()`
+  fills `<!--SUBNAV-->` through `load_template()` in the build and `_shell()` in
+  the local app, so a new conference appears without editing the template.
 - **What a team needs comes from three tallies.** Its own games' two results
   are already in its guide. The kernel also keeps every measure by
   regular-season win total (`h_rec`), and `run_league()` splits the seasons by
@@ -184,9 +207,10 @@ section that stays on screen after the app loads and is what crawlers read.
   offer to replace it.
 - **Data pages show charts, not sentences** (Kai's call, 2026-10-27). The
   site green (`--chart`) is for amounts and `--up`/`--down` for a game's two
-  results. The band is one bar chart of the measures; a team's games are
-  dumbbells on a shared scale, zoomed to the stretch the results sit in; its
-  final records are a mosaic, columns as wide as they are likely, so the
-  filled share is its odds; the slate is a tornado, each side's change from a
-  centre line every game shares. A verdict or a heading can be a sentence; a
-  number the chart already shows should not be repeated in words.
+  results. The band is one bar chart of the measures, its labels drawn as
+  buttons since each bar switches the guide; a team's games are dumbbells on a
+  shared scale, zoomed to the stretch the results sit in; every final record
+  the team reaches gets a column, its odds above the line and how often below,
+  so even losing out has a number; the slate is a tornado, each side's change
+  from a centre line every game shares. A heading can be a sentence; a number
+  the chart already shows should not be repeated in words.

@@ -64,9 +64,11 @@ def _band_style(color: str | None, photo: int = 3) -> str:
     lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
     light = 1.05 / (lum + 0.05) < (lum + 0.05) / 0.0587
     fg, mark = ("#0f1712", "#0f1712") if light else ("#ffffff", "var(--mark)")
+    # what reads on the mark: the chosen measure's label sits on it
+    on_mark = "#ffffff" if light else "#0f1712"
     blend = "screen" if light else "multiply"
     return (f' data-photo="{photo}" style="--team:#{hexa};--team-fg:{fg};'
-            f'--team-mark:{mark};--photo-blend:{blend}"')
+            f'--team-mark:{mark};--team-mark-ink:{on_mark};--photo-blend:{blend}"')
 
 
 def _team_tint(color: str | None) -> tuple[float, float] | None:
@@ -99,14 +101,16 @@ def _write(path: Path, obj) -> int:
     return len(data)
 
 
-def load_template(build: str) -> str:
-    """The page shell, with the assets tagged so a browser fetches the new ones.
+def load_template(build: str, teams=None) -> str:
+    """The page shell, with the assets tagged so a browser fetches the new ones,
+    and the strip of links to every page under the masthead.
 
     A republish passes a fresh stamp even though the numbers have not moved:
     the stylesheet and script are what changed, and a held copy of either is
     what a visitor would otherwise keep seeing.
     """
     template = (HERE / "templates" / "index.html").read_text(encoding="utf-8")
+    template = template.replace("<!--SUBNAV-->", pages.subnav(teams or []))
     for name in VERSIONED:
         template = template.replace(f'/static/{name}"',
                                     f'/static/{name}?v={build}"')
@@ -146,6 +150,7 @@ def render(template: str, head: str, intro: str, depth: int,
                     .replace('href="/teams/"', f'href="{base}teams/"')
                     .replace('href="/this-week/"', f'href="{base}this-week/"')
                     .replace('href="/cfp-rankings/"', f'href="{base}cfp-rankings/"')
+                    .replace('href="/conference/', f'href="{base}conference/')
                     .replace('class="brand" href="/"',
                              f'class="brand" href="{base or "./"}"')
                     .replace('href="/static/', f'href="{base}static/')
@@ -183,7 +188,7 @@ def write_front(out: Path, state, teams, n_sims: int, standing,
         render(template, pages.home_head(state, n_sims, standing[:10], card),
                pages.home_body(state, teams, n_sims,
                                standing[:10], standing[10:18], stakes,
-                               league), 0),
+                               league, projection), 0),
         encoding="utf-8")
     week = out / "this-week"
     week.mkdir(exist_ok=True)
@@ -282,7 +287,7 @@ def export(out: Path, year: int | None = None, n_sims: int = DEFAULT_SIMS,
     (out / "data" / "team").mkdir(parents=True)
     shutil.copytree(HERE / "static", out / "static")
 
-    template = load_template(str(int(time.time())))
+    template = load_template(str(int(time.time())), state.fbs_teams)
 
     def page(*a, **k):
         return render(template, *a, **k)

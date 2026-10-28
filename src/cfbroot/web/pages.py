@@ -34,8 +34,35 @@ def _sims(n: int) -> str:
     return f"{n / 1e6:g} million" if n >= 1_000_000 else f"{n:,}"
 
 
-def _pct(x, digits=1):
-    return "-" if x is None else f"{100 * float(x):.{digits}f}%"
+def _pct(x, digits=1, zero=False):
+    """A chance as a percentage. One that rounds to nothing reads as under
+    the smallest step shown, since a simulation cannot rule a thing out;
+    ``zero`` lets a true zero through, for the conference measures."""
+    if x is None:
+        return "-"
+    x = float(x)
+    step = 10 ** -digits
+    if abs(100 * x) < step / 2 and not (zero and x == 0):
+        return f"<{step:.{digits}f}%"
+    return f"{100 * x:.{digits}f}%"
+
+
+# The conferences as the strip under the masthead names them.
+_SHORT_CONF = {"American Athletic": "American", "Conference USA": "C-USA",
+               "Mid-American": "MAC"}
+
+
+def subnav(teams) -> str:
+    """Links to every page beyond a team's guide, for the strip under the
+    masthead. The paths are from the site root; the build rewrites them for
+    each page's depth."""
+    from ..config import POWER_CONFERENCES
+    confs = sorted(conferences(teams),
+                   key=lambda c: (c not in POWER_CONFERENCES, _SHORT_CONF.get(c, c)))
+    links = [("/this-week/", "This week"), ("/cfp-rankings/", "CFP rankings")]
+    links += [(f"/conference/{conf_slug(c)}/", _SHORT_CONF.get(c, c)) for c in confs]
+    links.append(("/teams/", "All teams"))
+    return "".join(f'<a href="{href}">{html.escape(name)}</a>' for href, name in links)
 
 
 def _now() -> str:
@@ -224,6 +251,7 @@ PHRASES = {
     "reach_title_game": "reaches the national title game",
     "win_national_title": "wins the national title",
     "finish_ranked": "finishes ranked",
+    "make_bowl": "reaches a bowl game",
 }
 # A final record that comes up in fewer seasons than this is left out, and
 # one needs this many seasons behind it before it decides what a team needs.
@@ -239,6 +267,7 @@ GOALS = {
     "reach_title_game": "reach the national title game",
     "win_national_title": "win the national title",
     "finish_ranked": "finish ranked",
+    "make_bowl": "reach a bowl game",
 }
 
 
@@ -681,7 +710,7 @@ def _team_row(school, logo, odds=None, best=1.0, pos=None):
 
 
 def home_body(state, teams, n_sims, race=(), bubble=(), stakes=None,
-              league=None):
+              league=None, projection=None):
     week = state.current_week()
     logos = {t.school: t.logo for t in teams}
     best = race[0][1] if race else 1.0
@@ -718,7 +747,10 @@ played through the 12-team bracket. <a href="how-it-works/">Methodology</a></spa
 </div>
 </div>
 
+<div class="home-two">
 {_stakes_home(state, stakes)}
+{_field_home(state, projection)}
+</div>
 {_races_home(state, league)}
 {_faq_html(home_questions(state, n_sims, race))}"""
 
@@ -878,6 +910,8 @@ def _kick_html(g) -> str:
 
 
 PLAYOFF_STAKE = "Playoff places that change hands between its two results"
+EXPECTED_STAKE = ("Playoff places the game is expected to move: what changes "
+                  "hands between its two results, weighted by how likely each is")
 
 
 def _stake_chip(name, d, logos, fbs, depth, metric="playoff"):
@@ -941,14 +975,14 @@ def _stakes_head(value, when="Kickoff") -> str:
 def _stakes_home(state, stakes) -> str:
     """The week's five biggest games, under the race on the front page."""
     week = state.default_week() or state.current_week()
-    rows = stakes.week(week)[:5] if stakes else []
+    rows = stakes.week(week, expected=True)[:5] if stakes else []
     if not rows:
         return ""
     return f"""<section class="stakes-home">
 <h2>The games that matter most, week {week}</h2>
-{_stakes_head("Playoff spots in play")}
+{_stakes_head("Playoff spots expected to move")}
 <ol class="stakes">
-{_stakes_list(rows, state, 0, False)}
+{_stakes_list(rows, state, 0, False, what=EXPECTED_STAKE)}
 </ol>
 <p class="foot"><a href="this-week/">Every week {week} game, ranked</a></p>
 </section>"""
@@ -972,16 +1006,14 @@ def this_week_head(state, n_sims, card=None):
 
 def this_week_body(state, n_sims, stakes):
     week = state.default_week() or state.current_week()
-    rows = stakes.week(week) if stakes else []
-    # A game that moves almost nothing is listed, but not given a bar to
-    # compare against the ones that matter.
-    listed = _stakes_list(rows, state, 1, True) if rows else ""
-    body = (f'{_stakes_head("Playoff spots in play")}\n'
+    rows = stakes.week(week, expected=True) if stakes else []
+    listed = _stakes_list(rows, state, 1, True, what=EXPECTED_STAKE) if rows else ""
+    body = (f'{_stakes_head("Playoff spots expected to move")}\n'
             f'<ol class="stakes detail">\n{listed}\n</ol>' if rows
             else f"<p>No games left in week {week}.</p>")
     return f"""<h1>The games that matter most for the playoff, week {week}</h1>
 <p class="lead">Every week {week} game, ranked by how much of the 12-team field
-moves between its two results, across {_sims(n_sims)} simulated seasons.</p>
+it is expected to move, across {_sims(n_sims)} simulated seasons.</p>
 {body}
 <p><a href="../">Back to the guide</a></p>"""
 
@@ -1375,9 +1407,9 @@ def _pair_html(pair, logos, colors, names, fbs, abbrs=None):
             f'<b class="pr-p">{_pct(1 - wa, 0)}</b>{side(b, True)}</li>')
 
 
-def _bar_cell(p, strong=False, digits=1) -> str:
+def _bar_cell(p, strong=False, digits=1, zero=False) -> str:
     """A chance as a short bar on a 0 to 100 scale, then the number."""
-    v = _pct(p, digits)
+    v = _pct(p, digits, zero)
     inner = f"<b>{v}</b>" if strong else v
     return (f'<td class="num bc{" strong" if strong else ""}"><span class="bcb" aria-hidden="true">'
             f'<i style="width:{100 * float(p or 0):.1f}%"></i></span>'
@@ -1412,7 +1444,67 @@ def _title_share(rows, conf, by_idx, fbs) -> str:
             f'{segs}</div><ol class="ts-key">{key}</ol></figure>')
 
 
+def _clinch_html(race, rows, by_idx, fbs, week) -> str:
+    """How each team still in the title game race gets a spot, from the
+    records alone, and who is out of it."""
+    if race is None:
+        return ""
+
+    def name(i):
+        return html.escape(by_idx[i].school)
+
+    def said(t, w, l):
+        if w == t:
+            return f"a win over {name(l)}"
+        if l == t:
+            return f"a loss to {name(w)}"
+        return f"{name(w)} beating {name(l)}"
+
+    items, helped, gone = "", [], []
+    for r in rows:
+        t = r["idx"]
+        status = race.status(t) if t in race.wins else None
+        if status == "out":
+            gone.append(t)
+            continue
+        if status == "clinched":
+            how = "Has clinched a spot."
+        else:
+            parts = []
+            ways = race.this_week(t, week)
+            if ways:
+                parts.append("Clinches this week with " + "; or with ".join(
+                    " and ".join(said(t, w, l) for w, l in way) for way in ways[:3]) + ".")
+            if race.wins_out(t):
+                parts.append("Clinches by winning out.")
+            elif not ways and r["p"]["make_conf_title_game"] >= 0.01:
+                helped.append(t)
+            if not parts:
+                continue
+            how = " ".join(parts)
+        team = by_idx[t]
+        art = (f'<img src="{html.escape(team.logo)}" alt="" width="20" height="20">'
+               if team.logo else '<span class="noart"></span>')
+        cls = ' class="in"' if status else ""
+        items += (f'<li{cls}><span class="cp-team">{art}'
+                  f'{_team_link(team.school, fbs, 2)}</span>'
+                  f'<span class="cp-how">{how}</span></li>\n')
+
+    def line(label, teams):
+        return (f'<p class="cp-out">{label}: '
+                + ", ".join(_team_link(by_idx[i].school, fbs, 2) for i in teams) + ".</p>\n"
+                if teams else "")
+
+    rest = (line("Need help even if they win out", helped)
+            + line("Out of the race", gone))
+    if not items and not rest:
+        return ""
+    return ("<h2>Clinching scenarios</h2>\n"
+            + (f'<ul class="clinch">\n{items}</ul>\n' if items else "") + rest)
+
+
 def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
+    from . import clinch
     fbs = {t.school for t in state.fbs_teams}
     by_idx = {t.idx: t for t in state.teams}
     names = {i: t.school for i, t in by_idx.items()}
@@ -1422,18 +1514,23 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
     now = datetime.now(timezone.utc)
     pairs = [x for x in pairs or () if x["p"] >= RECORD_FLOOR][:6]
     share = _title_share(rows, conf, by_idx, fbs) if rows else ""
+    race = clinch.conference_race(state, conf)
+    week = state.default_week() or state.current_week()
 
     body = ""
     for r in rows:
         art = (f'<img src="{html.escape(logos[r["idx"]])}" alt="" width="20" '
                f'height="20">' if logos.get(r["idx"]) else "")
         p = r["p"]
+        status = race.status(r["idx"]) if race and r["idx"] in race.wins else None
+        mark = {"clinched": '<span class="cl in">Clinched</span>',
+                "out": '<span class="cl out">Out</span>'}.get(status, "")
         body += (f'<tr><td><a href="../../team/{slug(r["team"])}/">{art}'
-                 f'{html.escape(r["team"])}</a></td>'
+                 f'{html.escape(r["team"])}</a>{mark}</td>'
                  f'<td class="num">{r["conf_record"]}</td>'
                  f'<td class="num ovr">{r["record"]}</td>'
-                 f'{_bar_cell(p["make_conf_title_game"])}'
-                 f'{_bar_cell(p["win_conference"], True)}'
+                 f'{_bar_cell(p["make_conf_title_game"], zero=True)}'
+                 f'{_bar_cell(p["win_conference"], True, zero=True)}'
                  f'{_bar_cell(p["make_playoff"])}</tr>\n')
     table = (f'<div class="tablewrap"><table class="confrace"><thead><tr>'
              f'<th>Team</th><th class="num">Conf</th><th class="num ovr">Overall</th>'
@@ -1464,6 +1561,7 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
 from {_sims(n_sims)} simulated seasons.</p>
 {share}
 {table}
+{_clinch_html(race, rows, by_idx, fbs, week)}
 {matchups}
 {deciders}
 <h2>How the {html.escape(conf)} breaks ties</h2>
@@ -1558,13 +1656,13 @@ def rankings_head(state, projection, n_sims, card=None):
                               ("Projected CFP rankings", url)])])
 
 
-def _field_html(projection, by_idx, fbs) -> str:
+def _field_html(projection, by_idx, fbs, depth=1) -> str:
     field = projection.get("field") or []
     if len(field) != 12:
         return ""
     seed = {f["seed"]: f for f in field}
 
-    def team(f, depth=1):
+    def team(f):
         t = by_idx[f["team"]]
         art = (f'<img src="{html.escape(t.logo)}" alt="" width="20" height="20">'
                if t.logo else '<span class="noart"></span>')
@@ -1590,8 +1688,8 @@ def _field_html(projection, by_idx, fbs) -> str:
         for bye, a, b in ((1, 8, 9), (4, 5, 12), (3, 6, 11), (2, 7, 10)))
     out_ = "".join(
         f'<li><img src="{html.escape(by_idx[i].logo)}" alt="" width="20" height="20">'
-        f'{_team_link(by_idx[i].school, fbs, 1)}</li>' if by_idx[i].logo
-        else f'<li>{_team_link(by_idx[i].school, fbs, 1)}</li>'
+        f'{_team_link(by_idx[i].school, fbs, depth)}</li>' if by_idx[i].logo
+        else f'<li>{_team_link(by_idx[i].school, fbs, depth)}</li>'
         for i in projection.get("out") or [] if i in by_idx)
     return f"""<section class="fieldnow">
 <h2>If the season ended today</h2>
@@ -1599,6 +1697,18 @@ def _field_html(projection, by_idx, fbs) -> str:
 <span>First-round byes</span></div>
 <ol class="pods">{pods}</ol>
 """ + (f'<h3>First teams out</h3>\n<ul class="outs">{out_}</ul>\n' if out_ else "") + "</section>"
+
+
+def _field_home(state, projection) -> str:
+    """The field if the season ended today, on the front page."""
+    if not projection or len(projection.get("field") or []) != 12:
+        return ""
+    by_idx = {t.idx: t for t in state.teams}
+    fbs = {t.school for t in state.fbs_teams}
+    return ("<div>" + _field_html(projection, by_idx, fbs, depth=0)
+            .replace("<h2>If the season ended today</h2>",
+                     "<h2>The playoff if the season ended today</h2>")
+            + '<p class="foot"><a href="cfp-rankings/">Projected CFP rankings</a></p></div>')
 
 
 def rankings_body(state, projection, odds=()):

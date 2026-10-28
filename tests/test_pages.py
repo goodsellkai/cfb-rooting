@@ -255,7 +255,7 @@ def test_the_week_page_ranks_the_games_and_links_the_teams(season, payload):
     if rows:
         assert body.count("<li>") == len(rows)
         assert 'href="../team/' in body
-        assert "Playoff spots in play" in body and 'class="st"' in body
+        assert "Playoff spots expected to move" in body and 'class="st"' in body
         home = pages.home_body(season, season.fbs_teams, 2_500_000, stakes=s)
         assert 'href="this-week/"' in home
         assert home.count('class="stake"') == min(5, len(rows))
