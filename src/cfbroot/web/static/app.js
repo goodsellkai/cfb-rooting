@@ -1516,8 +1516,8 @@ function titleRowHTML(tg, x, key) {
 
 /** Every final record the team reaches in enough seasons, best first. Above
  * the line, the measure at that record; under it, how often the team ends
- * there. The unlikely ones are in, so even losing out has a number. A team
- * with no race left gets how often alone. */
+ * there. The unlikely ones are in, so even losing out has a number. ``flat``
+ * draws how often alone. */
 function recordsHTML(key, flat) {
   const recs = (RESULT.by_record || [])
     .filter(r => r.n >= RECORD_MIN && Number.isFinite(r.odds[key]));
@@ -1603,7 +1603,11 @@ function renderNeeds() {
       ${rows.map(r => needRowHTML(r, x, key, !flat && rows.length > 1 && r.move > 0 && r.move === most)).join("")}
       ${flat ? "" : titleRowHTML(tg, x, key)}
     </div>` : "";
-  $("needsrec").innerHTML = rows.length ? recordsHTML(key, flat) : "";
+  // The record settles six wins by itself, so only how often is worth a
+  // chart. Any other race keeps its odds by record while the chance reads
+  // 0.01% or more, the same test pct() uses.
+  const often = key === "six_wins" || 100 * base < 0.005;
+  $("needsrec").innerHTML = rows.length ? recordsHTML(key, often) : "";
 }
 
 // Live now

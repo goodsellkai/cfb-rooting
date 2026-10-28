@@ -216,6 +216,7 @@ section that stays on screen after the app loads and is what crawlers read.
   buttons since each bar switches the guide; a team's games are dumbbells on a
   shared scale, zoomed to the stretch the results sit in; every final record
   the team reaches gets a column, its odds above the line and how often below,
-  so even losing out has a number; the slate is a tornado, each side's change
+  so even losing out has a number (six wins, which the record settles, and a
+  chance under 0.01% get how often alone); the slate is a tornado, each side's change
   from a centre line every game shares. A heading can be a sentence; a number
   the chart already shows should not be repeated in words.
