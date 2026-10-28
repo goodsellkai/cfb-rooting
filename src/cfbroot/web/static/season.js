@@ -371,8 +371,13 @@ function renderBoard(stage, recs) {
   if (stage.kind === "round") return renderBracket();
   $("s-boardtitle").textContent = stage.kind === "ccg" ? "Conference championships" : stage.label;
   const me = myIdx();
+  // In the order of the ranking the teams took into the week, the one beside
+  // their names, by the better-ranked side. Games without a ranked team
+  // follow, strongest first.
+  const rank = (g) => Math.min(PRE_RANK.get(g.home) || 99, PRE_RANK.get(g.away) || 99);
   const games = stage.games.slice().sort((a, b) =>
     ((b.home === me || b.away === me) - (a.home === me || a.away === me))
+    || rank(a) - rank(b)
     || (ratingOf(b.home) + ratingOf(b.away) - ratingOf(a.home) - ratingOf(a.away)));
   const sims = games.filter(g => !g.real).length;
   $("s-boardnote").textContent = sims === games.length ? "all simulated"
