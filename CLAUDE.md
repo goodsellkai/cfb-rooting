@@ -146,6 +146,11 @@ section that stays on screen after the app loads and is what crawlers read.
   conferences. `state.json` carries `conf_status` for the team pages; a
   republish works it out again, and its stand-in season carries the games left
   from `upcoming` for that.
+- **The sitemap is read off the disk.** `export.page_urls()` lists every
+  `index.html` the build wrote, at the end of `write_front()`, which the full
+  build and the republish both run. A new kind of page needs no sitemap edit,
+  and one the build skipped is not listed. The methodology carries no
+  `lastmod`, since its text does not change with each build.
 - **Every page has the strip of links under the masthead.** `pages.subnav()`
   fills `<!--SUBNAV-->` through `load_template()` in the build and `_shell()` in
   the local app, so a new conference appears without editing the template.

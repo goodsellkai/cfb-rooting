@@ -1,5 +1,6 @@
 """The written pages a crawler reads, built from a fabricated season."""
 
+import dataclasses
 import html
 import json
 import re
@@ -259,7 +260,6 @@ def test_the_week_page_ranks_the_games_and_links_the_teams(season, payload):
         home = pages.home_body(season, season.fbs_teams, 2_500_000, stakes=s)
         assert 'href="this-week/"' in home
         assert home.count('class="stake"') == min(5, len(rows))
-    assert "/this-week/" in pages.sitemap(season.fbs_teams)
 
 
 def test_kickoffs_are_given_in_eastern_time():
@@ -384,14 +384,55 @@ def test_the_rankings_page_shows_the_committee_once_it_ranks(season):
     assert "<title>CFP rankings, week 10" in head
 
 
-def test_the_sitemap_lists_every_page_with_its_card(season):
+def test_the_sitemap_gives_a_card_where_there_is_one_and_no_false_date():
+    home, how = pages.SITE_URL + "/", pages.SITE_URL + "/how-it-works/"
+    xml = pages.sitemap([home, how], {home: "https://example.invalid/c.jpg"})
+    assert xml.count("<url>") == 2
+    assert xml.count("<image:loc>") == 1 and "xmlns:image=" in xml
+    # The methodology's text does not change with each build's numbers.
+    assert xml.count("<lastmod>") == 1
+
+
+def _front(season, league, out):
+    """The pages that go out last, and the addresses the sitemap gave them."""
+    from cfbroot.web.export import load_template, write_front
+
     teams = season.fbs_teams
-    url = f"{pages.SITE_URL}/team/{pages.slug(teams[0].school)}/"
-    xml = pages.sitemap(teams, {url: "https://example.invalid/c.jpg"})
-    assert xml.count("<url>") == 5 + len(pages.conferences(teams)) + len(teams)
-    assert "/cfp-rankings/" in xml and "/conference/sec/" in xml
-    assert xml.count("<image:loc>") == 1
-    assert "xmlns:image=" in xml
+    write_front(out, season, teams, 1000, [(t.school, 0.5) for t in teams],
+                load_template("t", teams), stakes=pages.Stakes(), league=league)
+    return re.findall(r"<loc>(.*?)</loc>", (out / "sitemap.xml").read_text("utf-8"))
+
+
+def test_the_sitemap_lists_the_pages_the_build_wrote(season, payload, tmp_path):
+    for folder in ("team/some-team", "data/team", "static/x"):
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "index.html").write_text("x", encoding="utf-8")
+    listed = _front(season, payload["league"], tmp_path)
+    assert listed[0] == pages.SITE_URL + "/"
+    assert pages.SITE_URL + "/team/some-team/" in listed
+    for page in ("this-week", "cfp-rankings", "how-it-works", "teams"):
+        assert f"{pages.SITE_URL}/{page}/" in listed
+    assert any("/conference/" in u for u in listed)
+    assert not any("/data/" in u or "/static/" in u for u in listed)
+    # Each address is a file, and each page bar those two folders has an address.
+    root = len(pages.SITE_URL) + 1
+    assert all((tmp_path / u[root:] / "index.html").exists() for u in listed)
+    assert len(listed) == len(list(tmp_path.rglob("index.html"))) - 2
+
+
+def test_the_sitemap_leaves_out_a_page_the_build_skipped(season, tmp_path):
+    # A conference with no rows gets no page, so it must not get an address.
+    assert not any("/conference/" in u for u in _front(season, [], tmp_path))
+
+
+def test_an_independent_is_not_given_a_title_race(season, payload):
+    # Notre Dame and UConn share a label, not a conference with a page.
+    team = next(t for t in season.fbs_teams if t.school == payload["team"])
+    alone = dataclasses.replace(team, conference="FBS Independents")
+    league = [dict(r, conference="FBS Independents") for r in payload["league"]]
+    body = pages.team_writeup(season, alone, {**payload, "league": league},
+                              season.default_week() or season.current_week())
+    assert "conference/fbs-independents" not in body and "race</h2>" not in body
 
 
 def _own(team, opp, chance, win, lose, week):

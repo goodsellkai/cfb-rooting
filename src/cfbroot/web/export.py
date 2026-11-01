@@ -231,7 +231,19 @@ def write_front(out: Path, state, teams, n_sims: int, standing,
     cards = dict(cards or {})
     if card:
         cards.setdefault(pages.SITE_URL + "/", card)
-    (out / "sitemap.xml").write_text(pages.sitemap(teams, cards), encoding="utf-8")
+    (out / "sitemap.xml").write_text(pages.sitemap(page_urls(out), cards),
+                                     encoding="utf-8")
+
+
+def page_urls(out: Path) -> list[str]:
+    """Every page on disk, shallowest first. Read off the folder rather than
+    listed, so a new kind of page is in the sitemap the day it is written and
+    one the build skipped stays out. Runs last, after the team pages."""
+    found = [p.parent.relative_to(out) for p in out.rglob("index.html")]
+    found = [r for r in found if r.parts[:1] not in (("data",), ("static",))]
+    found.sort(key=lambda r: (len(r.parts), r.as_posix()))
+    return [pages.SITE_URL + "/" + "".join(f"{part}/" for part in r.parts)
+            for r in found]
 
 
 def conference_stakes(teams) -> dict:

@@ -662,7 +662,7 @@ def team_writeup(state, team, payload, week):
     mates = [r for r in payload["league"]
              if r["conference"] == team.conference and team.conference]
     race = ""
-    if len(mates) > 1:
+    if has_conference(team) and len(mates) > 1:
         mates.sort(key=lambda r: -r["p"]["win_conference"])
         rows = ""
         for r in mates[:10]:
@@ -1131,20 +1131,24 @@ def not_found(base: str = "/") -> str:
 </ul>"""
 
 
-def sitemap(teams, cards=None) -> str:
-    """Every page, and the share card that goes with it where there is one.
-    ``cards`` maps an address to its card."""
+def sitemap(urls, cards=None) -> str:
+    """The pages at ``urls``, each with the share card that goes with it where
+    there is one. ``cards`` maps an address to its card.
+
+    The numbers on a page change with every build, so the build's day is true
+    for all of them but the methodology, whose text only moves when the model
+    does. It goes without a date rather than with a false one, which search
+    engines take as a reason to stop trusting the rest.
+    """
     cards = cards or {}
     day = datetime.now(timezone.utc).date().isoformat()
-    urls = ([SITE_URL + "/", SITE_URL + "/this-week/", SITE_URL + "/cfp-rankings/",
-             SITE_URL + "/how-it-works/", SITE_URL + "/teams/"]
-            + [f"{SITE_URL}/conference/{conf_slug(c)}/" for c in conferences(teams)]
-            + [f"{SITE_URL}/team/{slug(t.school)}/" for t in teams])
+    undated = {SITE_URL + "/how-it-works/"}
 
     def entry(u):
         art = (f"<image:image><image:loc>{html.escape(cards[u])}</image:loc>"
                f"</image:image>" if cards.get(u) else "")
-        return f"  <url><loc>{u}</loc><lastmod>{day}</lastmod>{art}</url>"
+        when = "" if u in undated else f"<lastmod>{day}</lastmod>"
+        return f"  <url><loc>{u}</loc>{when}{art}</url>"
 
     body = "\n".join(entry(u) for u in urls)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
