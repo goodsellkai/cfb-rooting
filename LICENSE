@@ -1,21 +1,15 @@
-MIT License
+Copyright (c) 2026 Kai Goodsell. All rights reserved.
 
-Copyright (c) 2026 Kai Goodsell
+This repository is public so that its code can be read. No permission is
+granted to copy, modify, merge, publish, distribute, sublicense or sell any
+part of it, to use it in other work, or to run it or host it as a service,
+without written permission from the copyright holder.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+GitHub's Terms of Service let users view and fork public repositories on
+GitHub. A fork made that way carries no other rights.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Files by others keep their own licenses. The Archivo typeface in
+src/cfbroot/web/static/fonts is under the SIL Open Font License; see
+LICENSE.txt in that folder.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+For permission, contact Kai Goodsell at https://github.com/goodsellkai.
