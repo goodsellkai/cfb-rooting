@@ -604,8 +604,22 @@ function renderStandings(recs) {
 
 // Events
 
-$("tab-guide").addEventListener("click", () => showTab("guide"));
-$("tab-season").addEventListener("click", () => showTab("season"));
+/** A written page has no guide or season of its own, so its tabs lead back to
+ * the app, which opens on the view picked. Neither is the page being read. */
+function pickTab(name) {
+  if (!window.CFBROOT_INFO) { showTab(name); return; }
+  try { localStorage.setItem("cfbroot.tab", name); } catch { /* private mode */ }
+  location.href = BASE;
+}
+
+$("tab-guide").addEventListener("click", () => pickTab("guide"));
+$("tab-season").addEventListener("click", () => pickTab("season"));
+if (window.CFBROOT_INFO) {
+  for (const id of ["tab-guide", "tab-season"]) {
+    $(id).classList.remove("active");
+    $(id).setAttribute("aria-selected", "false");
+  }
+}
 $("s-new").addEventListener("click", newSeason);
 $("s-fresh").addEventListener("change", newSeason);
 $("s-play").addEventListener("click", togglePlay);

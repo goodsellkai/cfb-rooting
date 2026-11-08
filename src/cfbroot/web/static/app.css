@@ -834,7 +834,7 @@ ol.stakes { list-style: none; margin: 2px 0 0; padding: 0; font-stretch: 88%; ma
 .intro a, .writeup a { text-underline-offset: 2px; }
 
 /* the written pages: how it works, every team */
-body.info .band, body.info .tabs, body.info #toolbar { display: none; }
+body.info .band, body.info #toolbar { display: none; }
 body.info .intro { max-width: 820px; padding-top: 34px; }
 /* every team: the conferences side by side rather than one long column */
 body.info .intro:has(.confs) { max-width: var(--page); }
@@ -1471,7 +1471,7 @@ body.season .guideonly { display: none; }
   .sitefoot-in { font-size: 12.5px; }
 }
 @media (max-width: 380px) {
-  body:not(.info) .brand span { display: none; }
+  .brand span { display: none; }
 }
 /* What your team needs on a phone: who and the chance on the first line,
    the two results and the bar between them on the second. */
