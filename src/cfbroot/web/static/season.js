@@ -24,7 +24,8 @@ function showTab(name) {
   const season = name === "season";
   $("guideview").hidden = season;
   $("seasonview").hidden = !season;
-  document.body.classList.toggle("season", season);
+  // Not "season": that class is the band's row of chips, and its rules would land on the body.
+  document.body.classList.toggle("seasontab", season);
   for (const [id, on] of [["tab-guide", !season], ["tab-season", season]]) {
     $(id).classList.toggle("active", on);
     $(id).setAttribute("aria-selected", String(on));

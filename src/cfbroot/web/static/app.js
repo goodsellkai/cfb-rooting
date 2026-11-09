@@ -185,7 +185,7 @@ async function boot() {
   }
   if (saved && teamNamed(saved)) {
     $("team").value = saved;
-    loadTeam();
+    loadTeam(false);
   } else {
     setBand(null);
   }
@@ -896,7 +896,8 @@ function teamNamed(name) {
   return STATE.teams.find(t => t.name.toLowerCase() === n) || null;
 }
 
-async function loadTeam() {
+/** ``picked`` is false for the team the page brings back by itself. */
+async function loadTeam(picked = true) {
   let t = teamNamed($("team").value);
   if (!t || (RESULT && RESULT.team === t.name && WANTED === t.name)) return;
   WANTED = t.name;
@@ -946,12 +947,26 @@ async function loadTeam() {
     // is on screen goes to the same place. The local app keeps its address
     // but still takes the team's written section.
     if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
-      history.pushState({ team: t.name }, "", `${BASE}team/${t.slug}/`);
+      pinLinks();
+      // A team the reader picked is a step Back can undo. One the page brought
+      // back by itself is not, or Back would only bring it again.
+      history[picked ? "pushState" : "replaceState"](
+        { team: t.name }, "", `${BASE}team/${t.slug}/`);
       loadWriteup(t);
     } else if (!STATIC && t.slug) {
       loadWriteup(t);
     }
     return;
+  }
+}
+
+/** The page's links are written from its own address, so before that changes
+ * each is fixed to where it points. A link within the page stays as it is. */
+function pinLinks() {
+  const links = 'a[href]:not([href^="#"]), link[rel~="icon"], '
+    + 'link[rel="apple-touch-icon"], link[rel="manifest"]';
+  for (const el of document.querySelectorAll(links)) {
+    if (typeof el.href === "string") el.href = el.href;
   }
 }
 
@@ -2183,7 +2198,13 @@ function segmented(id, set, redraw = renderRootList) {
   });
 }
 
-window.addEventListener("popstate", () => location.reload());
+window.addEventListener("popstate", () => {
+  // Back to the front page means the page itself, not the saved team again.
+  if (location.href.split(/[?#]/)[0] === BASE) {
+    try { sessionStorage.setItem("cfbroot.home", "1"); } catch { /* private mode */ }
+  }
+  location.reload();
+});
 // The logo goes to the front page itself, on the guide.
 document.querySelector(".brand").addEventListener("click", () => {
   try {
