@@ -943,6 +943,7 @@ async function loadTeam(picked = true) {
     }
     RESULT = body;
     render(true);
+    placeClinch();
     // Each team has its own address on the hosted site, so a link to what
     // is on screen goes to the same place. The local app keeps its address
     // but still takes the team's written section.
@@ -986,6 +987,17 @@ async function loadWriteup(t) {
   const w = doc.getElementById("writeup");
   $("writeup").innerHTML = w ? w.innerHTML : "";
   if (doc.title) document.title = doc.title;
+  placeClinch();
+}
+
+/** A team's clinching scenarios are written into its page, which is where a
+ * crawler reads them; on screen they sit with the rest of its season. A team
+ * with nothing to clinch has none, and the slot stays out of the way. */
+function placeClinch() {
+  const slot = $("clinchslot");
+  const panel = $("writeup").querySelector(".clinchpanel");
+  slot.replaceChildren(...(panel ? [panel] : []));
+  slot.hidden = !panel;
 }
 
 function showProgress(job) {

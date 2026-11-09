@@ -9,7 +9,7 @@ import pytest
 
 from cfbroot.config import SimConfig
 from cfbroot.sim import build_guide, league_all, run, run_league
-from cfbroot.web import pages
+from cfbroot.web import clinch, pages
 from cfbroot.web.app import _by_record, _title_game
 
 
@@ -473,3 +473,129 @@ def test_a_team_that_must_win_out_is_told_so(season):
     said = text(pages.needs_text(season, team, payload))
     assert f"{team.school} has to win out." in said
     assert "Its last game is against Big Rival" in said
+
+
+def _raced(season, wins_for):
+    """The season with its conference's early games played, a team in each
+    finish of them decided by ``wins_for``, for the title race pages."""
+    state = dataclasses.replace(season, games=[dict(g) for g in season.games])
+    for g in state.games:
+        if g.get("conference_game") and not g.get("is_ccg") and not g["completed"]:
+            won = wins_for(g)
+            if won is None:
+                continue
+            g["completed"] = True
+            g["home_points"], g["away_points"] = (24, 17) if won == g["home_idx"] else (17, 24)
+    return state
+
+
+def test_a_team_in_the_race_is_told_what_it_needs(season, payload):
+    team = next(t for t in season.fbs_teams if pages.has_conference(t))
+    panel = pages.clinch_panel(season, team, 1)
+    if clinch.conference_race(season, team.conference).status(team.idx) is None:
+        assert "clinchpanel" in panel and f"Reaching the {team.conference} title game" in panel
+        qs = dict(pages.team_questions(season, team, payload, 1, plain=True))
+        question = f"How can {team.school} clinch a spot in the {team.conference} championship game?"
+        assert question in qs and "<" not in qs[question]
+        assert "clinchpanel" in pages.team_writeup(season, team, payload, 1)
+
+
+def test_a_team_with_nothing_to_clinch_gets_no_panel_or_question(season, payload):
+    conf = next(t.conference for t in season.fbs_teams if pages.has_conference(t))
+    members = [t for t in season.fbs_teams if t.conference == conf]
+    # Everyone's conference games played, the first team winning all of its,
+    # the last losing all of its.
+    first, last = members[0].idx, members[-1].idx
+    ids = {t.idx for t in members}
+
+    def winner(g):
+        if g["home_idx"] not in ids or g["away_idx"] not in ids:
+            return None
+        if first in (g["home_idx"], g["away_idx"]):
+            return first
+        if last in (g["home_idx"], g["away_idx"]):
+            return g["home_idx"] if g["away_idx"] == last else g["away_idx"]
+        return g["home_idx"]
+
+    state = _raced(season, winner)
+    race = clinch.conference_race(state, conf)
+    assert race.status(last) == "out"
+    gone = next(t for t in members if t.idx == last)
+    assert pages.clinch_panel(state, gone, 1) == ""
+    asked = dict(pages.team_questions(state, gone, payload, 1, plain=True))
+    assert not any("clinch" in q for q in asked)
+    assert "clinchpanel" not in pages.team_writeup(state, gone, payload, 1)
+
+    top = next(t for t in members if t.idx == first)
+    assert race.status(first) == "clinched"
+    assert pages.clinch_panel(state, top, 1) == ""
+    asked = dict(pages.team_questions(state, top, payload, 1, plain=True))
+    assert f"Has {top.school} clinched a spot in the {conf} championship game?" in asked
+
+    rows = pages.conference_rows(state, conf, payload["league"])
+    body = pages.conference_body(state, conf, rows, payload["n_sims"])
+    assert 'id="clinching"' in body and 'id="tiebreakers"' in body
+    assert "Out of the race" in body
+
+
+def test_an_independent_has_no_clinching_panel(season, payload):
+    team = dataclasses.replace(season.fbs_teams[0], conference="FBS Independents")
+    assert pages.clinch_panel(season, team, 1) == ""
+    assert pages.clinch_question(season, team, 1, str) is None
+
+
+def test_the_tiebreakers_say_how_they_run(season):
+    for conf, words in (("SEC", "Capped scoring margin"), ("Big Ten", "SportSource rating"),
+                        ("Big 12", "Total wins"), ("Pac-12", "Three or more tied"),
+                        ("Sun Belt", "Next in the division"), ("ACC", "eight or nine")):
+        said = pages._tiebreak_html(conf, 2026)
+        assert words in said, conf
+        assert "<ol" in said
+    assert "start again at step 1" in pages._tiebreak_html("SEC", 2026)
+
+
+def test_a_row_says_what_happens_past_its_sure_thing():
+    names = {1: "Alpha", 2: "Beta", 3: "Gamma"}
+    row = {"state": "help", "record": (7, 2), "same_games": True, "chasing": [1, 2, 3],
+           "already": [], "ways": None, "beats": []}
+    can = pages._need_text({**row, "beyond": True}, 2, str, names)
+    assert "no more than one of Alpha, Beta and Gamma finishes 7-2 or better" in can
+    assert "If more do, it can still get in on tiebreakers." in can
+    assert "If more do, it is out." in pages._need_text({**row, "beyond": False}, 2, str, names)
+    assert "comes down to tiebreakers" in pages._need_text({**row, "beyond": None}, 2, str, names)
+    two = pages._need_text({**row, "chasing": [1, 2], "beyond": True}, 2, str, names)
+    assert "In if Alpha or Beta finishes below 7-2. If neither does, it can still" in two
+    one = pages._need_text({**row, "chasing": [1], "already": [2], "beyond": False}, 2, str, names)
+    assert "Beta is already there. In if Alpha finishes below 7-2. If not, it is out." in one
+
+
+def test_a_tie_worked_out_says_who_and_how():
+    names = {1: "Alpha", 2: "Beta", 3: "Gamma"}
+    steps = lambda code: pages._step_title("SEC", code)
+    row = {"state": "help", "record": (7, 2), "same_games": True, "chasing": [1, 2],
+           "already": [], "ways": None, "beats": [], "beyond": True,
+           "ties": [{"ahead": [], "level": [1, 2], "verdict": "out", "step": 1,
+                     "shown": {7: "0-2", 1: "2-0", 2: "1-1"}, "decider": None}]}
+    said = pages._need_text(row, 2, str, names | {7: "Team"}, step_name=steps)
+    assert ("In if Alpha or Beta finishes below 7-2. If neither does: "
+            "level with Alpha and Beta, out on head-to-head.") in said
+    # The list on a team's page shows what the step found.
+    drawn = pages._need_text(row, 2, str, names | {7: "Team"}, lambda ts: "CHIPS", steps)
+    assert "CHIPS" in drawn and 'class="cl-ties"' in drawn and "Alpha 2-0" in drawn
+    assert "<small>head-to-head: " in drawn          # the tag says it is out
+    # Too many to list in a sentence, and it says what it can of them all.
+    many = dict(row, ties=row["ties"] * 4)
+    assert "it can still get in on tiebreakers" in pages._need_text(many, 2, str, names | {7: "Team"})
+    # A tie only a later result settles, and one only the last step can.
+    tied = {"ahead": [3], "level": [1], "verdict": "depends", "step": None, "shown": None,
+            "team": 7, "ways": [[(2, 3)]], "else": "out"}
+    who, why = pages._tie_parts(tied, str, names, steps)
+    assert who == "behind Gamma, level with Alpha" and why == "in with Beta beating Gamma, otherwise out"
+    own = dict(tied, ways=[[(7, 2)], [(3, 1), (2, 7)]], **{"else": "open"})
+    assert pages._tie_parts(own, str, names | {7: "Team"}, steps)[1] == (
+        "in with a win over Beta; or with Gamma beating Alpha and a loss to Beta, "
+        "otherwise it comes down to the last step")
+    unsaid = dict(tied, ways=None)
+    assert pages._tie_parts(unsaid, str, names, steps)[1] == "depends on other results"
+    last = dict(tied, verdict="open", step=7, ways=None)
+    assert pages._tie_parts(last, str, names, steps)[1] == "comes down to capped scoring margin"

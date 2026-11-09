@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..data.conference_rules import counts_in_standings
 from .app import HERE
 from . import cards, clinch, pages
 from .export import (conference_stakes, load_template, render, write_front,
@@ -95,19 +96,40 @@ class Season:
              "neutral": g["neutral"], "conference_game": g["conference"]}
             for g in payload["played"]
         ]
-        # The games left, for the title races. The published rows do not
-        # say which are conference games; two teams of one conference
-        # playing in the regular season always is one.
+        # The games left, for the title races. A site built before the rows
+        # said which are conference games gets the rule for it: two teams of
+        # one conference playing in the regular season, once.
         conf = {t.idx: t.conference for t in self.teams
                 if t.is_fbs and t.conference and "independent" not in t.conference.lower()}
+        met = {frozenset((g["home"], g["away"])) for g in payload["played"]
+               if g.get("conference") and not g.get("title_game")}
+
+        def counts(g):
+            if "conference" in g:
+                return g["conference"]
+            pair = frozenset((g["home"], g["away"]))
+            fresh = pair not in met
+            met.add(pair)
+            return (fresh and conf.get(g["home"]) is not None
+                    and conf.get(g["home"]) == conf.get(g["away"])
+                    and counts_in_standings(by_idx[g["home"]].school,
+                                            by_idx[g["away"]].school))
+
         self.games += [
             {"week": g["week"], "completed": False, "is_ccg": False,
              "home_idx": g["home"], "away_idx": g["away"],
              "home": by_idx[g["home"]].school, "away": by_idx[g["away"]].school,
              "home_points": None, "away_points": None, "neutral": g["neutral"],
-             "conference_game": conf.get(g["home"]) is not None
-                                and conf.get(g["home"]) == conf.get(g["away"])}
+             "conference_game": counts(g)}
             for g in payload.get("upcoming") or []
+        ]
+        self.games += [
+            {"week": g["week"], "completed": False, "is_ccg": True,
+             "home_idx": g["home"], "away_idx": g["away"],
+             "home": by_idx[g["home"]].school, "away": by_idx[g["away"]].school,
+             "home_points": None, "away_points": None, "neutral": g["neutral"],
+             "conference_game": True}
+            for g in payload.get("title_games") or []
         ]
 
         # The share cards put the team's poll rank next to its record.

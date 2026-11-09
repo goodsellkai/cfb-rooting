@@ -8,8 +8,13 @@ Checked for 2026 against the conferences' own publications:
   ACC       the policy amended July 1, 2026, for the nine-game schedule
   Pac-12    the September 3, 2026 release for the rebuilt eight-team league
   Sun Belt  sunbeltsports.org football tie-breaking procedures
-  American, Conference USA, MAC, Mountain West: each one's published order,
-            which all run head-to-head, common opponents, then a ranking
+  American  section 10.5 of its handbook: head-to-head, then the CFP ranking and
+            a composite of computer rankings (common opponents only after those)
+  Mountain West  head-to-head, then a composite of computer rankings, as it ran
+            its four-way tie in 2025
+  MAC       the 2024 policy: the same steps as the SEC and Big Ten
+  Conference USA  head-to-head, then rankings, from secondary reports only. It is
+            also the cautious reading: no clinch is claimed past head-to-head.
 
 Every conference sends its top two by conference winning percentage, except
 the Sun Belt, which sends its East and West division winners. Ties go through
@@ -52,7 +57,7 @@ class TitleRules:
 
 
 _POWER_ORDER = (H2H, COMMON, NEXT, OPP_PCT, RATING)
-_GROUP_OF_SIX = (H2H, COMMON, NEXT, RATING)
+_THEN_RANKINGS = (H2H, RATING)
 
 _SUN_BELT_EAST = ("App State", "Coastal Carolina", "Georgia Southern", "Georgia State",
                   "James Madison", "Marshall", "Old Dominion")
@@ -93,10 +98,17 @@ def title_rules(conference: str | None, year: int) -> TitleRules:
         return TitleRules(order, order, HOSTED,
                           {"East": _SUN_BELT_EAST, "West": _sun_belt_west(year)})
     if c in ("American Athletic", "Conference USA", "Mountain West"):
-        return TitleRules(_GROUP_OF_SIX, _GROUP_OF_SIX, HOSTED)
+        return TitleRules(_THEN_RANKINGS, _THEN_RANKINGS, HOSTED)
     if c == "Mid-American":
-        return TitleRules(_GROUP_OF_SIX, _GROUP_OF_SIX)   # Ford Field, Detroit
+        return TitleRules(_POWER_ORDER, _POWER_ORDER)   # Ford Field, Detroit
     return TitleRules((H2H, RATING), (H2H, RATING))
+
+
+def counts_in_standings(school_a: str, school_b: str) -> bool:
+    """Whether a regular-season game between two members counts. Army and Navy
+    are both in the American, but theirs is a non-conference game played the
+    week after the American's title game, though ESPN marks it a conference one."""
+    return {school_a, school_b} != {"Army", "Navy"}
 
 
 def division_of(conference: str | None, school: str, year: int) -> str | None:

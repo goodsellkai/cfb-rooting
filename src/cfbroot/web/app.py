@@ -304,9 +304,16 @@ def _season_payload(s: SeasonState) -> dict:
             {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
              "neutral": g["neutral"], "p_home": g.get("pwin_home"),
              "start": g.get("start_date"), "tv": g.get("broadcast", ""),
-             "time_set": bool(g.get("time_set", True))}
+             "time_set": bool(g.get("time_set", True)),
+             "conference": bool(g["conference_game"])}
             for g in sorted(s.games, key=lambda g: g["week"])
             if g["status"] == 0 and not g["is_ccg"]
+        ],
+        # A title game once its two teams are known and it is still to come.
+        "title_games": [
+            {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],
+             "neutral": g["neutral"]}
+            for g in s.games if g["status"] == 0 and g["is_ccg"]
         ],
         # Results so far, for the game list shown when hovering over a team.
         "played": [

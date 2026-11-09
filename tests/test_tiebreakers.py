@@ -75,6 +75,12 @@ def test_sun_belt_divisions_follow_realignment():
     assert CR.division_of("Sun Belt", "Marshall", 2026) == "East"
 
 
+def test_army_navy_is_not_a_conference_game():
+    assert not CR.counts_in_standings("Army", "Navy")
+    assert not CR.counts_in_standings("Navy", "Army")
+    assert CR.counts_in_standings("Army", "Memphis")
+
+
 def test_where_title_games_are_played():
     for c in ("SEC", "Big Ten", "Big 12", "ACC", "Mid-American"):
         assert not CR.title_rules(c, 2026).flags & CR.HOSTED

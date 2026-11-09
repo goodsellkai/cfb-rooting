@@ -561,7 +561,7 @@ def build_season(year: int, teams_raw: list[dict], conferences_raw: list[dict],
         if not g["conference_game"] or g["is_ccg"]:
             continue
         pair = frozenset((g["home_idx"], g["away_idx"]))
-        if pair in met:
+        if pair in met or not CR.counts_in_standings(g["home"], g["away"]):
             g["conference_game"] = False
         met.add(pair)
 

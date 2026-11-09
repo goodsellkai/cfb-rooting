@@ -137,15 +137,25 @@ section that stays on screen after the app loads and is what crawlers read.
   simulated season fills the same twelve places, so the swings over all teams
   sum to zero and half their absolute sum is the share of the field that
   changes hands; times 2p(1-p), a lopsided game counts for less than a toss-up.
-- **Title race status is worked out from records, not simulated.**
-  `web/clinch.py` says a team has clinched a title game spot when at most one
-  other can finish level with it or ahead (ties count against it), and is out
-  when two must finish ahead even if it wins out and wins every tie, so
-  neither is ever claimed wrongly. It also finds the ways a team clinches this
-  week. `tests/test_clinch.py` checks it against every outcome of small random
-  conferences. `state.json` carries `conf_status` for the team pages; a
-  republish works it out again, and its stand-in season carries the games left
-  from `upcoming` for that.
+- **Clinching is worked out from the results, not simulated.** `web/clinch.py`
+  plays the games left out against each conference's real tiebreakers, a port
+  of `kernels._break_tie` that `tests/test_clinch.py` checks against the kernel.
+  A team has clinched when it is in however they go and is out when it is in
+  under none of them. A step the results cannot settle (the last rating step,
+  the Big 12's total wins) could go any way, so no claim rests on it. A search
+  past `MAX_NODES` makes no claim either. `Race.path()` says what each final
+  record takes, with the results spelled out once few enough games are in play
+  (`MAX_HELP_GAMES`). "In if no more than one of these finishes 7-2 or better"
+  is only the sure thing, so each row also says what happens past it
+  (`Race._beyond`): tiebreakers can still put the team in, or it is out. Once
+  few enough teams can reach a finish (`MAX_TIE_TEAMS`), `Race._ties` works out
+  each tie by name instead: who is level, in or out, and on which step. The conference page draws it as a grid. A team's page
+  writes it into the written section, and `placeClinch()` in app.js moves it up
+  beside the team's season; a team that is in, is out or has no race gets no
+  panel, and only a clinched team gets a question. `state.json` carries
+  `conf_status` for the team line; a republish works it out again. Army-Navy is
+  in ESPN's data as a conference game, and `counts_in_standings()` takes it out,
+  in the simulation too.
 - **The sitemap is read off the disk.** `export.page_urls()` lists every
   `index.html` the build wrote, at the end of `write_front()`, which the full
   build and the republish both run. A new kind of page needs no sitemap edit,

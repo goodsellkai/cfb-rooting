@@ -114,3 +114,31 @@ def test_the_state_file_round_trips():
     before = json.dumps(payload, sort_keys=True)
     Season(payload)
     assert json.dumps(payload, sort_keys=True) == before
+
+
+def test_the_races_get_the_games_left_right():
+    """Which upcoming games count, with the published flag and without it."""
+    teams = TEAMS + [
+        {"idx": 3, "name": "Army", "conference": "Big Test", "rating": 0.0, "fbs": True},
+        {"idx": 4, "name": "Navy", "conference": "Big Test", "rating": 0.0, "fbs": True},
+    ]
+    upcoming = [
+        # Without a flag, the rule: not Army-Navy, and not a second meeting.
+        {"week": 7, "home": 3, "away": 4, "neutral": True},
+        {"week": 7, "home": 0, "away": 1, "neutral": False},
+        {"week": 7, "home": 0, "away": 3, "neutral": False},
+        # With one, what it says.
+        {"week": 8, "home": 0, "away": 4, "neutral": False, "conference": False},
+        {"week": 8, "home": 1, "away": 4, "neutral": False, "conference": True},
+    ]
+    payload = published(GAMES, teams) | {"upcoming": upcoming}
+    games = [g for g in Season(payload).games if not g["completed"]]
+    assert [g["conference_game"] for g in games] == [False, False, True, False, True]
+
+
+def test_a_title_game_still_to_come_settles_the_race():
+    payload = published(GAMES[:2], TEAMS) | {
+        "title_games": [{"week": 15, "home": 0, "away": 1, "neutral": True}]}
+    game = next(g for g in Season(payload).games if g["is_ccg"])
+    assert not game["completed"] and (game["home_idx"], game["away_idx"]) == (0, 1)
+    assert pages.record(Season(payload), 0)[:2] == (1, 1)

@@ -579,6 +579,9 @@ def team_questions(state, team, payload, week, plain=False):
     needs = needs_text(state, team, payload, name=name)
     if needs:
         out.append((f"What does {school} need to make the playoff?", needs))
+    race = clinch_question(state, team, week, name)
+    if race:
+        out.append(race)
     out.append((f"Who should {school} fans root for in week {week}?", rooting))
     if hardest:
         out.append((f"What is {school}'s toughest game left?", hardest))
@@ -650,6 +653,7 @@ def team_writeup(state, team, payload, week):
                    f"{school}'s playoff odds.</p>")
 
     schedule = _needs_html(state, team, payload, fbs)
+    title_path = clinch_panel(state, team, week)
 
     if results:
         played = "; ".join(
@@ -684,6 +688,7 @@ def team_writeup(state, team, payload, week):
 {lead}
 {rooting}
 {schedule}
+{title_path}
 {so_far}
 {race}
 {faq}
@@ -1243,8 +1248,8 @@ def llms_txt(state, teams, n_sims) -> str:
     ]
     for c in conferences(teams):
         lines.append(f"- [{c} title race]({SITE_URL}/conference/{conf_slug(c)}/): "
-                     f"title game and championship odds, likeliest matchups, "
-                     f"tiebreakers")
+                     f"clinching scenarios, title game and championship odds, "
+                     f"likeliest matchups, tiebreakers")
     lines += ["", "## Teams", ""]
     for t in sorted(teams, key=lambda t: t.school):
         lines.append(f"- [{t.school} playoff odds]"
@@ -1265,61 +1270,208 @@ def conferences(teams) -> list[str]:
     return [c for c in seen if sum(t.conference == c for t in teams) >= 2]
 
 
-# The tiebreak steps, as each conference's own policy words them.
-_STEP_TEXT = {
-    1: "Head-to-head results among the tied teams",
-    2: "Record against all common conference opponents",
-    3: ("Record against common conference opponents, starting with the "
-        "highest-placed and working down the standings"),
-    4: "Combined conference winning percentage of conference opponents",
+# The tiebreak steps: a short name, and what each one looks at in plain words.
+_STEP_TITLE = {
+    1: "Head-to-head",
+    2: "Common opponents",
+    3: "Best common opponent",
+    4: "Opponents' record",
     5: "Total wins",
-    6: "Record within the division",
+    6: "Division record",
 }
+_STEP_TEXT = {
+    2: "Record against the conference opponents all the tied teams played.",
+    3: ("Record against the highest-placed common opponent, then the next, down "
+        "the standings until one team is ahead. Opponents level in the standings "
+        "count as one."),
+    4: "Combined conference winning percentage of each team's conference opponents.",
+    5: "Wins in the regular season, with no more than one against an FCS team.",
+    6: "Record against the other teams in the division.",
+}
+_STEP_TITLE_DIVISIONS = {2: "Other division", 3: "Next in the division"}
+_STEP_TEXT_DIVISIONS = {
+    2: "Record against the opponents from the other division that all the tied teams played.",
+    3: ("Record against the highest-placed team left in the division, then the "
+        "next, down the standings until one team is ahead."),
+}
+# The last step, which only the end of the season can settle: what it is called
+# and what it looks at.
 _RATING_STEP = {
-    "SEC": "Capped scoring margin in conference games",
-    "Big Ten": "SportSource Analytics' team rating score",
-    "ACC": "SportSource Analytics' team success ranking",
+    "SEC": ("Capped scoring margin",
+            "Scoring margin in conference games, with points capped and measured "
+            "against each opponent's average. A random draw follows if still level."),
+    "Big Ten": ("SportSource rating",
+                "SportSource Analytics' team rating score after the regular season. "
+                "A random draw follows if still level."),
+    "Big 12": ("SportSource rating",
+               "SportSource Analytics' team rating score after the regular season. "
+               "A coin toss follows if still level."),
+    "ACC": ("SportSource ranking",
+            "SportSource Analytics' team success ranking after the regular season."),
+    "Mid-American": ("SportSource rating",
+                     "SportSource Analytics' team rating score after the regular season. "
+                     "A draw by the commissioner follows if still level."),
+    "American Athletic": ("Rankings",
+                          "The CFP ranking of a team that does not lose its last conference "
+                          "game, then a composite of SP+, SportSource, ESPN SOR and KPI."),
+    "Mountain West": ("Computer rankings",
+                      "A composite of SP+, SportSource, ESPN SOR and KPI."),
+    "Sun Belt": ("Rankings",
+                 "The CFP ranking of a team that wins its last game, then a composite of "
+                 "SportSource, KPI, SP+ and ESPN SOR."),
 }
+_RATING_DEFAULT = ("Rankings", "The CFP ranking or a composite of computer rankings.")
 
 
-def _steps_html(conf, steps) -> str:
-    items = []
+def _step_title(conf, code, divisions=False) -> str:
+    if code == 7:
+        return _RATING_STEP.get(conf, _RATING_DEFAULT)[0]
+    return (divisions and _STEP_TITLE_DIVISIONS.get(code)) or _STEP_TITLE[code]
+
+
+def _steps_html(conf, steps, divisions, two_only=False) -> str:
+    items = ""
     for code in steps:
         if code == 7:
-            items.append(_RATING_STEP.get(conf, "The conference's ranking metric"))
-        elif code in _STEP_TEXT:
-            items.append(_STEP_TEXT[code])
-    return "<ol class=\"tiebreak\">" + "".join(f"<li>{html.escape(i)}</li>"
-                                               for i in items) + "</ol>"
+            title, text = _RATING_STEP.get(conf, _RATING_DEFAULT)
+        elif code == 1:
+            title = _STEP_TITLE[1]
+            text = ("The game between them." if two_only else
+                    "Record in games among the tied teams. If they have not all played "
+                    "each other, a team that beat all the others goes through and a "
+                    "team that lost to all of them drops out.")
+        else:
+            title = _step_title(conf, code, divisions)
+            text = (divisions and _STEP_TEXT_DIVISIONS.get(code)) or _STEP_TEXT[code]
+        items += f"<li><b>{html.escape(title)}</b><span>{html.escape(text)}</span></li>"
+    return f'<ol class="tiebreak">{items}</ol>'
 
 
-def _tiebreak_html(conf, year) -> str:
-    from ..data.conference_rules import (HOSTED, RESTART, UNEQUAL,
-                                         title_rules)
+def _tiebreak_lead(conf, year) -> str:
+    from ..data.conference_rules import HOSTED, title_rules
     rules = title_rules(conf, year)
     if rules.divisions:
-        who = (f"The {' and '.join(rules.divisions)} division winners meet in "
-               f"the title game.")
+        who = (f"The {' and '.join(rules.divisions)} division winners meet in the "
+               f"title game, each decided by conference winning percentage.")
     else:
-        who = "The top two teams in the conference standings meet in the title game."
+        who = ("The two teams with the best conference winning percentage meet in "
+               "the title game.")
     where = (" It is played at the higher seed's stadium." if rules.flags & HOSTED
              else " It is played at a neutral site.")
-    out = f"<p>{html.escape(who + where)}</p>\n"
-    if tuple(rules.two) == tuple(rules.multi):
-        out += "<p>Ties are broken in this order:</p>\n" + _steps_html(conf, rules.two)
-    else:
-        out += ("<p>Two tied teams:</p>\n" + _steps_html(conf, rules.two)
-                + "\n<p>Three or more:</p>\n" + _steps_html(conf, rules.multi))
-    notes = []
-    if rules.flags & RESTART:
-        notes.append("When a tie of three or more is cut down, the teams left "
-                     "start again from the first step.")
+    return who + where
+
+
+def _tie_rules(conf, year) -> list[str]:
+    """How the steps are run, which is the part a list of them leaves out."""
+    from ..data.conference_rules import RESTART, UNEQUAL, title_rules
+    rules = title_rules(conf, year)
+    out = []
     if rules.flags & UNEQUAL:
-        notes.append("Teams that play different numbers of conference games "
-                     "can tie when they have as many conference wins or losses.")
-    if notes:
-        out += f"\n<p>{html.escape(' '.join(notes))}</p>"
+        out.append("Teams play eight or nine conference games. A team a game short "
+                   "of another is level with it on the same wins or the same losses.")
+    if not rules.divisions:
+        out.append("Two teams level at the top both go, and no step is needed.")
+    out.append("A tie for a spot runs through the steps until one team is left. It "
+               "takes the spot, and the rest start again for the next one.")
+    if rules.flags & RESTART:
+        out.append("Whenever a step cuts a tie down, the teams left start again at "
+                   "step 1.")
+    else:
+        out.append("When a step cuts a tie to two teams, they start again at step 1. "
+                   "Three or more left go on to the next step.")
     return out
+
+
+def _today_html(conf, race, by_idx, fbs) -> str:
+    """The rules at work: how the title game would be set if the season ended
+    today, with every step of any tie."""
+    if race is None or race.fixed:
+        return ""
+
+    def name(t):
+        return _team_link(by_idx[t].school, fbs, 2)
+
+    def art(t):
+        logo = by_idx[t].logo
+        return (f'<img src="{html.escape(logo)}" alt="" width="22" height="22">'
+                if logo else '<span class="noart"></span>')
+
+    def step_html(step):
+        title = html.escape(_step_title(conf, step["code"], race.spots == 1))
+        keep = step["keep"]
+        vals = ""
+        # A row of 0-0 only says they have no such games between them.
+        if step.get("shown") and set(step["shown"].values()) != {"0-0"}:
+            vals = "".join(
+                f'<span class="tt-val{" on" if t in keep else ""}">'
+                f'{html.escape(by_idx[t].school)} <b>{html.escape(v)}</b></span>'
+                for t, v in step["shown"].items())
+        note = step.get("note")
+        if step["code"] == 7:
+            said = "Level on every step so far, so this one decides it."
+        elif note == "beat":
+            said = f"{name(keep[0])} beat all the others and goes through."
+        elif note == "lost":
+            said = f"{name(step['dropped'])} lost to all the others and drops out."
+        elif note == "unmet":
+            said = ("They have not played each other." if len(step["teams"]) == 2 else
+                    "They have not all played each other, and no team beat all the others.")
+        elif len(keep) == len(step["teams"]):
+            said = "Still level."
+        elif len(keep) == 1:
+            said = f"{name(keep[0])} takes the spot."
+        else:
+            said = f"{_and(name(t) for t in keep)} go on."
+        if isinstance(note, list) and note:
+            said = f"Against {_and(name(t) for t in note)}. {said}"
+        return (f'<li><b class="tt-step">{title}</b>'
+                + (f'<span class="tt-vals">{vals}</span>' if vals else "")
+                + f'<span class="tt-said">{said}</span></li>')
+
+    out = ""
+    for part in race.today():
+        head = f"{html.escape(part['division'])}: " if part["division"] else ""
+        seats = part["in"]
+        if seats:
+            line = " and ".join(f'<span class="tt-team">{art(t)}{name(t)}</span>' for t in seats)
+            spot = ('<span>and a spot still to settle</span>' if part["open"] else "")
+            out += f'<p class="tt-seats">{head}{line}{spot}</p>\n'
+        elif head:
+            out += f'<p class="tt-seats">{head}still to settle</p>\n'
+        for tie in part["ties"]:
+            if tie["all_in"] or len(tie["teams"]) > 6:
+                continue
+            records = {_rec(race.conf_record(t)) for t in tie["teams"]}
+            at = f" at {records.pop()}" if len(records) == 1 else ""
+            place = ("the division" if race.spots == 1 else
+                     {1: "the first spot", 2: "the second spot"}[tie["place"]])
+            steps = "".join(step_html(st) for st in tie["steps"])
+            out += (f'<div class="tt"><p class="tt-head">Tied{at} for {place}: '
+                    f'{_and(name(t) for t in tie["teams"])}</p><ol>{steps}</ol></div>\n')
+    if not out:
+        return ""
+    return f'<div class="tb-now"><h3>If the season ended today</h3>\n{out}</div>'
+
+
+def _tiebreak_html(conf, year, race=None, by_idx=None, fbs=None) -> str:
+    from ..data.conference_rules import title_rules
+    rules = title_rules(conf, year)
+    divisions = bool(rules.divisions)
+    if tuple(rules.two) == tuple(rules.multi):
+        steps = _steps_html(conf, rules.two, divisions)
+    else:
+        steps = ('<div class="tb-two"><div><h3>Two teams tied</h3>'
+                 + _steps_html(conf, rules.two, divisions, two_only=True)
+                 + "</div><div><h3>Three or more tied</h3>"
+                 + _steps_html(conf, rules.multi, divisions) + "</div></div>")
+    runs = "".join(f"<li>{html.escape(r)}</li>" for r in _tie_rules(conf, year))
+    last = html.escape(_RATING_STEP.get(conf, _RATING_DEFAULT)[0])
+    today = _today_html(conf, race, by_idx, fbs) if race is not None else ""
+    return (f"<p>{html.escape(_tiebreak_lead(conf, year))}</p>\n{steps}\n"
+            f'<ul class="tb-runs">{runs}</ul>\n'
+            f'<p class="foot">{last} cannot be known until the regular season ends, so '
+            f"a team is only called in on this page when it does not depend on it.</p>\n"
+            f"{today}")
 
 
 def conference_rows(state, conf, league):
@@ -1358,6 +1510,7 @@ def conference_questions(state, conf, rows, pairs):
                     f"{_pct(pairs[0]['p'])} of seasons. {a} reaches the game in "
                     f"{_pct(reach.get(pairs[0]['a']))} and {b} in "
                     f"{_pct(reach.get(pairs[0]['b']))}."))
+    out += _race_questions(state, conf)
     if rows:
         expect = sum(r["p"]["make_playoff"] for r in rows)
         best = sorted(rows, key=lambda r: -r["p"]["make_playoff"])[:3]
@@ -1368,14 +1521,55 @@ def conference_questions(state, conf, rows, pairs):
     return out
 
 
+def _race_questions(state, conf):
+    """Who is in, who can get in this week and how ties break, in plain text
+    since a page's questions are also its structured data."""
+    from . import clinch
+    from ..data.conference_rules import title_rules
+    out = []
+    race = clinch.conference_race(state, conf)
+    names = {t.idx: t.school for t in state.teams}
+    week = state.default_week() or state.current_week()
+    if race is not None:
+        ordered = sorted(race.teams, key=lambda t: names[t])
+        locked = [names[t] for t in ordered if race.status(t) == "clinched"]
+        if locked:
+            out.append((f"Who has clinched a spot in the {conf} championship game?",
+                        f"{_and(locked)} {'has' if len(locked) == 1 else 'have'} clinched."))
+        ways = []
+        for t in ordered:
+            path = race.path(t, week)
+            if path and path["week"]:
+                ways.append(f"{names[t]} clinches this week "
+                            + _week_text(path["week"], t, html.escape, names) + ".")
+        if ways:
+            out.append((f"Who can clinch a spot in the {conf} championship game in "
+                        f"week {week}?", " ".join(ways)))
+    rules = title_rules(conf, state.year)
+    titles = [_step_title(conf, c, bool(rules.divisions)) for c in rules.multi]
+    order = ", then ".join(t if t.startswith(("SportSource", "Head")) else t.lower()
+                           for t in titles)
+    out.append((f"How does the {conf} break ties for its championship game?",
+                f"{_tiebreak_lead(conf, state.year)} Ties are broken by {order[0].lower()}"
+                f"{order[1:]}."))
+    return out
+
+
+def _and(items) -> str:
+    items = list(items)
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def conference_head(state, conf, rows, n_sims, pairs=None, card=None):
     url = f"{SITE_URL}/conference/{conf_slug(conf)}/"
-    title = f"{conf} title race {state.year}: championship odds and tiebreakers"
+    title = f"{conf} title race {state.year}: clinching scenarios, odds and tiebreakers"
     lead = (f"{rows[0]['team']} wins it in {_pct(rows[0]['p']['win_conference'])}. "
             if rows else "")
-    desc = (f"{lead}Every {conf} team's chance to reach the title game and win "
-            f"the conference, the likeliest matchups and how ties are broken, "
-            f"from {_sims(n_sims)} simulated seasons.")
+    desc = (f"{lead}What every {conf} team needs to clinch a title game spot, its "
+            f"chance to win the conference, the likeliest matchups and how ties are "
+            f"broken, from {_sims(n_sims)} simulated seasons.")
     page = _page_ld(title, desc, url)
     page["about"] = {"@type": "SportsOrganization", "name": conf,
                      "sport": "American football"}
@@ -1450,63 +1644,440 @@ def _title_share(rows, conf, by_idx, fbs) -> str:
             f'{segs}</div><ol class="ts-key">{key}</ol></figure>')
 
 
-def _clinch_html(race, rows, by_idx, fbs, week) -> str:
-    """How each team still in the title game race gets a spot, from the
-    records alone, and who is out of it."""
-    if race is None:
-        return ""
+# What a team needs. The same words serve the conference page, the team page
+# and the questions, with ``name`` deciding how a team is written.
 
-    def name(i):
-        return html.escape(by_idx[i].school)
+def _rec(record) -> str:
+    return f"{record[0]}-{record[1]}"
 
-    def said(t, w, l):
+
+def _week_text(ways, t, name, names) -> str:
+    """The results that clinch it for a team this week: "with a win over X"."""
+    def said(w, l):
         if w == t:
-            return f"a win over {name(l)}"
+            return f"a win over {name(names[l])}"
         if l == t:
-            return f"a loss to {name(w)}"
-        return f"{name(w)} beating {name(l)}"
+            return f"a loss to {name(names[w])}"
+        return f"{name(names[w])} beating {name(names[l])}"
 
-    items, helped, gone = "", [], []
-    for r in rows:
-        t = r["idx"]
-        status = race.status(t) if t in race.wins else None
-        if status == "out":
-            gone.append(t)
-            continue
-        if status == "clinched":
-            how = "Has clinched a spot."
+    told = " and ".join(said(w, l) for w, l in ways[0])
+    for way in ways[1:3]:
+        told += "; or with " + " and ".join(said(w, l) for w, l in way)
+    if len(ways) > 3:
+        others = len(ways) - 3
+        told += f"; or in {others} other {'way' if others == 1 else 'ways'}"
+    return f"with {told}"
+
+
+def _lead_text(path, name, names) -> str:
+    """The least its own games can do to put a team in, or that they cannot."""
+    games = path["games"]
+    n = len(games)
+    at = path["safe_at"]
+    if at is not None:
+        if at < n:
+            return (f"Clinches with {at} {'win' if at == 1 else 'wins'} in its last "
+                    f"{n} conference games.")
+        if n == 1:
+            return f"Clinches with a win over {name(names[games[0][1]])}."
+        return "Clinches by winning out."
+    if path["own"]:
+        def beats(term):
+            won = _and(name(names[o]) for o, w in term if w)
+            lost = _and(name(names[o]) for o, w in term if not w)
+            return " and ".join(x for x in (won and f"beating {won}",
+                                            lost and f"losing to {lost}") if x)
+        return "Clinches by " + "; or by ".join(beats(t) for t in path["own"][:3]) + "."
+    if not n:
+        return "Its conference games are done, and it needs help."
+    return "Needs help even if it wins out."
+
+
+def _way_text(way, watching, name, names) -> str:
+    def said(w, l):
+        if l in watching:
+            return f"{name(names[l])} losing to {name(names[w])}"
+        return f"{name(names[w])} beating {name(names[l])}"
+    return " and ".join(said(w, l) for w, l in way)
+
+
+def _tie_parts(tie, name, names, step_name, values=False) -> tuple:
+    """One way a team can tie, in words: who with, and how it comes out."""
+    def label(code):
+        said = step_name(code) if step_name else "tiebreakers"
+        return said if said.startswith("SportSource") else said[0].lower() + said[1:]
+
+    bits = []
+    if tie["ahead"]:
+        bits.append("behind " + _and(name(names[t]) for t in tie["ahead"]))
+    if tie["level"]:
+        bits.append("level with " + _and(name(names[t]) for t in tie["level"]))
+    who = ", ".join(bits)
+    verdict, code = tie["verdict"], tie["step"]
+    if verdict == "depends":
+        def result(w, l):
+            if w == tie["team"]:
+                return f"a win over {name(names[l])}"
+            if l == tie["team"]:
+                return f"a loss to {name(names[w])}"
+            return f"{name(names[w])} beating {name(names[l])}"
+
+        if tie["ways"]:
+            told = "; or with ".join(" and ".join(result(w, l) for w, l in way)
+                                     for way in tie["ways"])
+            rest = ("otherwise out" if tie["else"] == "out"
+                    else "otherwise it comes down to the last step")
+            why = f"in with {told}, {rest}"
         else:
-            parts = []
-            ways = race.this_week(t, week)
-            if ways:
-                parts.append("Clinches this week with " + "; or with ".join(
-                    " and ".join(said(t, w, l) for w, l in way) for way in ways[:3]) + ".")
-            if race.wins_out(t):
-                parts.append("Clinches by winning out.")
-            elif not ways and r["p"]["make_conf_title_game"] >= 0.01:
-                helped.append(t)
-            if not parts:
-                continue
-            how = " ".join(parts)
+            why = "depends on other results"
+    elif verdict == "open":
+        step = label(code) if code is not None else "other results"
+        why = f"comes down to {'the ' if step.startswith('SportSource') else ''}{step}"
+    else:
+        why = f"{verdict} on {label(code) if code is not None else 'tiebreakers'}"
+        if values and tie["shown"] and set(tie["shown"].values()) != {"0-0"}:
+            why += ": " + ", ".join(f"{html.escape(names[t])} {html.escape(v)}"
+                                    for t, v in tie["shown"].items())
+    return who, why
+
+
+def _ties_html(ties, label, name, names, step_name) -> str:
+    """The ties a finish can run into, each worked out, for a team's own page."""
+    words = {"in": "In", "out": "Out", "open": "Open", "depends": "Depends"}
+    items = ""
+    for tie in ties:
+        who, why = _tie_parts(tie, name, names, step_name, values=True)
+        # The tag already says in or out, or that it depends.
+        for said in ("in on ", "out on ", "depends "):
+            if why.startswith(said):
+                why = why[len(said):]
+                break
+        items += (f'<li class="{tie["verdict"]}"><b>{words[tie["verdict"]]}</b>'
+                  f'<span>{who[0].upper()}{who[1:]}<small>{why}</small></span></li>')
+    head = f'<div class="cl-past">{label}:</div>' if label else ""
+    listed = f'<ul class="cl-ties">{items}</ul>'
+    # A pile-up can tie a lot of ways, and it folds away rather than fill the page.
+    if len(ties) > 6:
+        listed = (f'<details class="cl-fold"><summary>All {len(ties)} ways it can tie</summary>'
+                  f'{listed}</details>')
+    return f"{head}{listed}"
+
+
+def _need_text(row, spots, name, names, chips=None, step_name=None) -> str:
+    """What a finish takes that is not in the team's own hands. ``chips`` draws
+    the teams to watch; without it they are named. Once few enough teams can get
+    there, ``row["ties"]`` has each tie worked out, and ``step_name`` names the
+    conference's steps."""
+    state = row["state"]
+    ties = row.get("ties") or []
+
+    def spelled(label):
+        """The ties themselves: a list on a team's page, a clause in a sentence."""
+        if not ties:
+            return ""
+        if chips:
+            return _ties_html(ties, label, name, names, step_name)
+        if len(ties) > 3:
+            return ""
+        clauses = "; ".join(", ".join(_tie_parts(t, name, names, step_name)) for t in ties)
+        return f" {label or 'That is'}: {clauses}."
+
+    if state == "in":
+        if row.get("on_ties"):
+            return "In, on tiebreakers." + spelled("")
+        return "In, whatever else happens."
+    if state == "out":
+        return "Out."
+    beats = row.get("beats")
+    must = _and(name(names[o]) for o in beats) if beats else ""
+    if state == "some":
+        said = f"In if it beats {must}." if beats else "In with the right wins."
+        return said + (" Otherwise it needs help." if row.get("otherwise") else " Otherwise it is out.")
+    first = f"Has to beat {must}. " if beats else ""
+    chasing = row.get("chasing") or []
+    already = row.get("already") or []
+    ways = row.get("ways")
+    beyond = row.get("beyond")
+    if ways:
+        told = "; or with ".join(_way_text(w, set(chasing) | set(already), name, names)
+                                 for w in ways)
+        last = " It can also get in if a tie reaches the last step." if beyond else ""
+        return f"{first}In with {told}.{last}" + (spelled("How the ties go") if chips else "")
+    room = spots - 1 - len(already)
+    if room < 0 or not chasing:
+        return f"{first}In only through a tiebreaker.{spelled('')}"
+    there = ""
+    if already:
+        have = _and(name(names[a]) for a in already)
+        there = f"{have} {'is' if len(already) == 1 else 'are'} already there. "
+    mark = _rec(row["record"]) if row.get("same_games") else None
+    better = f"{mark} or better" if mark else "level with it or better"
+    below = f"below {mark}" if mark else "below it"
+    named = [name(names[c]) for c in chasing]
+    drawn = chips(chasing) if chips else ""
+
+    def close(sentence, when, shown=""):
+        """The sure thing, then what happens if it does not come off: each tie
+        worked out where there are few enough, and otherwise what can be said
+        of them all."""
+        told = spelled(when)
+        if told:
+            return (f"{first}{there}{sentence}{shown}{told}" if chips
+                    else f"{first}{there}{sentence}{told}")
+        if beyond is None:
+            past = f" {when}, it comes down to tiebreakers."
+        elif beyond:
+            past = f" {when}, it can still get in on tiebreakers."
+        else:
+            past = f" {when}, it is out."
+        return f"{first}{there}{sentence}{past}{shown}"
+
+    if len(named) == 1:
+        return close(f"In if {named[0]} finishes {below}.", "If not")
+    if room >= 1 and len(named) == 2:
+        if chips:
+            return close(f"In if either of these finishes {below}.", "If neither does", drawn)
+        return close(f"In if {named[0]} or {named[1]} finishes {below}.", "If neither does")
+    few, when = ("no more than one", "If more do") if room >= 1 else ("none", "If any do")
+    if chips:
+        return close(f"In if {few} of these finishes {better}.", when, drawn)
+    if len(named) <= 6:
+        return close(f"In if {few} of {_and(named)} finishes {better}.", when)
+    return close(f"In if {few} of the {len(named)} teams that can get there does.", when)
+
+
+_CELL_SAID = {"in": "In, whatever else happens", "some": "In with the right wins",
+              "help": "Needs help", "out": "Out"}
+
+
+def _row_label(row) -> str:
+    n = row["losses"]
+    if not n:
+        return "Wins out" if row["wins"] else "Finishes"
+    return f"{n} loss" if n == 1 else f"{n} losses"
+
+
+def _clinch_group(race, teams, by_idx, fbs, week, names) -> str:
+    """One race as a grid: a team a row and a column for how many of its games
+    it loses from here, so who controls what reads straight down the first."""
+    def name(school):
+        return _team_link(school, fbs, 2)
+
+    conf = by_idx[teams[0]].conference
+    steps = lambda code: _step_title(conf, code, race.spots == 1)
+    paths = {t: race.path(t, week) for t in teams}
+    cols = 1
+    for p in paths.values():
+        if p:
+            live = [i for i, r in enumerate(p["rows"]) if r["state"] != "out"]
+            cols = max(cols, (live[-1] if live else 0) + 1)
+    head = "".join(f'<th class="num">{_row_label({"losses": i, "wins": 1})}</th>'
+                   for i in range(cols))
+    body = ""
+    for t in teams:
         team = by_idx[t]
         art = (f'<img src="{html.escape(team.logo)}" alt="" width="20" height="20">'
                if team.logo else '<span class="noart"></span>')
-        cls = ' class="in"' if status else ""
-        items += (f'<li{cls}><span class="cp-team">{art}'
-                  f'{_team_link(team.school, fbs, 2)}</span>'
-                  f'<span class="cp-how">{how}</span></li>\n')
+        abbr = html.escape(team.abbreviation or team.school)
+        who = (f'<a href="../../team/{slug(team.school)}/">{art}<span class="nm-full">'
+               f'{html.escape(team.school)}</span><span class="nm-abbr">{abbr}</span></a>')
+        now = _rec(race.conf_record(t))
+        p = paths[t]
+        if p is None:
+            body += (f'<tr class="cg-team"><td>{who}</td><td class="num cg-now">{now}</td>'
+                     f'<td class="cg-c in cg-all" colspan="{cols}">Clinched</td></tr>\n'
+                     f'<tr class="cg-say"><td colspan="{cols + 2}">In the title game however '
+                     f'the games left go.</td></tr>\n')
+            continue
+        cells = ""
+        for i in range(cols):
+            if i >= len(p["rows"]):
+                cells += '<td class="cg-c none"></td>'
+                continue
+            r = p["rows"][i]
+            label = _rec(r["record"])
+            said = _CELL_SAID[r["state"]]
+            cells += (f'<td class="cg-c {r["state"]}" title="{label}: {html.escape(said)}">'
+                      f'{label}</td>')
+        say = ""
+        if not (p["week"] and _last_week(p, week)):
+            say = _lead_text(p, name, names)
+            if not p["control"]:
+                top = next((r for r in p["rows"] if r["state"] != "out"), None)
+                if top:
+                    need = _need_text(top, race.spots, name, names, step_name=steps)
+                    say += f' At {_rec(top["record"])}: {_lower(need)}'
+        if p["week"]:
+            say += f' <b>Clinches this week</b> {_week_text(p["week"], t, name, names)}.'
+        body += (f'<tr class="cg-team"><td>{who}</td><td class="num cg-now">{now}</td>{cells}</tr>\n'
+                 f'<tr class="cg-say"><td colspan="{cols + 2}">{say}</td></tr>\n')
+    return (f'<div class="tablewrap"><table class="clinchgrid"><thead><tr><th>Team</th>'
+            f'<th class="num">Now</th>{head}</tr></thead>\n<tbody>{body}</tbody></table></div>\n')
+
+
+def _last_week(path, week) -> bool:
+    """Whether everything the team has left is this week's."""
+    return all(w == week for w, _ in path["games"])
+
+
+def _lower(text) -> str:
+    return text[0].lower() + text[1:] if text.startswith(("In ", "Has ")) else text
+
+
+def _clinch_html(race, rows, by_idx, fbs, week) -> str:
+    """What every team still in the title game race needs, from the results
+    alone, with the conference's tiebreakers, and who is out of it."""
+    if race is None:
+        return ""
+    names = {i: t.school for i, t in by_idx.items()}
+    order = [r["idx"] for r in rows if r["idx"] in race.ix]
+    status = {t: race.status(t) for t in order}
 
     def line(label, teams):
         return (f'<p class="cp-out">{label}: '
-                + ", ".join(_team_link(by_idx[i].school, fbs, 2) for i in teams) + ".</p>\n"
+                + _and(_team_link(names[i], fbs, 2) for i in teams) + ".</p>\n"
                 if teams else "")
 
-    rest = (line("Need help even if they win out", helped)
-            + line("Out of the race", gone))
-    if not items and not rest:
+    groups = [(None, order)]
+    if race.spots == 1:
+        divisions = sorted({d for d in race.div if d})
+        groups = [(d, [t for t in order if race.div[race.ix[t]] == d]) for d in divisions]
+    out = ""
+    for div, teams in groups:
+        alive = [t for t in teams if status[t] is None and race.games[t] and race.pools[race.ix[t]]]
+        locked = [t for t in teams if status[t] == "clinched"]
+        gone = [t for t in teams if status[t] == "out"]
+        if div:
+            out += f"<h3>{html.escape(div)}</h3>\n"
+        if alive:
+            out += _clinch_group(race, locked + alive, by_idx, fbs, week, names)
+        else:
+            out += line("Clinched", locked)
+        out += line("Out of the race", gone)
+    if not out:
         return ""
-    return ("<h2>Clinching scenarios</h2>\n"
-            + (f'<ul class="clinch">\n{items}</ul>\n' if items else "") + rest)
+    seen = {r["state"] for t in order for r in (race.path(t, week) or {"rows": ()})["rows"]}
+    key = "".join(f'<span class="cg-k {s}"><i></i>{html.escape(_CELL_SAID[s])}</span>'
+                  for s in ("in", "some", "help", "out") if s in seen)
+    legend = f'<p class="cg-key">{key}</p>\n' if key else ""
+    return f'<h2 id="clinching">Clinching scenarios</h2>\n{legend}{out}'
+
+
+def clinch_panel(state, team, week) -> str:
+    """A team's own scenarios: the least it needs, then each record it can
+    finish with and what that record takes. Nothing at all for a team that has
+    nothing left to clinch, so the page closes up around it."""
+    from . import clinch
+    if not has_conference(team):
+        return ""
+    race = clinch.conference_race(state, team.conference)
+    if race is None or team.idx not in race.ix:
+        return ""
+    path = race.path(team.idx, week)
+    if path is None:
+        return ""
+    fbs = {t.school for t in state.fbs_teams}
+    by_idx = {t.idx: t for t in state.teams}
+    names = {i: t.school for i, t in by_idx.items()}
+    conf = html.escape(team.conference)
+    school = html.escape(team.school)
+    t = team.idx
+    steps = lambda code: _step_title(team.conference, code, race.spots == 1)
+
+    def name(school):
+        return _link(school, fbs)
+
+    def chips(teams):
+        out = ""
+        for c in teams:
+            other = by_idx[c]
+            art = (f'<img src="{html.escape(other.logo)}" alt="" width="18" height="18">'
+                   if other.logo else "")
+            now = _rec(race.conf_record(c))
+            won, lost = race.met(t, c)
+            mark, said = "", ""
+            if won != lost:
+                mark = (f'<i class="{"w" if won > lost else "l"}">{"W" if won > lost else "L"}</i>')
+                said = f". {school} {'beat them' if won > lost else 'lost to them'}"
+            out += (f'<a class="cl-chip" href="../{slug(other.school)}/" '
+                    f'title="{html.escape(other.school)}, {now}{said}">{art}'
+                    f'{html.escape(other.abbreviation or other.school)}{mark}</a>')
+        return f'<span class="cl-chips">{out}</span>'
+
+    rows = ""
+    shown = path["rows"]
+    last = next((i for i, r in enumerate(shown) if r["state"] == "out"), None)
+    for i, r in enumerate(shown):
+        if last is not None and i > last:
+            break
+        rec = _rec(r["record"])
+        worse = last is not None and i == last and i < len(shown) - 1
+        label = f"{rec} or worse" if worse else rec
+        rows += (f'<li class="{r["state"]}"><b class="cl-rec">{label}</b>'
+                 f'<span class="cl-when">{_row_label(r)}</span>'
+                 f'<div class="cl-need">{_need_text(r, race.spots, name, names, chips, steps)}</div></li>\n')
+    lead = _lead_text(path, name, names)
+    week_line = (f'<p class="cl-week"><b>Week {week}</b> Clinches '
+                 f'{_week_text(path["week"], t, name, names)}.</p>' if path["week"] else "")
+    left = len(path["games"])
+    games = (f"{left} conference {'game' if left == 1 else 'games'} left" if left
+             else "no conference games left")
+    div = race.div[race.ix[t]]
+    where = f"{html.escape(div)} division, " if div else ""
+    now = _rec(race.conf_record(t))
+    race_slug = conf_slug(team.conference)
+    key = (f'<p class="cl-key">W and L are {school}\'s results against that team. '
+           f'Head-to-head is the first tiebreaker.</p>' if 'class="w"' in rows or 'class="l"' in rows
+           else "")
+    return f"""<section class="clinchpanel">
+<div class="blockhead"><h2>Reaching the {conf} title game</h2><span class="muted">{where}{now}, {games}</span></div>
+<div class="cl-body">
+<ol class="cl-rows">
+{rows}</ol>
+<div class="cl-side">
+<p class="cl-lead">{lead}</p>
+{week_line}
+{key}
+<p class="cl-more"><a href="../../conference/{race_slug}/#clinching">The whole {conf} race</a>
+<a href="../../conference/{race_slug}/#tiebreakers">How ties are broken</a></p>
+</div>
+</div>
+</section>"""
+
+
+def clinch_question(state, team, week, name):
+    """The question for a team that has something to clinch or just has. None
+    for one out of the race or with no race at all."""
+    from . import clinch
+    if not has_conference(team):
+        return None
+    race = clinch.conference_race(state, team.conference)
+    if race is None or team.idx not in race.ix:
+        return None
+    school = html.escape(team.school)
+    conf = html.escape(team.conference)
+    status = race.status(team.idx)
+    if status == "clinched":
+        return (f"Has {team.school} clinched a spot in the {team.conference} championship game?",
+                f"Yes. {school} is {_rec(race.conf_record(team.idx))} in the {conf} and is in the "
+                f"title game however the games left go.")
+    path = race.path(team.idx, week)
+    if path is None:
+        return None
+    names = {t.idx: t.school for t in state.teams}
+    answer = (f"{school} is {_rec(race.conf_record(team.idx))} in the {conf}. "
+              + _lead_text(path, name, names))
+    alive = [r for r in path["rows"] if r["state"] != "out"]
+    if not path["control"] and alive:
+        steps = lambda code: _step_title(team.conference, code, race.spots == 1)
+        need = _need_text(alive[0], race.spots, name, names, step_name=steps)
+        answer += f" At {_rec(alive[0]['record'])}: {_lower(need)}"
+    if path["week"]:
+        answer += f" It clinches this week {_week_text(path['week'], team.idx, name, names)}."
+    if len(alive) > 1:
+        answer += f" It can still get in at {_rec(alive[-1]['record'])}."
+    return (f"How can {team.school} clinch a spot in the {team.conference} championship game?",
+            answer)
 
 
 def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
@@ -1570,8 +2141,8 @@ from {_sims(n_sims)} simulated seasons.</p>
 {_clinch_html(race, rows, by_idx, fbs, week)}
 {matchups}
 {deciders}
-<h2>How the {html.escape(conf)} breaks ties</h2>
-{_tiebreak_html(conf, state.year)}
+<h2 id="tiebreakers">How the {html.escape(conf)} breaks ties</h2>
+{_tiebreak_html(conf, state.year, race, by_idx, fbs)}
 {_faq_html(conference_questions(state, conf, rows, pairs))}
 <p class="otherconfs">Other conferences: {others}</p>
 <p><a href="../../">Back to the guide</a></p>"""

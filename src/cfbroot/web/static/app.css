@@ -1086,19 +1086,129 @@ ol.pairs { list-style: none; margin: 4px 0 8px; padding: 0; font-stretch: 88%; }
       line-height: 1.5; vertical-align: 1px; }
 .cl.in { background: var(--up); color: var(--bg); }
 .cl.out { border: 1px solid var(--rule); color: var(--muted); }
-ul.clinch { list-style: none; margin: 4px 0 6px; padding: 0; }
-.clinch li { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: 2px 16px; align-items: baseline;
-             padding: 8px 0; border-bottom: 1px solid var(--rule-2); font-size: 15px; }
-.cp-team { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; }
-.cp-team img, .cp-team .noart { width: 20px; height: 20px; object-fit: contain; align-self: center; }
-.cp-team a { color: var(--ink); text-decoration: none; }
-.cp-team a:hover { text-decoration: underline; }
-.cp-how { color: var(--ink-2); }
-.clinch li.in .cp-how { color: var(--up); font-weight: 650; }
+/* The clinching grid: a team a row, a column for how many of its games it loses
+   from here. Solid is in, a diagonal is in with the right wins, a tint needs
+   help, and nothing at all is out. */
+body.info .intro p.cg-key { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 10px;
+                            font-size: 13px; line-height: 1.5; color: var(--muted); }
+.cg-k { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.cg-k i { width: 14px; height: 14px; border-radius: 3px; }
+.cg-k.in i { background: var(--up); }
+.cg-k.some i { background: linear-gradient(135deg, var(--up) 50%, color-mix(in srgb, var(--up) 18%, transparent) 50%); }
+.cg-k.help i { background: color-mix(in srgb, var(--up) 18%, transparent); }
+.cg-k.out i { border: 1px solid var(--rule); }
+body.info .intro table.clinchgrid { width: 100%; max-width: none; border-collapse: separate; border-spacing: 2px 0; }
+body.info .intro .clinchgrid th { padding: 0 0 5px; border-bottom: 1px solid var(--rule); font-size: 12px;
+                                  font-stretch: 86%; line-height: 1.2; white-space: nowrap; text-align: center; }
+body.info .intro .clinchgrid th:first-child { text-align: left; }
+body.info .intro .clinchgrid td { padding: 0; border-bottom: 0; }
+body.info .intro .clinchgrid tr.cg-team td { padding-top: 8px; vertical-align: middle; }
+.clinchgrid td a { font-weight: 650; }
+.clinchgrid .nm-abbr { display: none; }
+.clinchgrid .noart { display: inline-block; width: 20px; height: 20px; }
+body.info .intro .clinchgrid td.cg-now { padding-right: 6px; text-align: center; font-size: 13.5px; color: var(--muted);
+                                         font-variant-numeric: tabular-nums; white-space: nowrap; }
+body.info .intro .clinchgrid tr.cg-team td.cg-c { width: 58px; padding: 0; background-clip: content-box;
+  text-align: center; font-size: 13.5px; font-weight: 700; font-stretch: 84%; font-variant-numeric: tabular-nums;
+  line-height: 26px; }
+.clinchgrid td.cg-c.in { background-color: var(--up); color: var(--bg); }
+body.info .intro .clinchgrid tr.cg-team td.cg-c { border-top: 8px solid var(--bg); }
+.clinchgrid td.cg-c.some { color: var(--ink);
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--up) 42%, transparent) 50%, color-mix(in srgb, var(--up) 16%, transparent) 50%); }
+.clinchgrid td.cg-c.help { background-color: color-mix(in srgb, var(--up) 16%, transparent); color: var(--ink); }
+.clinchgrid td.cg-c.out { color: var(--muted); font-weight: 500; opacity: .75; }
+body.info .intro .clinchgrid tr.cg-say td { padding: 3px 0 9px; border-bottom: 1px solid var(--rule-2);
+                                            font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+body.info .intro .clinchgrid tr.cg-say td a { display: inline; color: inherit; font-weight: 500; }
+.clinchgrid tr.cg-say b { color: var(--up); font-weight: 720; }
 .cp-out { margin: 10px 0 0; color: var(--muted); font-size: 14.5px; }
 .cp-out a { color: var(--ink-2); }
-ol.tiebreak { margin: 6px 0 14px; padding-left: 22px; color: var(--ink-2); font-size: 15.5px; }
-ol.tiebreak li { margin-bottom: 4px; padding-left: 4px; }
+
+/* A team's own scenarios: the records it can finish with down the left, with
+   what each takes, and the least it needs on the right, lined up with the
+   columns of the block above. In the written section it is one column. */
+.clinchpanel { margin: 20px 0; }
+.clinchpanel .blockhead h2 { margin: 0; font-size: 19px; }
+.cl-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 40px; align-items: start; }
+#clinchslot .cl-body { grid-template-columns: minmax(0, 1fr) 340px; }
+#clinchslot .clinchpanel { margin: 0; }
+ol.cl-rows { list-style: none; margin: 0; padding: 0; }
+.cl-rows > li { display: grid; grid-template-columns: 6rem 4.4rem minmax(0, 1fr); gap: 2px 12px;
+  align-items: baseline; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--rule-2); }
+.cl-rec { justify-self: start; padding: 2px 8px; border-radius: 4px; font-size: 14.5px; font-weight: 760; font-stretch: 84%;
+          font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-rows > li.in .cl-rec { background: var(--up); color: var(--bg); }
+.cl-rows > li.some .cl-rec { background: linear-gradient(135deg, color-mix(in srgb, var(--up) 42%, transparent) 50%, color-mix(in srgb, var(--up) 16%, transparent) 50%); color: var(--ink); }
+.cl-rows > li.help .cl-rec { background: color-mix(in srgb, var(--up) 16%, transparent); color: var(--ink); }
+.cl-rows > li.out .cl-rec { padding-left: 0; color: var(--muted); font-weight: 600; }
+.cl-when { font-size: 13px; color: var(--muted); font-stretch: 90%; white-space: nowrap; }
+.cl-need { font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.cl-rows > li.out .cl-need { color: var(--muted); }
+.cl-need a:not(.cl-chip) { color: inherit; }
+.cl-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+/* Each tie a finish can run into, worked out. */
+.cl-past { margin-top: 8px; font-size: 13.5px; font-weight: 650; color: var(--ink-2); }
+ul.cl-ties, .writeup ul.cl-ties { list-style: none; margin: 4px 0 0; padding: 0; }
+.cl-ties li, .writeup .cl-ties li { display: grid; grid-template-columns: 3.6rem minmax(0, 1fr); gap: 0 8px;
+  align-items: baseline; margin: 0; padding: 4px 0; font-size: 14px; line-height: 1.4; }
+.cl-ties li + li { border-top: 1px solid var(--rule-2); }
+.cl-ties b { font-size: 12.5px; font-weight: 760; color: var(--muted); }
+.cl-ties li.in b { color: var(--up); }
+.cl-ties li.out b { color: var(--down); }
+.cl-ties small { display: block; font-size: 13px; color: var(--muted); }
+.cl-ties small a { color: inherit; }
+.cl-fold { margin-top: 4px; }
+.cl-fold summary { cursor: pointer; font-size: 13.5px; color: var(--ink-2); }
+.cl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 3px; border: 1px solid var(--rule);
+           border-radius: 4px; background: var(--raise); color: var(--ink); font-size: 12.5px; font-weight: 650;
+           font-stretch: 88%; text-decoration: none; line-height: 20px; }
+.cl-chip:hover { border-color: var(--ink-2); }
+.cl-chip i { margin-left: 2px; font-style: normal; font-size: 11px; font-weight: 800; }
+.cl-chip i.w { color: var(--up); }
+.cl-chip i.l { color: var(--down); }
+.cl-side p.cl-key { font-size: 13px; line-height: 1.4; color: var(--muted); }
+.cl-chip img, .writeup .cl-chip img { width: 18px; height: 18px; object-fit: contain; }
+.cl-side { padding-top: 12px; }
+.cl-side p, .writeup .cl-side p { margin: 0 0 10px; }
+.cl-side p.cl-lead { font-size: 18px; font-weight: 720; font-stretch: 88%; line-height: 1.3; color: var(--ink); }
+.cl-lead a { color: inherit; }
+.cl-side p.cl-week { font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.cl-week b { display: block; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.cl-week a { color: inherit; }
+.cl-side p.cl-more { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13.5px; }
+.cl-more a { color: var(--ink-2); }
+
+/* How ties break: the steps in order, then how they are run, then today's. */
+ol.tiebreak { list-style: none; counter-reset: tb; margin: 10px 0 14px; padding: 0; }
+ol.tiebreak li { counter-increment: tb; display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 8px;
+                 padding: 8px 0; border-bottom: 1px solid var(--rule-2); margin: 0; }
+ol.tiebreak li::before { content: counter(tb); grid-row: 1 / span 2; width: 22px; height: 22px; border-radius: 50%;
+                         display: grid; place-items: center; background: var(--ink); color: var(--bg);
+                         font-size: 12.5px; font-weight: 760; }
+ol.tiebreak b { color: var(--ink); font-size: 15.5px; font-weight: 720; font-stretch: 90%; }
+ol.tiebreak span { color: var(--ink-2); font-size: 14.5px; line-height: 1.45; }
+.tb-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.tb-two h3 { margin-top: 8px; }
+ul.tb-runs { margin: 0 0 8px; padding-left: 20px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+ul.tb-runs li { margin-bottom: 3px; }
+.tb-now { margin-top: 18px; padding: 12px 14px 4px; border: 1px solid var(--rule); border-radius: 6px; background: var(--raise); }
+body.info .intro .tb-now h3 { margin: 0 0 8px; }
+body.info .intro p.tt-seats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px;
+                              font-size: 15px; line-height: 1.45; font-weight: 650; }
+.tt-team { display: inline-flex; align-items: center; gap: 6px; }
+.tt-team a { color: var(--ink); }
+.tt { margin: 0 0 10px; }
+body.info .intro p.tt-head { margin: 0 0 4px; font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.tt-head a { color: inherit; font-weight: 650; }
+.tt ol { list-style: none; margin: 0; padding: 0; }
+.tt li { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1px 12px; align-items: baseline;
+         margin: 0; padding: 5px 0; border-top: 1px solid var(--rule-2); font-size: 14px; }
+.tt-step { color: var(--ink); font-weight: 680; font-stretch: 90%; }
+.tt-vals { display: flex; flex-wrap: wrap; gap: 2px 12px; grid-column: 2; color: var(--muted); }
+.tt-val.on { color: var(--ink); }
+.tt-val b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tt-said { grid-column: 2; color: var(--ink-2); }
+.tt-said a { color: var(--ink); font-weight: 650; }
 .otherconfs { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .otherconfs a { color: var(--ink); font-weight: 600; }
 
@@ -1505,7 +1615,16 @@ body.seasontab .guideonly { display: none; }
   .rankwrap { grid-template-columns: minmax(0, 1fr); }
   .fieldnow { margin-top: 26px; }
   .home-two .fieldnow { margin-top: 0; }
-  .clinch li { grid-template-columns: minmax(0, 1fr); }
+  #clinchslot .cl-body { grid-template-columns: minmax(0, 1fr); }
+  .cl-side { order: -1; }
+  .cl-rows > li { grid-template-columns: auto minmax(0, 1fr); }
+  .cl-need { grid-column: 1 / -1; }
+  .tb-two { grid-template-columns: minmax(0, 1fr); }
+  .tt li { grid-template-columns: minmax(0, 1fr); }
+  .tt-vals, .tt-said { grid-column: 1; }
+  .clinchgrid .nm-full { display: none; }
+  .clinchgrid .nm-abbr { display: inline; }
+  body.info .intro .clinchgrid tr.cg-team td.cg-c { width: 44px; font-size: 12.5px; }
   .br-head, .pod { grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); }
   .pod .ft { flex-wrap: wrap; padding: 6px 7px; gap: 0 5px; font-size: 14px; }
   .pod .ft small { flex-basis: 100%; margin: 0; padding: 0; }
