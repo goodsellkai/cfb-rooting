@@ -20,6 +20,9 @@ on:
     # 4:15pm Central. Two chances, since GitHub drops some scheduled starts;
     # in winter time these land an hour earlier, still after the poll.
     - cron: "5 22,23 * * 0"      # Sunday 5pm and 6pm Central
+    # The committee ranks on Tuesday evenings in November, and the simulation
+    # reads its ranking, so the odds wait on a build after it.
+    - cron: "5 2,3 * * 3"        # Tuesday 8pm and 9pm Central
   workflow_dispatch:
     inputs:
       minutes:

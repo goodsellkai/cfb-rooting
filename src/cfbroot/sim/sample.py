@@ -21,6 +21,7 @@ import numpy as np
 from .. import massey, selection
 from ..config import CCG_LOSS_SHARE, MAX_CONF_SIZE
 from ..data.season import TO_SIMULATE, SeasonState
+from ..lean import Lean, for_state, seen_week
 from . import kernels as K
 from .kernels import TBF_HOSTED, _order_conference, _title_game_pair
 
@@ -179,15 +180,27 @@ def committee_now(state: SeasonState, ki=None, weekly=None) -> dict | None:
     alone and with no committee noise, so there is one answer rather than a
     spread. Only weeks that are over count, so a Saturday half played does
     not move it. Conference leaders stand in for champions. None before the
-    committee would rank anyone, or once the title games are on.
+    committee would rank anyone.
+
+    Once the committee has published, its last ranking is carried in, so this
+    is its next one as the model expects it: ``since`` is the week of the
+    ranking it starts from when games have been played after it. With none
+    played since, it is the committee's own order.
+
+    Once every title game has been played it is the last ranking, the one the
+    field comes from: ``final``, with the champions in place of the leaders.
     """
-    week = state.current_week() - 1
-    if week not in poll_weeks(state):
+    week = seen_week(state)
+    cut = massey.selection_week(state)
+    final = cut is not None and week == cut
+    if not final and week not in poll_weeks(state):
         return None
     ki = ki if ki is not None else state.kernel_inputs()
+    known = for_state(state)
+    ahead = None if known.week is None else week + 1 - known.week
     p, mp = state.params, state.massey
-    sysw = (weekly or {}).get(week)
-    if sysw is None:
+    sysw = None if final else (weekly or {}).get(week)
+    if sysw is None and not final:
         games = [g for g in state.games if not g["is_ccg"]]
         sysw = massey.sim_system(state, games, state.fcs_games, ki.g_pwin, mp,
                                  through_week=week)
@@ -204,8 +217,11 @@ def committee_now(state: SeasonState, ki=None, weekly=None) -> dict | None:
         hpts[i], apts[i], winner[i] = g["home_points"], g["away_points"], g["status"]
         wins[g["home_idx"] if g["status"] == HOME_WON else g["away_idx"]] += 1
 
-    vals = _rate(sysw, ki, hpts, apts, mp, p)
-    by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
+    if final:
+        by_school, _ = massey.rate_selection_day(state, extra_games=state.fcs_games)
+    else:
+        vals = _rate(sysw, ki, hpts, apts, mp, p)
+        by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
     a = _ap_weight(week)
     if a > 0:
         spread = float(np.std(list(by_school.values()))) or 1.0
@@ -213,7 +229,18 @@ def committee_now(state: SeasonState, ki=None, weekly=None) -> dict | None:
         mean = float(np.mean(list(by_school.values())))
         by_school = {t: (1 - a) * v + a * (mean + prior[t])
                      for t, v in by_school.items()}
-    ranking = selection.rank_teams(state, by_school, through_week=week)
+    if ahead is not None and ahead >= 0:
+        carried = known.carried(ahead)
+        if final and ahead == 1 and known.holds:
+            carried = known.carried()
+            played = {s for pair in selection.title_game_pairs(state, week) for s in pair}
+            by_school = {t.school: by_school[t.school] if t.school in played
+                         else known.rated.get(t.idx, by_school[t.school]) for t in fbs}
+        by_school = {t.school: by_school[t.school] + carried.get(t.idx, 0.0)
+                     for t in fbs}
+    order = selection.rank_teams(state, by_school, through_week=week).order
+    if ahead == 0:
+        order = known.settle(order, {t.idx: t.school for t in fbs})
 
     # Standings with the kernel's own tiebreak code, as in a sample season.
     score = np.zeros(len(teams))
@@ -244,20 +271,25 @@ def committee_now(state: SeasonState, ki=None, weekly=None) -> dict | None:
                           int(ki.conf_tbflags[c.idx]), min(2, members.size),
                           order_buf, pct, mark, res)
         leaders[c.name] = teams[int(members[order_buf[0]])].school
+    if final:
+        for won, _ in selection.title_game_pairs(state, week):
+            leaders[state.team_by_name(won).conference] = won
 
     fmt = selection.playoff_format(state.year)
-    field = selection.pick_field(ranking.order, set(leaders.values()),
+    field = selection.pick_field(order, set(leaders.values()),
                                  {t.school: t.conference for t in fbs},
                                  rule=fmt.bids, n_byes=p.n_byes,
                                  champion_byes=fmt.champion_byes, top12=fmt.top12)
     idx = {t.school: t.idx for t in fbs}
     return _clean({
         "week": week,
-        "order": [idx[s] for s in ranking.order],
+        "since": known.week if ahead else None,
+        "final": final,
+        "order": [idx[s] for s in order],
         "field": [{"team": idx[s], "seed": i + 1, "bye": s in field.byes,
                    "how": field.auto.get(s, "")}
                   for i, s in enumerate(field.seeds)],
-        "out": [idx[s] for s in ranking.order if s not in field][:4],
+        "out": [idx[s] for s in order if s not in field][:4],
         "leaders": {c: idx[s] for c, s in leaders.items()},
     })
 
@@ -288,7 +320,16 @@ def sample_season(state: SeasonState, seed: int | None = None,
 
     # How this committee sees each team, drawn once for the season: a
     # committee that liked a team in October still likes it in November.
-    lean = {t.school: p.committee_sd * rng.normal() for t in teams if t.is_fbs}
+    # Where the real one has ranked the teams, that is carried in as well,
+    # less of it the further a week is from that ranking. A season replayed
+    # from the start is a different season, and takes none of it.
+    known = Lean() if from_start else for_state(state)
+    sd = p.committee_sd if from_start else ki.committee_sd
+    drawn = {t.school: sd * rng.normal() for t in teams if t.is_fbs}
+
+    def lean(steps):
+        carried = known.carried(steps)
+        return {t.school: drawn[t.school] + carried.get(t.idx, 0.0) for t in fbs}
 
     games = []
     for g in state.games:
@@ -437,7 +478,9 @@ def sample_season(state: SeasonState, seed: int | None = None,
             mean = float(np.mean(list(by_school.values())))
             by_school = {t: (1 - a) * v + a * (mean + prior[t])
                          for t, v in by_school.items()}
-        by_school = {t: v + lean[t] for t, v in by_school.items()}
+        # The ranking after week w carries the number w + 1.
+        seen = lean(0 if known.week is None else abs(w + 1 - known.week))
+        by_school = {t: v + seen[t] for t, v in by_school.items()}
         rank = selection.rank_teams(sim, by_school, through_week=w)
         polls[str(w)] = [by_name_idx[t] for t in rank.order[:POLL_DEPTH]]
 
@@ -456,9 +499,16 @@ def sample_season(state: SeasonState, seed: int | None = None,
     def rated(k):
         return (c0[k] + CCG_LOSS_SHARE * min(0.0, c1[k] - c0[k])) if loser[k] else c1[k]
     ratings = {t.school: float(rated(m.node[t.idx])) for t in fbs}
-    ratings = {t: v + lean[t] for t, v in ratings.items()}
+    if known.holds:
+        played = {teams[i].school for g in title_games for i in (g["home"], g["away"])}
+        ratings = {t.school: ratings[t.school] if t.school in played
+                   else known.rated.get(t.idx, ratings[t.school]) for t in fbs}
+    last = lean(None)
+    ratings = {t: v + last[t] for t, v in ratings.items()}
     ranking = selection.rank_teams(sim, ratings,
                                    through_week=massey.selection_week(sim))
+    if known.final:
+        ranking.order = known.settle(ranking.order, {t.idx: t.school for t in fbs})
     fmt = selection.playoff_format(state.year)
     field = selection.pick_field(ranking.order, champions,
                                  {t.school: t.conference for t in fbs},

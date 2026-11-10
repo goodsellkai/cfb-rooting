@@ -1081,8 +1081,10 @@ of victory counts, with diminishing returns past a comfortable win.</p></li>
 Starting from the rating, wins over good teams earn credit, losses to weak
 teams cost, a team stays above a close rival it beat, and conference
 champions move up. A conference title game loss counts for {quarter} of a
-regular-season loss. Each simulated season also draws its own version of the
-committee's judgment.</p></li>
+regular-season loss. Once the committee has published a ranking, where it
+places a team against the model is carried into every simulated season, less
+of it the more rankings are still to come. Each simulated season also draws
+its own version of the committee's judgment.</p></li>
 <li><h3>The field</h3>
 <p>Standings are settled with each conference's published tiebreakers and
 the title games are played. The field follows the {state.year} rules: the
@@ -1236,8 +1238,8 @@ def llms_txt(state, teams, n_sims) -> str:
         f"- [This week]({SITE_URL}/this-week/): the week's games ranked by "
         f"their effect on the playoff race",
         f"- [CFP rankings]({SITE_URL}/cfp-rankings/): the committee's top "
-        f"25, as the model expects it until the committee publishes its own, "
-        f"and the field if the season ended today",
+        f"25, or its next one as the model expects it once games have been "
+        f"played since, and the field if the season ended today",
         f"- [Methodology]({SITE_URL}/how-it-works/): the simulation, the "
         f"rating, the committee model and the bracket",
         f"- [Every team]({SITE_URL}/teams/): links to all {len(teams)} team "
@@ -2216,7 +2218,10 @@ def _races_home(state, league) -> str:
 #
 # The committee's top 25 as the model has it on the results so far. It is
 # the ranking a sample season shows for its weeks already played, with the
-# real scores and no committee noise.
+# real scores and no committee noise. The committee's own ranking takes its
+# place while that is current, and gives way again once a week of games has
+# finished after it: from then until the next one is published the page shows
+# that next one as the model expects it.
 
 def _cfp(state):
     """The committee's latest ranking, by team, and its week, once it has
@@ -2224,6 +2229,13 @@ def _cfp(state):
     ranks = (getattr(state, "polls", None) or {}).get("cfp") or {}
     week = (getattr(state, "poll_weeks", None) or {}).get("cfp")
     return ({int(i): int(r) for i, r in ranks.items()}, week) if ranks else ({}, None)
+
+
+def _ahead(state, projection) -> bool:
+    """Whether games have finished since the committee last ranked."""
+    ranks, _ = _cfp(state)
+    return bool(ranks and projection and projection.get("since")
+                and projection.get("order"))
 
 
 def _committee_field(state, projection, ranks):
@@ -2244,13 +2256,14 @@ def _committee_field(state, projection, ranks):
     idx = {s: i for i, s in names.items()}
     return {"field": [{"team": idx[s], "seed": k + 1, "bye": s in field.byes,
                        "how": field.auto.get(s, "")} for k, s in enumerate(field.seeds)],
-            "out": [idx[s] for s in order if s not in field][:4]}
+            "out": [idx[s] for s in order if s not in field][:4],
+            "final": (projection or {}).get("final")}
 
 
 def rankings_head(state, projection, n_sims, card=None):
     ranks, cfp_week = _cfp(state)
     url = f"{SITE_URL}/cfp-rankings/"
-    if ranks:
+    if ranks and not _ahead(state, projection):
         title = f"CFP rankings, week {cfp_week} ({state.year}) | {SITE_NAME}"
         desc = (f"The College Football Playoff committee's top 25, week "
                 f"{cfp_week}, the field if the season ended today and each "
@@ -2274,6 +2287,11 @@ def _field_html(projection, by_idx, fbs, depth=1) -> str:
     if len(field) != 12:
         return ""
     seed = {f["seed"]: f for f in field}
+    # After the title games there are champions, and the season has ended.
+    final = projection.get("final")
+    title = ("If the season ended today" if not final
+             else "The projected playoff field" if projection.get("since")
+             else "The playoff field")
 
     def team(f):
         t = by_idx[f["team"]]
@@ -2281,7 +2299,7 @@ def _field_html(projection, by_idx, fbs, depth=1) -> str:
                if t.logo else '<span class="noart"></span>')
         how = f["how"]
         if how.endswith(" champion"):
-            how = how[:-len(" champion")] + " leader"
+            how = how if final else how[:-len(" champion")] + " leader"
         elif how.startswith("highest ranked Group of Six"):
             how = "best Group of Six"
         elif how == "ranked in the top 12":
@@ -2305,7 +2323,7 @@ def _field_html(projection, by_idx, fbs, depth=1) -> str:
         else f'<li>{_team_link(by_idx[i].school, fbs, depth)}</li>'
         for i in projection.get("out") or [] if i in by_idx)
     return f"""<section class="fieldnow">
-<h2>If the season ended today</h2>
+<h2>{title}</h2>
 <div class="br-head" aria-hidden="true"><span>First round, at the higher seed</span>
 <span>First-round byes</span></div>
 <ol class="pods">{pods}</ol>
@@ -2316,16 +2334,18 @@ def _field_home(state, projection) -> str:
     """The field if the season ended today, on the front page: from the
     committee's ranking once it has one."""
     ranks, _ = _cfp(state)
-    if ranks and projection:
+    ahead = _ahead(state, projection)
+    if ranks and projection and not ahead:
         projection = _committee_field(state, projection, ranks)
     if not projection or len(projection.get("field") or []) != 12:
         return ""
     by_idx = {t.idx: t for t in state.teams}
     fbs = {t.school for t in state.fbs_teams}
+    link = "Projected CFP rankings" if ahead or not ranks else "CFP rankings"
     return ("<div>" + _field_html(projection, by_idx, fbs, depth=0)
             .replace("<h2>If the season ended today</h2>",
                      "<h2>The playoff if the season ended today</h2>")
-            + '<p class="foot"><a href="cfp-rankings/">CFP rankings</a></p></div>')
+            + f'<p class="foot"><a href="cfp-rankings/">{link}</a></p></div>')
 
 
 def rankings_body(state, projection, odds=()):
@@ -2339,7 +2359,8 @@ played for the committee to rank teams.</p>
     fbs = {t.school for t in state.fbs_teams}
     chance = dict(odds)
     now = datetime.now(timezone.utc)
-    if ranks:
+    ahead = _ahead(state, projection)
+    if ranks and not ahead:
         order = [i for i in sorted(ranks, key=ranks.get) if i in by_idx][:25]
         field = _committee_field(state, projection, ranks) if projection else None
         h1 = "CFP rankings"
@@ -2349,9 +2370,23 @@ played for the committee to rank teams.</p>
         order = [i for i in projection["order"] if i in by_idx][:25]
         field = projection
         h1 = "Projected CFP rankings"
-        said = (f"The committee's top 25 as the model expects it after week "
-                f"{projection['week']} of the {state.year} season. Updated "
+        last = projection.get("final")
+        said = (f"The committee's {('final ' if last else 'next ') if ahead else ''}"
+                f"top 25 as the model expects it after "
+                f"{'the title games' if last else 'week ' + str(projection['week'])} "
+                f"of the {state.year} season"
+                f"{', against its last ranking' if ahead else ''}. Updated "
                 f"{now:%B} {now.day}.")
+
+    def move(i, n):
+        was = ranks.get(i)
+        if was is None:
+            return '<td class="mv">new</td>'
+        if was == n:
+            return '<td class="mv"></td>'
+        way, mark = ("up", "&#9650;") if was > n else ("down", "&#9660;")
+        return (f'<td class="mv {way}" aria-label="{way} {abs(was - n)}">'
+                f'{mark}{abs(was - n)}</td>')
 
     rows = ""
     for n, i in enumerate(order, 1):
@@ -2362,10 +2397,12 @@ played for the committee to rank teams.</p>
         p = chance.get(t.school)
         odds = (_bar_cell(p, True) if p is not None
                 else '<td class="num"><b>-</b></td>')
-        rows += (f'<tr><td class="rk">{n}</td>'
+        rows += (f'<tr><td class="rk">{n}</td>{move(i, n) if ahead else ""}'
                  f'<td><a href="../team/{slug(t.school)}/">{art}{html.escape(t.school)}</a></td>'
                  f'<td class="num">{w}-{l}</td>{odds}</tr>\n')
-    head = ('<tr><th class="rk">Rank</th><th>Team</th><th class="num">Record</th>'
+    head = ('<tr><th class="rk">Rank</th>'
+            + ('<th class="mv">Move</th>' if ahead else "")
+            + '<th>Team</th><th class="num">Record</th>'
             '<th class="num">Final playoff odds</th></tr>')
 
     return f"""<h1>{h1}</h1>

@@ -113,6 +113,16 @@ class KernelInputs:
 
     massey: SimSystem               # the rating system fitted to this schedule
 
+    # The committee's latest ranking against the model's, as it counts on
+    # selection day, and the committee noise left once that is known.
+    lean: np.ndarray
+    committee_sd: float
+    h2h_depth: int
+    # Championship week: a team in no title game is rated as it was when the
+    # committee last ranked, which is held; hold says whether that is on.
+    held: np.ndarray
+    hold: bool
+
     n_teams: int
     n_conf: int
 
@@ -132,6 +142,9 @@ class SeasonState:
     # {"ap": {team index: rank}, "cfp": ...}, and which week each is from.
     polls: dict = field(default_factory=dict)
     poll_weeks: dict = field(default_factory=dict)
+    # The committee's last two rankings, {week: {team index: rank}}, which the
+    # simulation reads: see cfbroot.lean.
+    cfp_polls: dict = field(default_factory=dict)
     # Where the games came from: "ESPN", "CFBD", or "demo" for fake data.
     source: str = "demo"
     diagnostics: Diagnostics | None = None
@@ -304,6 +317,25 @@ class SeasonState:
                             or np.zeros((0, CR.N_STEPS)), dtype=np.int8).reshape(-1, CR.N_STEPS)
         conf_tbflags = np.array([c.tb_flags for c in self.conferences], dtype=np.int32)
 
+        from ..lean import for_state      # late: lean reads the rating, which reads this
+        known = for_state(self)
+        lean = np.zeros(n_teams, dtype=np.float64)
+        h2h_depth = p.h2h_depth
+        if known.final:
+            # The committee has picked the field, so its order stands: steps
+            # far wider than any rating apart, and no head to head pass to
+            # turn two of them round.
+            for i, place in known.poll.items():
+                lean[i] = 1000.0 - 10.0 * place
+            h2h_depth = 0
+        else:
+            for i, v in known.carried().items():
+                lean[i] = v
+        held = np.zeros(n_teams, dtype=np.float64)
+        if known.holds:
+            for i, v in known.rated.items():
+                held[i] = v
+
         return KernelInputs(
             rating=rating, conf_id=conf_id, div_id=div_id, is_fbs=is_fbs,
             g_home=g_home, g_away=g_away, g_neutral=g_neutral, g_conf=g_conf,
@@ -316,6 +348,8 @@ class SeasonState:
             conf_ccg_pts=conf_ccg_pts, conf_ccg_home=conf_ccg_home,
             conf_tb2=conf_tb2, conf_tbm=conf_tbm, conf_tbflags=conf_tbflags,
             massey=msys,
+            lean=lean, committee_sd=known.sd(p.committee_sd), h2h_depth=h2h_depth,
+            held=held, hold=bool(known.holds),
             n_teams=n_teams, n_conf=n_conf,
         )
 

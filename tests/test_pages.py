@@ -382,6 +382,56 @@ def test_the_rankings_page_shows_the_committee_once_it_ranks(season):
     assert said.index(first) < said.index(second)
     assert body.count('<li class="pod">') == 4
     assert "<title>CFP rankings, week 10" in head
+    assert 'class="mv' not in body
+
+
+def test_the_rankings_page_moves_ahead_of_the_committee_after_a_week_of_games(season):
+    """Once games have finished since the committee ranked, the page is its
+    next ranking as the model expects it, with each team's move from the last."""
+    from cfbroot.sim.sample import committee_now
+    proj = dict(committee_now(season), since=10)
+    order = list(proj["order"][:25])
+    was = [order[1], order[0]] + order[2:24]      # two swapped, one not ranked
+    saved = dict(season.polls), dict(season.poll_weeks)
+    try:
+        season.polls["cfp"] = {i: k + 1 for k, i in enumerate(was)}
+        season.poll_weeks["cfp"] = 10
+        body = pages.rankings_body(season, proj, [])
+        head = pages.rankings_head(season, proj, 2_500_000)
+        home = pages._field_home(season, proj)
+    finally:
+        season.polls.clear(), season.polls.update(saved[0])
+        season.poll_weeks.clear(), season.poll_weeks.update(saved[1])
+    names = {t.idx: t.school for t in season.teams}
+    said = text(body)
+    assert said.strip().startswith("Projected CFP rankings")
+    assert "next top 25" in said and "against its last ranking" in said
+    assert said.index(names[order[0]]) < said.index(names[order[1]])
+    assert body.count('<td class="rk">') == 25 and body.count('<td class="mv') == 25
+    assert body.count('class="mv up"') == 1 and body.count('class="mv down"') == 1
+    assert body.count('<td class="mv">new</td>') == 1
+    assert "<title>Projected CFP rankings after week" in head
+    assert ">Projected CFP rankings</a>" in home
+
+
+def test_after_the_title_games_the_field_has_champions(season):
+    from cfbroot.sim.sample import committee_now
+    proj = dict(committee_now(season), since=14, final=True)
+    saved = dict(season.polls), dict(season.poll_weeks)
+    try:
+        season.polls["cfp"] = {i: k + 1 for k, i in enumerate(proj["order"][:25])}
+        season.poll_weeks["cfp"] = 14
+        ahead = text(pages.rankings_body(season, proj, []))
+        out = text(pages.rankings_body(season, dict(proj, since=None), []))
+    finally:
+        season.polls.clear(), season.polls.update(saved[0])
+        season.poll_weeks.clear(), season.poll_weeks.update(saved[1])
+    assert "final top 25 as the model expects it after the title games" in ahead
+    assert "The projected playoff field" in ahead and "champion" in ahead
+    assert "leader" not in ahead and "If the season ended today" not in ahead
+    # and once the committee has picked it, it is the field
+    assert out.strip().startswith("CFP rankings") and "The playoff field" in out
+    assert "projected" not in out.lower()
 
 
 def test_the_sitemap_gives_a_card_where_there_is_one_and_no_false_date():

@@ -1222,6 +1222,12 @@ body.info .intro .rankwrap table { max-width: none; }
 table.rank25 td.rk, table.rank25 th.rk { width: 3.2rem; text-align: left; }
 table.rank25 td.rk { font-size: 19px; font-weight: 820; font-stretch: 70%; color: var(--ink);
                      font-variant-numeric: tabular-nums; }
+/* Places moved since the committee's last ranking, while the page is ahead of it. */
+table.rank25 .mv { width: 3rem; text-align: left; white-space: nowrap; }
+table.rank25 td.mv { font-size: 12px; font-weight: 700; font-stretch: 80%; color: var(--muted);
+                     font-variant-numeric: tabular-nums; }
+table.rank25 td.mv.up { color: var(--up); }
+table.rank25 td.mv.down { color: var(--down); }
 .fieldnow h2 { margin-top: 0; }
 .br-head, .pod { display: grid; grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr); }
 .br-head { padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-size: 12px;

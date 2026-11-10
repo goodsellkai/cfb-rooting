@@ -235,6 +235,30 @@ def title_game_jump(order: list[str], ratings: dict, results: list,
 # all of it as noise would swing seeds by five places.
 COMMITTEE_SD = 0.050
 
+# Once the committee has ranked the teams, where it differs from this model is
+# known, and most of it lasts. LEAN_SHARE is how much of a team's gap is carried
+# to the committee's next ranking, the one after and so on; the first entry is
+# the ranking itself. Carrying it takes the model from 3.1 places off the next
+# ranking to 1.6, and from 3.0 to 2.5 five rankings on, better in every season
+# when the share is picked on the others.
+#
+# LEAN_SD is the committee noise to go with it: the one that gives the best
+# odds of finishing inside the 4th, 8th, 12th, 16th and 25th places. It is
+# above COMMITTEE_SD because what is left after the carry is chance, where
+# much of the gap COMMITTEE_SD was set against was not. With no ranking to go
+# on the same score wants 0.12 or more.
+#
+# Both from every pair of committee polls in 2014-25 but 2020:
+# python -m cfbroot.lean.
+LEAN_SHARE = (1.0, 0.9, 0.8, 0.8, 0.7, 0.6)
+LEAN_SD = (0.0, 0.06, 0.07, 0.08, 0.08, 0.10)
+# The step into the last ranking is its own case, since only the title games
+# are played: a team in none of them keeps the place the committee gave it,
+# and the teams in them move by what the game does to their ratings. That is
+# 0.93 places off the last ranking over the seven seasons with title games
+# marked, against 1.02 for the ranking before it left as it was and 1.06 for
+# the carry above. The same noise suits it, 0.06, flat from 0.04 to 0.08.
+
 # Worst loss and best win, the way the committee talks about bad losses and
 # quality wins. Both use the same curve and the same size:
 #

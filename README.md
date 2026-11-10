@@ -116,6 +116,23 @@ The rating is not the ranking. Four things happen on top of it:
 4. **Title game jump.** A title game winner sitting just behind the team it
    beat moves ahead of it, when the ratings are within 0.1.
 
+**The committee's own ranking.** From its first ranking in November, where the
+committee places a team against the model is known, and most of that lasts. A
+team's gap is the rating of the team the model has at the committee's place,
+less its own. A share of it is added on selection day in every simulated
+season: 0.9 with one ranking still to come, 0.6 with five. Over every pair of
+committee polls in 2014-25 that takes the model from 3.1 places off the
+committee's next ranking to 1.6, and from 3.0 to 2.5 five rankings on, with
+the share for each season picked on the others. The noise goes with it: 0.06
+with one ranking to come and 0.10 with five, which is what gives the best
+odds of a team finishing inside the playoff places.
+
+In championship week only the title games are played, and the committee does
+not rank the other teams again. A team in no title game keeps the place it
+has, and the teams in one move by what the game does to their ratings: 0.93
+places off the last ranking, against 1.02 for leaving the ranking before it
+as it was. Once the last ranking is out, the field is the committee's.
+
 ## Conference races and the playoff field
 
 Conference standings go by conference winning percentage, and ties run through

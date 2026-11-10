@@ -33,6 +33,7 @@ python -m cfbroot.spread        # sigma and the rating-error curve
 python -m cfbroot.carry         # carry_gain and carry_offset
 python -m cfbroot.calibration   # home field, against closing lines
 python -m cfbroot.backtest      # the model against real committee polls
+python -m cfbroot.lean          # LEAN_SHARE and LEAN_SD, the committee's ranking carried in
 ```
 
 Environment: `CFBROOT_SIMS`, `CFBROOT_REPLAY_SIMS`, `CFBROOT_SAMPLES`,
@@ -183,12 +184,36 @@ section that stays on screen after the app loads and is what crawlers read.
   fixed answer. Its "if the season ended today" field gives the automatic
   bids to the current conference leaders. Once the committee publishes, the
   rankings page shows its top 25 instead (`state.polls["cfp"]`), and the
-  field is picked from that order, the model's below it.
-- **Sunday has a build after the AP poll.** Polls are shown, never used by
-  the model, and the AP's lands on Sunday afternoon, so `pages.yml` runs at 5pm
-  and 6pm Central on Sundays to put it on the site. The loader looks for the
-  newest poll from one week past the current one, since the poll after a
-  week's games carries the next week's number.
+  field is picked from that order, the model's below it. That lasts until a
+  week of games has finished after it. From then until the next ranking the
+  page is that next ranking as the model expects it, with each team's move
+  from the last one (Kai asked for the switch, with as little text as
+  possible); `projection["since"]` is what says so, and a republish copies it.
+  It goes on past the title games: once every one is played the projection
+  is the last ranking (`final`), with champions for leaders, until the
+  committee publishes it. `lean.seen_week()` is the last finished week for
+  all of this, since `current_week()` jumps to Army-Navy's once the regular
+  season ends.
+- **The simulation reads the committee's ranking.** `lean.py` turns the
+  latest one into a gap per team, the rating of the team the model has at
+  the committee's place less the team's own, and a share of it
+  (`LEAN_SHARE`, by rankings still to come) is added to the team's rating on
+  selection day in the kernel, in a sample season and in `committee_now()`.
+  The committee noise becomes `LEAN_SD`, which is higher than `COMMITTEE_SD`
+  because what is left after the carry is chance. A ranking numbered past the
+  week being played has seen games the state has not, so the run that values
+  last week's games takes the ranking before it (`state.cfp_polls` holds the
+  last two). `backtest` empties `cfp_polls`, since it checks the model alone.
+  A new ranking needs a full build; a republish only copies the projection.
+  Championship week is its own case (`Lean.holds`): a team in no title game
+  keeps the rating it was last ranked on plus its whole gap, and only the
+  teams in a title game move. Once the last ranking is out (`Lean.final`) its
+  order stands in every simulated season, so the field is the real one.
+- **Sunday has a build after the AP poll, Tuesday one after the committee's.**
+  The AP's is shown and never used; it lands on Sunday afternoon, so
+  `pages.yml` runs at 5pm and 6pm Central on Sundays to put it on the site.
+  The loader looks for the newest poll from one week past the current one,
+  since the poll after a week's games carries the next week's number.
 - **The model's record is private.** Each full build runs `cfbroot.track` into
   a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,

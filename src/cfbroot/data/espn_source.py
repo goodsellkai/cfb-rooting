@@ -205,3 +205,19 @@ def latest_poll(year: int, poll: int, from_week: int = 20, *,
     blob = cache.get_or_fetch("espn_latest_poll", {"year": year, "poll": poll},
                               TTL_POLLS, go, force=force)
     return int(blob["week"]), blob["ranks"]
+
+
+def poll_at(year: int, poll: int, week: int, *, force: bool = False) -> dict:
+    """One week's poll, {espn team id: rank}. Raises if there was none."""
+    def go() -> dict:
+        d = _get(POLL_URL.format(year=year, week=week, poll=poll))
+        ranks = {}
+        for r in d.get("ranks") or []:
+            ref = (r.get("team") or {}).get("$ref", "")
+            tid = ref.split("teams/")[-1].split("?")[0]
+            if tid.isdigit() and r.get("current"):
+                ranks[tid] = int(r["current"])
+        return ranks
+
+    return cache.get_or_fetch("espn_poll_at", {"year": year, "poll": poll, "week": week},
+                              TTL_POLLS, go, force=force)

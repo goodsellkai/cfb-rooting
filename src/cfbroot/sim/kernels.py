@@ -424,7 +424,7 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                    total_base, total_slope, total_sd,
                    gof_k, gof_c, gof_q, mov_w, mov_flat,
                    prior_sd, prior_games, fit_tol, fit_max_iter,
-                   corr_sd, corr_passes, committee_sd, jump_margin,
+                   corr_sd, corr_passes, committee_sd, lean, hold, held, jump_margin,
                    worst_loss, worst_loss_scale, best_win, best_win_scale,
                    h2h_depth,
                    n_byes, bid_rule, champion_byes, nd_idx,
@@ -640,8 +640,11 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
             # 5. The rating, as massey.rate_selection_day() does it: two
             # fits, one with the title games and the one above without. A
             # title game loser takes the one without, moved a quarter of the
-            # way toward the one with (CCG_LOSS_SHARE), and only ever down. A
-            # nudge on top stands in for the committee's own variability.
+            # way toward the one with (CCG_LOSS_SHARE), and only ever down.
+            # Then what the committee's last ranking says of the team, and a
+            # nudge that stands in for the committee's own variability. In
+            # championship week a team in no title game is not ranked again,
+            # so it keeps the rating it was last ranked on.
             _selection_rating(n_g, m_in_fit, m_hn, m_an, g_at_home, gval,
                               hpts, apts, m_xh, m_xa, m_xhome, m_xg, m_xwon,
                               cc_h, cc_a, cc_home, cc_g, cc_won, n_cc, cc_of,
@@ -654,6 +657,9 @@ def simulate_batch(n_sims, sims_per_chunk, seed,
                 t = fbs_idx[j]
                 k = m_node[t]
                 v = c0[k] + CCG_LOSS_SHARE * min(0.0, c1[k] - c0[k]) if loser[k] else c1[k]
+                if hold and in_ccg[t] == 0:
+                    v = held[t]
+                v += lean[t]
                 if committee_sd > 0.0:
                     v += committee_sd * np.random.normal(0.0, 1.0)
                 final[t] = v

@@ -175,6 +175,7 @@ def massey_ranking(state, use_scores: bool = True) -> dict[str, int]:
 def run_year(year: int) -> None:
     state = load_season(year)
     state.params = dataclasses.replace(state.params, rating_sd=0.0)
+    state.cfp_polls = {}        # the model alone is what is being checked
     ranks, champs = proxy_ranking(state)
     conference_of = {t.school: t.conference for t in state.fbs_teams}
 
