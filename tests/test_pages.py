@@ -649,3 +649,42 @@ def test_a_tie_worked_out_says_who_and_how():
     assert pages._tie_parts(unsaid, str, names, steps)[1] == "depends on other results"
     last = dict(tied, verdict="open", step=7, ways=None)
     assert pages._tie_parts(last, str, names, steps)[1] == "comes down to capped scoring margin"
+
+
+def test_a_week_says_what_every_way_shares_once():
+    names = {1: "Miami", 2: "Duke", 3: "Georgia Tech", 4: "Clemson", 5: "North Carolina",
+             6: "Louisville", 7: "Wake Forest", 8: "SMU"}
+    ways = [[(1, 2), (3, 4), (5, 6)], [(1, 2), (7, 8), (5, 6)]]
+    assert pages._week_text(ways, 1, str, names) == (
+        "with a win over Duke, North Carolina beating Louisville, and either "
+        "Georgia Tech beating Clemson or Wake Forest beating SMU")
+    assert pages._week_text([[(1, 2)]], 1, str, names) == "with a win over Duke"
+    assert pages._week_text([[(2, 1)], [(3, 4)]], 1, str, names, more=True) == (
+        "with either a loss to Duke or Georgia Tech beating Clemson; or in other ways")
+    # nothing shared: each way stands alone
+    assert pages._week_text([[(1, 2), (3, 4)], [(5, 6), (7, 8)]], 1, str, names) == (
+        "with a win over Duke and Georgia Tech beating Clemson; or with "
+        "North Carolina beating Louisville and Wake Forest beating SMU")
+
+
+def test_a_week_is_drawn_as_results_with_the_either_ones_boxed(season):
+    by_idx = {t.idx: t for t in season.teams}
+    a, b, c, d, e, f = [t.idx for t in season.fbs_teams[:6]]
+    out = pages._recipe([[(a, b), (c, d)], [(a, b), (e, f)]], a, by_idx,
+                        lambda school: f"../{pages.slug(school)}/")
+    assert out.count('class="rs own"') == 1 and out.count('class="rs"') == 2
+    assert out.index('class="rs own"') < out.index('class="rs-any"')
+    assert "<em>and either</em>" in out
+    assert f'href="../{pages.slug(by_idx[b].school)}/"' in out
+
+
+def test_the_conference_page_folds_every_scenario_under_each_team(season):
+    conf = next(t.conference for t in season.fbs_teams if pages.has_conference(t))
+    race = clinch.conference_race(season, conf)
+    alive = [t for t in race.teams if race.path(t, 1)]
+    rows = [{"idx": t.idx, "team": t.school} for t in season.fbs_teams if t.conference == conf]
+    by_idx = {t.idx: t for t in season.teams}
+    body = pages._clinch_html(race, rows, by_idx, {t.school for t in season.fbs_teams}, 1)
+    assert body.count('<details class="cg-more">') == len(alive)
+    assert body.count('<ol class="cl-rows">') == len(alive)
+    assert "<details class=\"cg-more\" open" not in body

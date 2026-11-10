@@ -368,6 +368,10 @@ function roundName(g) {
 
 function renderBoard(stage, recs) {
   $("s-boardnote").textContent = "";
+  // Only a week of games folds away; the field and the bracket are the page.
+  const folds = stage.kind !== "selection" && stage.kind !== "round";
+  $("s-fold").hidden = !folds;
+  $("s-board").closest("section").classList.toggle("canfold", folds);
   if (stage.kind === "selection") return renderSelection(recs);
   if (stage.kind === "round") return renderBracket();
   $("s-boardtitle").textContent = stage.kind === "ccg" ? "Conference championships" : stage.label;
@@ -629,6 +633,20 @@ $("s-next").addEventListener("click", () => { stopPlaying(); setStage(STAGE + 1)
 $("s-stage").addEventListener("input", (e) => { stopPlaying(); setStage(Number(e.target.value)); });
 $("s-conf").addEventListener("change", () => renderSeason());
 $("s-right").addEventListener("change", () => renderSeason());
+// On a narrow screen the standings sit under the week's games, a long way
+// down, so the games fold away and stay folded from week to week.
+function foldGames(folded) {
+  $("s-board").closest("section").classList.toggle("folded", folded);
+  $("s-fold").setAttribute("aria-expanded", String(!folded));
+  $("s-fold").textContent = folded ? "Show games" : "Hide games";
+}
+$("s-fold").addEventListener("click", () => {
+  const folded = $("s-fold").getAttribute("aria-expanded") === "true";
+  foldGames(folded);
+  try { localStorage.setItem("cfbroot.fold", folded ? "1" : ""); } catch { /* private mode */ }
+});
+try { foldGames(localStorage.getItem("cfbroot.fold") === "1"); } catch { /* private mode */ }
+
 document.addEventListener("keydown", (e) => {
   if ($("seasonview").hidden || !SEASON || e.target.matches("input, select, textarea")) return;
   if (e.key === "ArrowRight") { stopPlaying(); setStage(STAGE + 1); }

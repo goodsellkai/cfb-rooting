@@ -1120,7 +1120,40 @@ body.info .intro .clinchgrid tr.cg-team td.cg-c { border-top: 8px solid var(--bg
 body.info .intro .clinchgrid tr.cg-say td { padding: 3px 0 9px; border-bottom: 1px solid var(--rule-2);
                                             font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 body.info .intro .clinchgrid tr.cg-say td a { display: inline; color: inherit; font-weight: 500; }
-.clinchgrid tr.cg-say b { color: var(--up); font-weight: 720; }
+.clinchgrid tr.cg-say .cg-week b { color: var(--up); font-weight: 720; }
+.clinchgrid tr.cg-say .cg-week.out b { color: var(--down); }
+.cg-week { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+.cg-week .recipe { margin-top: 0; }
+body.info .intro p.cg-wk { display: flex; flex-wrap: wrap; gap: 2px 18px; margin: 6px 0 4px; font-size: 14.5px;
+                           color: var(--ink-2); }
+.cg-wk > b { color: var(--ink); }
+.cg-wk span b { font-weight: 650; }
+.cg-wk a { color: inherit; }
+/* Every record a team can finish with, behind a fold so the grid stays a grid. */
+.cg-more { margin-top: 6px; }
+.cg-more summary { cursor: pointer; width: fit-content; font-size: 13px; font-weight: 600; color: var(--muted); }
+.cg-more summary:hover, .cg-more[open] summary { color: var(--ink); }
+body.info .intro .cg-more ol.cl-rows { margin: 4px 0 2px; padding: 0; }
+body.info .intro .clinchgrid tr.cg-say td a.cl-chip,
+body.info .intro .clinchgrid tr.cg-say td .rs a { display: inline-flex; color: var(--ink); font-weight: 650; }
+/* A week's results to look for. A result is the winner over the loser, and a
+   dashed box holds the ones any one of which will do. */
+.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; }
+.rs { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 4px; border: 1px solid var(--rule);
+      border-radius: 5px; background: var(--raise); font-size: 12.5px; font-weight: 650; font-stretch: 88%;
+      line-height: 20px; white-space: nowrap; }
+.rs.own { box-shadow: inset 3px 0 0 var(--mark); padding-left: 7px; }
+.rs a, .writeup .rs a { display: inline-flex; align-items: center; gap: 3px; color: var(--ink); text-decoration: none; }
+.rs a:hover { text-decoration: underline; }
+.rs i { font-style: normal; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.rs i + a, .writeup .rs i + a { color: var(--ink-2); font-weight: 500; }
+.rs img, .writeup .rs img { width: 16px; height: 16px; object-fit: contain; }
+.rs-any { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 3px 6px;
+          border: 1px dashed color-mix(in srgb, var(--ink-2) 45%, transparent); border-radius: 7px; }
+.rs-any em, .rs-any small { font-style: normal; font-size: 12px; font-weight: 600; color: var(--muted); }
+.rs-all { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 2px; border-radius: 6px;
+          background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.rs-all > b, .clinchgrid tr.cg-say .cg-week .rs-all > b { font-size: 12px; font-weight: 700; color: var(--muted); }
 .cp-out { margin: 10px 0 0; color: var(--muted); font-size: 14.5px; }
 .cp-out a { color: var(--ink-2); }
 
@@ -1172,9 +1205,11 @@ ul.cl-ties, .writeup ul.cl-ties { list-style: none; margin: 4px 0 0; padding: 0;
 .cl-side p, .writeup .cl-side p { margin: 0 0 10px; }
 .cl-side p.cl-lead { font-size: 18px; font-weight: 720; font-stretch: 88%; line-height: 1.3; color: var(--ink); }
 .cl-lead a { color: inherit; }
-.cl-side p.cl-week { font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.cl-side .cl-week { margin: 0 0 10px; font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
 .cl-week b { display: block; font-size: 12.5px; font-weight: 700; color: var(--muted); }
-.cl-week a { color: inherit; }
+.cl-side .cl-week p, .writeup .cl-side .cl-week p { margin: 4px 0 8px; }
+.cl-wk { display: block; font-size: 13.5px; font-weight: 700; color: var(--up); }
+.cl-wk.out { color: var(--down); }
 .cl-side p.cl-more { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13.5px; }
 .cl-more a { color: var(--ink-2); }
 
@@ -1353,6 +1388,8 @@ body.seasontab .guideonly { display: none; }
                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .seasongrid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 0 40px; align-items: start; }
+/* Shown once the standings drop below the games. */
+.foldbtn { display: none; padding: 3px 10px; font-size: 13px; }
 
 /* scoreboard */
 .gamegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
@@ -1459,6 +1496,9 @@ body.seasontab .guideonly { display: none; }
   .rail { position: static; max-height: none; }
   .leaguewrap { max-height: 70vh; }
   .seasongrid { grid-template-columns: minmax(0, 1fr); }
+  .foldbtn:not([hidden]) { display: inline-flex; }
+  .block.canfold.folded > #s-board { display: none; }
+  .block.canfold.folded { margin-bottom: 0; }
   .hero { grid-template-columns: minmax(0, 1fr); }
   .home-two { grid-template-columns: minmax(0, 1fr); gap: 28px; }
 }

@@ -1547,6 +1547,11 @@ def _race_questions(state, conf):
         if ways:
             out.append((f"Who can clinch a spot in the {conf} championship game in "
                         f"week {week}?", " ".join(ways)))
+        going = [names[t] for t in ordered
+                 if (race.path(t, week) or {}).get("out_week")]
+        if going:
+            out.append((f"Who can be eliminated from the {conf} title race in week {week}?",
+                        f"{_and(going)} can be out of the race with this week's results."))
     rules = title_rules(conf, state.year)
     titles = [_step_title(conf, c, bool(rules.divisions)) for c in rules.multi]
     order = ", then ".join(t if t.startswith(("SportSource", "Head")) else t.lower()
@@ -1653,8 +1658,26 @@ def _rec(record) -> str:
     return f"{record[0]}-{record[1]}"
 
 
-def _week_text(ways, t, name, names) -> str:
-    """The results that clinch it for a team this week: "with a win over X"."""
+MAX_WEEK_WAYS = 3       # ways a week can do it that are spelled out
+MAX_WEEK_EITHER = 5     # or single results, any one of which finishes it
+
+
+def _factor(ways, t) -> tuple:
+    """A week's ways as the results every one of them needs, the team's own
+    game first, and what each needs past those. Said once, "a win over Duke"
+    does not have to open every way."""
+    if not ways:
+        return [], []
+    common = [r for r in ways[0] if all(r in w for w in ways[1:])]
+    common.sort(key=lambda r: t not in r)
+    rest = [sorted((r for r in w if r not in common), key=lambda r: t not in r)
+            for w in ways]
+    return common, rest if all(rest) else []
+
+
+def _week_text(ways, t, name, names, more=False) -> str:
+    """The results that do it for a team this week: "with a win over X".
+    ``more`` says the ways given are not all there are."""
     def said(w, l):
         if w == t:
             return f"a win over {name(names[l])}"
@@ -1662,13 +1685,74 @@ def _week_text(ways, t, name, names) -> str:
             return f"a loss to {name(names[w])}"
         return f"{name(names[w])} beating {name(names[l])}"
 
-    told = " and ".join(said(w, l) for w, l in ways[0])
-    for way in ways[1:3]:
-        told += "; or with " + " and ".join(said(w, l) for w, l in way)
-    if len(ways) > 3:
-        others = len(ways) - 3
-        told += f"; or in {others} other {'way' if others == 1 else 'ways'}"
-    return f"with {told}"
+    common, options = _factor(ways, t)
+    parts = [said(w, l) for w, l in common]
+    single = all(len(o) == 1 for o in options)
+    shown = options[:MAX_WEEK_EITHER if single else MAX_WEEK_WAYS]
+    alts = [" and ".join(said(w, l) for w, l in o) for o in shown]
+    others = len(options) - len(shown)
+    tail = ""
+    if others:
+        tail = f"; or in {others} other {'way' if others == 1 else 'ways'}"
+    elif more:
+        tail = "; or in other ways"
+    if not alts:
+        return "with " + _and(parts) + tail
+    if single:
+        either = ("either " if len(alts) == 2 else "one of ") + _or(alts)
+    elif parts:
+        either = "either " + "; or ".join(alts)
+    else:
+        either = "; or with ".join(alts)
+    if not parts:
+        return f"with {either}{tail}"
+    return "with " + ", ".join(parts) + f", and {either}{tail}"
+
+
+def _or(items) -> str:
+    items = list(items)
+    return items[0] if len(items) < 2 else ", ".join(items[:-1]) + " or " + items[-1]
+
+
+def _recipe(ways, t, by_idx, href, more=False) -> str:
+    """The same week as a row of results to look for: what every way needs,
+    then a box of the ones any one of which finishes it."""
+    def side(i):
+        team = by_idx[i]
+        art = (f'<img src="{html.escape(team.logo)}" alt="" width="16" height="16">'
+               if team.logo else "")
+        short = html.escape(team.abbreviation or team.school)
+        return (f'<a href="{href(team.school)}" title="{html.escape(team.school)}">'
+                f'{art}{short}</a>')
+
+    def result(w, l):
+        return (f'<span class="rs{" own" if t in (w, l) else ""}">{side(w)}'
+                f'<i>over</i>{side(l)}</span>')
+
+    common, options = _factor(ways, t)
+    single = all(len(o) == 1 for o in options)
+    shown = options[:MAX_WEEK_EITHER if single else MAX_WEEK_WAYS]
+    out = "".join(result(w, l) for w, l in common)
+    if shown:
+        boxes = "".join(
+            result(*o[0]) if len(o) == 1
+            else '<span class="rs-all">' + "<b>+</b>".join(result(w, l) for w, l in o) + "</span>"
+            for o in shown)
+        others = len(options) - len(shown)
+        extra = (f'<small>or {others} more</small>' if others
+                 else "<small>or other ways</small>" if more else "")
+        label = ("and " if common else "") + ("either" if len(shown) == 2 and not others
+                                               else "one of")
+        out += f'<span class="rs-any"><em>{label}</em>{boxes}{extra}</span>'
+    elif more:
+        out += '<span class="rs-any"><small>or other ways</small></span>'
+    return f'<span class="recipe">{out}</span>'
+
+
+def _out_ways(path) -> tuple:
+    """The shortest ways this week ends a team's race, and whether there are more."""
+    ways = sorted(path.get("out_week") or [], key=len)
+    return ways[:MAX_WEEK_WAYS], len(ways) > MAX_WEEK_WAYS
 
 
 def _lead_text(path, name, names) -> str:
@@ -1909,8 +1993,17 @@ def _clinch_group(race, teams, by_idx, fbs, week, names) -> str:
                 if top:
                     need = _need_text(top, race.spots, name, names, step_name=steps)
                     say += f' At {_rec(top["record"])}: {_lower(need)}'
+        href = lambda school: f"../../team/{slug(school)}/"
         if p["week"]:
-            say += f' <b>Clinches this week</b> {_week_text(p["week"], t, name, names)}.'
+            say += (f'<div class="cg-week"><b>Clinches this week with</b>'
+                    f'{_recipe(p["week"], t, by_idx, href)}</div>')
+        gone, more = _out_ways(p)
+        if gone:
+            say += (f'<div class="cg-week out"><b>Out this week with</b>'
+                    f'{_recipe(gone, t, by_idx, href, more)}</div>')
+        rows = _clinch_rows(race, t, p, by_idx, names, name, href, steps)
+        say += (f'<details class="cg-more"><summary>Every scenario</summary>'
+                f'<ol class="cl-rows">\n{rows}</ol></details>')
         body += (f'<tr class="cg-team"><td>{who}</td><td class="num cg-now">{now}</td>{cells}</tr>\n'
                  f'<tr class="cg-say"><td colspan="{cols + 2}">{say}</td></tr>\n')
     return (f'<div class="tablewrap"><table class="clinchgrid"><thead><tr><th>Team</th>'
@@ -1958,11 +2051,56 @@ def _clinch_html(race, rows, by_idx, fbs, week) -> str:
         out += line("Out of the race", gone)
     if not out:
         return ""
-    seen = {r["state"] for t in order for r in (race.path(t, week) or {"rows": ()})["rows"]}
+    paths = {t: race.path(t, week) for t in order}
+    seen = {r["state"] for p in paths.values() if p for r in p["rows"]}
     key = "".join(f'<span class="cg-k {s}"><i></i>{html.escape(_CELL_SAID[s])}</span>'
                   for s in ("in", "some", "help", "out") if s in seen)
     legend = f'<p class="cg-key">{key}</p>\n' if key else ""
-    return f'<h2 id="clinching">Clinching scenarios</h2>\n{legend}{out}'
+    can_in = [t for t in order if paths[t] and paths[t]["week"]]
+    can_out = [t for t in order if paths[t] and paths[t].get("out_week")]
+    told = "".join(
+        f'<span>{label} <b>{_and(_team_link(names[i], fbs, 2) for i in teams)}</b></span>'
+        for label, teams in (("Can clinch:", can_in), ("Can be eliminated:", can_out)) if teams)
+    this = f'<p class="cg-wk"><b>Week {week}</b>{told}</p>\n' if told else ""
+    return f'<h2 id="clinching">Clinching scenarios</h2>\n{this}{legend}{out}'
+
+
+def _clinch_rows(race, t, path, by_idx, names, name, href, steps) -> str:
+    """Every record a team can finish with and what that record takes, as
+    list items. ``href`` is where a team's page is from the page being
+    written."""
+    school = html.escape(by_idx[t].school)
+
+    def chips(teams):
+        out = ""
+        for c in teams:
+            other = by_idx[c]
+            art = (f'<img src="{html.escape(other.logo)}" alt="" width="18" height="18">'
+                   if other.logo else "")
+            now = _rec(race.conf_record(c))
+            won, lost = race.met(t, c)
+            mark, said = "", ""
+            if won != lost:
+                mark = (f'<i class="{"w" if won > lost else "l"}">{"W" if won > lost else "L"}</i>')
+                said = f". {school} {'beat them' if won > lost else 'lost to them'}"
+            out += (f'<a class="cl-chip" href="{href(other.school)}" '
+                    f'title="{html.escape(other.school)}, {now}{said}">{art}'
+                    f'{html.escape(other.abbreviation or other.school)}{mark}</a>')
+        return f'<span class="cl-chips">{out}</span>'
+
+    rows = ""
+    shown = path["rows"]
+    last = next((i for i, r in enumerate(shown) if r["state"] == "out"), None)
+    for i, r in enumerate(shown):
+        if last is not None and i > last:
+            break
+        rec = _rec(r["record"])
+        worse = last is not None and i == last and i < len(shown) - 1
+        label = f"{rec} or worse" if worse else rec
+        rows += (f'<li class="{r["state"]}"><b class="cl-rec">{label}</b>'
+                 f'<span class="cl-when">{_row_label(r)}</span>'
+                 f'<div class="cl-need">{_need_text(r, race.spots, name, names, chips, steps)}</div></li>\n')
+    return rows
 
 
 def clinch_panel(state, team, week) -> str:
@@ -1989,38 +2127,20 @@ def clinch_panel(state, team, week) -> str:
     def name(school):
         return _link(school, fbs)
 
-    def chips(teams):
-        out = ""
-        for c in teams:
-            other = by_idx[c]
-            art = (f'<img src="{html.escape(other.logo)}" alt="" width="18" height="18">'
-                   if other.logo else "")
-            now = _rec(race.conf_record(c))
-            won, lost = race.met(t, c)
-            mark, said = "", ""
-            if won != lost:
-                mark = (f'<i class="{"w" if won > lost else "l"}">{"W" if won > lost else "L"}</i>')
-                said = f". {school} {'beat them' if won > lost else 'lost to them'}"
-            out += (f'<a class="cl-chip" href="../{slug(other.school)}/" '
-                    f'title="{html.escape(other.school)}, {now}{said}">{art}'
-                    f'{html.escape(other.abbreviation or other.school)}{mark}</a>')
-        return f'<span class="cl-chips">{out}</span>'
-
-    rows = ""
-    shown = path["rows"]
-    last = next((i for i, r in enumerate(shown) if r["state"] == "out"), None)
-    for i, r in enumerate(shown):
-        if last is not None and i > last:
-            break
-        rec = _rec(r["record"])
-        worse = last is not None and i == last and i < len(shown) - 1
-        label = f"{rec} or worse" if worse else rec
-        rows += (f'<li class="{r["state"]}"><b class="cl-rec">{label}</b>'
-                 f'<span class="cl-when">{_row_label(r)}</span>'
-                 f'<div class="cl-need">{_need_text(r, race.spots, name, names, chips, steps)}</div></li>\n')
+    href = lambda other: f"../{slug(other)}/"
+    rows = _clinch_rows(race, t, path, by_idx, names, name, href, steps)
     lead = _lead_text(path, name, names)
-    week_line = (f'<p class="cl-week"><b>Week {week}</b> Clinches '
-                 f'{_week_text(path["week"], t, name, names)}.</p>' if path["week"] else "")
+    gone, more = _out_ways(path)
+    week_line = ""
+    if path["week"] or gone:
+        week_line = f'<div class="cl-week"><b>Week {week}</b>'
+        if path["week"]:
+            week_line += (f'<p><span class="cl-wk">Clinches with</span>'
+                          f'{_recipe(path["week"], t, by_idx, href)}</p>')
+        if gone:
+            week_line += (f'<p><span class="cl-wk out">Out with</span>'
+                          f'{_recipe(gone, t, by_idx, href, more)}</p>')
+        week_line += "</div>"
     left = len(path["games"])
     games = (f"{left} conference {'game' if left == 1 else 'games'} left" if left
              else "no conference games left")
@@ -2076,6 +2196,10 @@ def clinch_question(state, team, week, name):
         answer += f" At {_rec(alive[0]['record'])}: {_lower(need)}"
     if path["week"]:
         answer += f" It clinches this week {_week_text(path['week'], team.idx, name, names)}."
+    gone, more = _out_ways(path)
+    if gone:
+        answer += (f" It is out of the race this week "
+                   f"{_week_text(gone, team.idx, name, names, more)}.")
     if len(alive) > 1:
         answer += f" It can still get in at {_rec(alive[-1]['record'])}."
     return (f"How can {team.school} clinch a spot in the {team.conference} championship game?",

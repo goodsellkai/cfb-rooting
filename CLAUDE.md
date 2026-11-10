@@ -150,7 +150,12 @@ section that stays on screen after the app loads and is what crawlers read.
   is only the sure thing, so each row also says what happens past it
   (`Race._beyond`): tiebreakers can still put the team in, or it is out. Once
   few enough teams can reach a finish (`MAX_TIE_TEAMS`), `Race._ties` works out
-  each tie by name instead: who is level, in or out, and on which step. The conference page draws it as a grid. A team's page
+  each tie by name instead: who is level, in or out, and on which step. The conference page draws it as a grid, with
+  every record a team can finish with folded under its row (`_clinch_rows`, shared with the team's panel). A week that
+  can settle a team is drawn as results to look for (`pages._recipe`): what every way needs said once, then a dashed
+  box of the ones any one of which finishes it (Kai asked for the factoring). `Race.out_this_week()` is the same for
+  a team the week can put out. It asks all of a week's outcomes, so it uses `_short_cover`, which only looks for
+  conditions of four results or fewer; `_cover` took over a minute on a nine-game Big Ten week. A team's page
   writes it into the written section, and `placeClinch()` in app.js moves it up
   beside the team's season; a team that is in, is out or has no race gets no
   panel, and only a clinched team gets a question. `state.json` carries

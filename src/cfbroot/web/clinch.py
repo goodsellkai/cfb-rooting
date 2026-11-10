@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections import Counter, deque
 from itertools import combinations, product
 
+import numpy as np
+
 from ..data import conference_rules as CR
 
 # More deciding games than this and a week is not broken into scenarios.
@@ -28,6 +30,7 @@ MAX_HELP_GAMES = 8
 MAX_WAYS = 3
 MAX_WAY_RESULTS = 4
 MAX_NODES = 1_000
+MAX_OUT_NODES = 200    # for each way a week can go, when asking if it ends a team's race
 # Ties are worked out by name once this few teams can catch a finish or this few
 # games are left in the conference, and the ways they can tie fit in a short list.
 MAX_TIE_TEAMS = 5
@@ -545,12 +548,12 @@ class Race:
                 return True
         return False
 
-    def _ask(self, kind, i, fixed):
-        key = (kind, i, tuple(sorted(fixed.items())))
+    def _ask(self, kind, i, fixed, budget=MAX_NODES):
+        key = (kind, i, tuple(sorted(fixed.items())), budget)
         if key not in self._memo:
             for k, w in fixed.items():
                 self._set(k, w)
-            self._budget = MAX_NODES
+            self._budget = budget
             self._memo[key] = (self._can_miss if kind == "miss" else self._can_make)(i)
             for k, w in fixed.items():
                 self._unset(k, w)
@@ -559,8 +562,8 @@ class Race:
     def _safe(self, i, fixed=None) -> bool:
         return not self._ask("miss", i, fixed or {})
 
-    def _dead(self, i, fixed=None) -> bool:
-        return not self._ask("make", i, fixed or {})
+    def _dead(self, i, fixed=None, budget=MAX_NODES) -> bool:
+        return not self._ask("make", i, fixed or {}, budget)
 
     # What the pages ask.
 
@@ -628,6 +631,30 @@ class Race:
         hits = {bits for bits in product((0, 1), repeat=len(decide))
                 if self._safe(i, self._results(decide, bits))}
         return [self._way(decide, term) for term in _cover(hits, len(decide))]
+
+    def out_this_week(self, t, week) -> list[list[tuple]]:
+        """The ways this week's results put ``t`` out of the race, each a list
+        of (winner, loser) games that does it whatever happens after."""
+        i = self.ix[t]
+        pool = set(self.pools[i])
+        now = [k for k in range(len(self.slate)) if self.week_of[k] == week
+               and pool & set(self.slate[k])]
+        if not now or len(now) > MAX_SCENARIO_GAMES:
+            return []
+        # A week has hundreds of ways to go and most leave the team alive, so
+        # each gets a short search, and a week the team wins is only looked at
+        # where the same week with a loss ended it.
+        own = [x for x, k in enumerate(now) if i in self.slate[k]]
+        lost = lambda bits: tuple(
+            (0 if self.slate[now[x]][0] == i else 1) if x in own else b
+            for x, b in enumerate(bits))
+        hits = set()
+        for bits in sorted(product((0, 1), repeat=len(now)), key=lambda b: b != lost(b)):
+            if bits != lost(bits) and lost(bits) not in hits:
+                continue
+            if self._dead(i, self._results(now, bits), MAX_OUT_NODES):
+                hits.add(bits)
+        return [self._way(now, term) for term in _short_cover(hits, len(now))]
 
     def _chasers(self, i, final, own_sets):
         """Who can finish level with ``final`` wins or better in any of these
@@ -901,6 +928,7 @@ class Race:
             "safe_at": _threshold(safe_bits, n),
             "control": (1,) * n in safe_bits,
             "week": self.this_week(t, week) if week is not None else [],
+            "out_week": self.out_this_week(t, week) if week is not None else [],
         }
 
     def _records_leave_doubt(self, i, fixed) -> bool:
@@ -1041,6 +1069,33 @@ def _cover(hits, n):
         chosen.append(best)
         left = {h for h in left if not covered(best, h)}
     return sorted(chosen, key=lambda p: sum(v is not None for v in p))
+
+
+def _short_cover(hits, n, most=MAX_WAY_RESULTS):
+    """The conditions of up to ``most`` results that hold only for outcomes in
+    ``hits``, fewest results first, each a tuple like `_cover`'s. A week can
+    end a team's race in hundreds of ways, which `_cover` takes minutes to
+    boil down; anything that needs more results than this is not worth
+    saying, so it is left out and the list is not the whole of ``hits``."""
+    if not hits:
+        return []
+    table = np.array(sorted(hits), dtype=np.int8)
+    found, lits = [], []
+    for size in range(1, min(most, n) + 1):
+        full = 2 ** (n - size)
+        for spots in combinations(range(n), size):
+            cols = table[:, spots]
+            for vals in product((0, 1), repeat=size):
+                said = set(zip(spots, vals))
+                if any(have <= said for have in lits):
+                    continue        # a shorter condition already says it
+                if int((cols == vals).all(axis=1).sum()) == full:
+                    lits.append(said)
+                    term = [None] * n
+                    for x, v in said:
+                        term[x] = v
+                    found.append(tuple(term))
+    return found
 
 
 def _games(state, conf):

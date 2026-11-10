@@ -205,8 +205,10 @@ function markSubnav() {
 function tagTeamLinks() {
   if (!STATE) return;
   if (!tagTeamLinks.slugs) tagTeamLinks.slugs = new Map(STATE.teams.map(t => [t.slug, t.idx]));
-  for (const a of document.querySelectorAll('a[href*="team/"]:not([data-team])')) {
-    const m = /team\/([^/?#]+)\/?$/.exec(a.getAttribute("href") || "");
+  // By where the link goes, not how it is written: from one team's page
+  // another's is "../duke/", with no "team/" in it.
+  for (const a of document.querySelectorAll("a[href]:not([data-team])")) {
+    const m = /\/team\/([^/]+)\/?$/.exec(a.pathname || "");
     if (m && tagTeamLinks.slugs.has(m[1])) a.dataset.team = tagTeamLinks.slugs.get(m[1]);
   }
 }

@@ -490,3 +490,33 @@ def test_today_shows_how_a_tie_is_settled():
     race = Race(set(range(5)), done, [], rules=CR.title_rules("SEC", 2026))
     now = race.today()[0]
     assert now["in"][0] == 0 and now["open"] == 0
+
+
+def test_every_way_out_ends_the_race_whatever_else_happens():
+    rng = random.Random(11)
+    said = 0
+    for _ in range(25):
+        race = random_race(rng)
+        week = min(race.week_of)
+        now = [k for k in range(len(race.slate)) if race.week_of[k] == week]
+        for t in race.teams:
+            for way in race.out_this_week(t, week):
+                said += 1
+                fixed = {k: race.ix[w] for w, l in way for k in now
+                         if set(race.slate[k]) == {race.ix[w], race.ix[l]}}
+                assert len(fixed) == len(way)
+                assert all(race.ix[t] not in s for _ in play_out(race, fixed)
+                           for s in race._seats(race.ix[t]))
+    assert said > 10
+
+
+def test_short_conditions_hold_only_where_they_should():
+    from cfbroot.web.clinch import _short_cover
+    hits = {b for b in product((0, 1), repeat=4) if b[0] == 1 or (b[1] == 0 and b[2] == 1)}
+    terms = _short_cover(hits, 4)
+    assert (1, None, None, None) in terms and (None, 0, 1, None) in terms
+    # nothing said twice, and nothing that reaches outside
+    assert len(terms) == 2
+    assert _short_cover(set(), 4) == []
+    # a way that takes more results than are worth saying is left out
+    assert _short_cover({(1, 1, 1, 1, 1)}, 5, most=4) == []
