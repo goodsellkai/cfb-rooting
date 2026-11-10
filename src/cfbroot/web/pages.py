@@ -140,6 +140,9 @@ def _ga() -> str:
             f"gtag('js',new Date());gtag('config','{GA_ID}');</script>")
 
 
+# Where questions go: the privacy page and every footer.
+CONTACT = "goodsellkai@gmail.com"
+
 # Who writes the pages, for the markup that asks for an author.
 AUTHOR = {"@type": "Person", "name": "Kai Goodsell",
           "url": "https://github.com/goodsellkai"}
@@ -1100,26 +1103,32 @@ def privacy_head():
 def privacy_body() -> str:
     google = ""
     if _ga():
-        google = (" Google Analytics also measures visits. It sets cookies in your "
-                  "browser, except for visitors in the European Union, the United "
-                  "Kingdom, Switzerland, Iceland, Liechtenstein and Norway, where it "
-                  "runs without them. <a href=\"https://policies.google.com/"
-                  "technologies/partner-sites\" rel=\"noopener\">How Google uses "
-                  "that data</a> is Google's to say.")
+        google = (" The site also uses Google Analytics to measure traffic. Google "
+                  "Analytics uses cookies, except for visitors in the European "
+                  "Economic Area, the United Kingdom and Switzerland, for whom it "
+                  "operates without them. Google describes its use of this data in "
+                  "its <a href=\"https://policies.google.com/technologies/"
+                  "partner-sites\" rel=\"noopener\">policy for partner sites</a>.")
     return f"""<h1>Privacy</h1>
-<p class="lead">{SITE_NAME} has no accounts and asks for nothing about you.</p>
-<h2>What stays in your browser</h2>
-<p>The team you picked and a few display settings are saved in your browser, so
-the site opens where you left it. They are not sent anywhere.</p>
-<h2>How visits are counted</h2>
-<p>The site is served by Cloudflare, which sees each request as any host does.
-Cloudflare Web Analytics counts page views without cookies.{google}</p>
-<h2>Live scores</h2>
-<p>While games are on, your browser asks ESPN for the scores directly, so ESPN
-receives that request as it would a visit to its own site.</p>
-<h2>Questions</h2>
-<p><a href="https://github.com/goodsellkai/cfb-rooting/issues" rel="noopener">Open
-an issue on GitHub</a>.</p>
+<p class="lead">{SITE_NAME} does not have accounts and does not collect names,
+email addresses or other personal information.</p>
+<h2>Information stored on your device</h2>
+<p>Your selected team and display preferences are stored in your browser so that
+the site can restore them on your next visit. This information remains on your
+device.</p>
+<h2>Analytics</h2>
+<p>The site is hosted on Cloudflare, which processes each request in order to
+deliver the page. Page views are counted with Cloudflare Web Analytics, which
+does not use cookies or identify individual visitors.{google}</p>
+<h2>Third-party requests</h2>
+<p>Live scores and team logos are retrieved by your browser directly from ESPN.
+As with any request, ESPN receives your IP address and browser details when
+they are loaded.</p>
+<h2>Changes</h2>
+<p>This page will be updated if these practices change.</p>
+<h2>Contact</h2>
+<p>Questions about this policy or the site can be sent to
+<a href="mailto:{CONTACT}">{CONTACT}</a>.</p>
 <p><a href="../">Back to the guide</a></p>"""
 
 
