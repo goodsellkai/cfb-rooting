@@ -110,6 +110,36 @@ def _faq_html(pairs) -> str:
     return out + "</dl>"
 
 
+# Google Analytics, for the ad networks that ask for its numbers. Off until a
+# build is given the property's id (CFBROOT_GA_ID, the repository's GA_ID).
+GA_ID = os.environ.get("CFBROOT_GA_ID", "").strip()
+# Where analytics cookies need consent first: the EU, Iceland, Liechtenstein,
+# Norway, the United Kingdom and Switzerland. There it runs without them,
+# which is what lets the site go without a consent banner.
+GA_NO_COOKIES = ("AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT "
+                 "RO SK SI ES SE IS LI NO GB CH").split()
+GA_HOSTS = {
+    "script-src": "https://www.googletagmanager.com",
+    "connect-src": ("https://*.google-analytics.com https://*.analytics.google.com "
+                    "https://*.googletagmanager.com"),
+    "img-src": "https://*.google-analytics.com https://*.googletagmanager.com",
+}
+
+
+def _ga() -> str:
+    """The Analytics tag for a page's head, or nothing while it is off."""
+    if not re.fullmatch(r"G-[A-Z0-9]+", GA_ID):
+        return ""
+    denied = "ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'"
+    return (f'\n<script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}">'
+            "</script>\n<script>window.dataLayer=window.dataLayer||[];"
+            "function gtag(){dataLayer.push(arguments);}"
+            f"gtag('consent','default',{{{denied},analytics_storage:'denied',"
+            f"region:{json.dumps(GA_NO_COOKIES, separators=(',', ':'))}}});"
+            f"gtag('consent','default',{{{denied},analytics_storage:'granted'}});"
+            f"gtag('js',new Date());gtag('config','{GA_ID}');</script>")
+
+
 # Who writes the pages, for the markup that asks for an author.
 AUTHOR = {"@type": "Person", "name": "Kai Goodsell",
           "url": "https://github.com/goodsellkai"}
@@ -144,7 +174,7 @@ def _head(title, description, url, extra="", ld=None, card=None, card_alt="",
 <meta property="og:image:alt" content="{alt}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="{card}">
-<meta name="twitter:image:alt" content="{alt}">{scripts}{extra}"""
+<meta name="twitter:image:alt" content="{alt}">{scripts}{extra}{_ga()}"""
 
 
 def home_questions(state, n_sims, race=()):
@@ -399,7 +429,7 @@ def _needs_html(state, team, payload, fbs):
     school = html.escape(team.school)
     games = own_rows(team, payload)
     summary = needs_text(state, team, payload, name=lambda s: _link(s, fbs))
-    out = f"<h2>What {school} needs</h2>\n"
+    out = f"<h2>What {school} needs to make the playoff</h2>\n"
     if summary:
         out += f"<p>{summary}</p>\n"
     if games:
@@ -433,10 +463,13 @@ def team_head(state, team, payload, week, card=None):
     w, l, _, _, _ = record(state, team.idx)
     p = _pct(h["make_playoff"]["p"])
     url = f"{SITE_URL}/team/{slug(team.school)}/"
-    title = f"{team.school} playoff chances {state.year}: what it needs, who to root for"
-    desc = (f"Week {week}: {team.school} is {w}-{l} and makes the College "
-            f"Football Playoff in {p} of {_sims(payload['n_sims'])} simulated "
-            f"seasons. What it needs from here, and which games to root for.")
+    # Worded as the searches that find the page are: "chances of making the
+    # playoff" and "scenarios" reach it, where "playoff odds" goes to sportsbooks.
+    title = (f"{team.school} playoff chances {state.year}: scenarios, what it needs, "
+             f"who to root for")
+    desc = (f"{team.school}'s playoff chances are {p} at {w}-{l} going into week "
+            f"{week}, from {_sims(payload['n_sims'])} simulated seasons. What it "
+            f"needs, its scenarios and which games to root for.")
     faq = _faq_ld(team_questions(state, team, payload, week, plain=True))
     middle = ((team.conference, f"{SITE_URL}/conference/{conf_slug(team.conference)}/")
               if has_conference(team) else ("Teams", SITE_URL + "/teams/"))
@@ -575,7 +608,8 @@ def team_questions(state, team, payload, week, plain=False):
            f"impact is the difference in {html.escape(school)}'s playoff odds "
            "between the simulations each team wins it.")
 
-    out = [(f"Will {school} make the College Football Playoff?", playoff)]
+    out = [(f"Can {school} make the College Football Playoff, and what are its chances?",
+            playoff)]
     needs = needs_text(state, team, payload, name=name)
     if needs:
         out.append((f"What does {school} need to make the playoff?", needs))
@@ -585,6 +619,24 @@ def team_questions(state, team, payload, week, plain=False):
     out.append((f"Who should {school} fans root for in week {week}?", rooting))
     if hardest:
         out.append((f"What is {school}'s toughest game left?", hardest))
+    if h["make_playoff"]["p"] >= 0.005:
+        out.append((f"What are {school}'s national championship odds?",
+                    f"{html.escape(school)} wins the national title in "
+                    f"{_pct(h['win_national_title']['p'], 2)} of simulated seasons. "
+                    f"It reaches the semifinals in {_pct(h['reach_semifinal']['p'])} "
+                    f"and the title game in {_pct(h['reach_title_game']['p'])}."))
+    six = (h.get("six_wins") or {}).get("p")
+    if w >= 6:
+        out.append((f"Is {school} bowl eligible?",
+                    f"Yes. {html.escape(school)} has {w} wins, and six make a team "
+                    f"bowl eligible."))
+    elif six is not None:
+        out.append((f"Will {school} be bowl eligible?",
+                    f"{html.escape(school)} is {w}-{l} and reaches six wins, which "
+                    f"makes a team bowl eligible, in {_pct(six)} of simulated seasons."
+                    if six > 0 else
+                    f"No. {html.escape(school)} is {w}-{l} and can no longer reach "
+                    f"six wins."))
     out.append((f"How are {school}'s playoff odds calculated?", how))
     if plain:
         out = [(q, re.sub(r"<[^>]+>", "", a)) for q, a in out]
@@ -767,7 +819,8 @@ def teams_head(state, n_sims=None, card=None):
             f"updated through week {state.current_week()} of the {state.year} "
             f"season.")
     url = f"{SITE_URL}/teams/"
-    title = f"Playoff odds for every FBS team | {SITE_NAME}"
+    title = (f"Playoff chances for every FBS team ({state.year}): odds to make "
+             f"the playoff")
     sims = f"{_sims(n_sims)} simulated" if n_sims else "simulated"
     dataset = {"@context": "https://schema.org", "@type": "Dataset",
                "name": f"{state.year} College Football Playoff odds for every "
@@ -997,8 +1050,8 @@ def _stakes_home(state, stakes) -> str:
 
 def this_week_head(state, n_sims, card=None):
     week = state.default_week() or state.current_week()
-    title = (f"Week {week} college football games that matter most for the "
-             f"playoff | {SITE_NAME}")
+    title = (f"Week {week} college football rooting guide: playoff "
+             f"implications of every game")
     desc = (f"Every week {week} game, ranked by how much it moves the "
             f"{state.year} College Football Playoff race across "
             f"{_sims(n_sims)} simulated seasons, and which teams have the "
@@ -1022,6 +1075,51 @@ def this_week_body(state, n_sims, stakes):
 <p class="lead">Every week {week} game, ranked by how much of the 12-team field
 it is expected to move, across {_sims(n_sims)} simulated seasons.</p>
 {body}
+<p><a href="../">Back to the guide</a></p>"""
+
+
+def _allow_ga(rules: str) -> str:
+    """The headers with Google's origins let through, when Analytics is on."""
+    if not _ga():
+        return rules
+    for part, hosts in GA_HOSTS.items():
+        rules = re.sub(rf"({part} [^;]*)", rf"\1 {hosts}", rules, count=1)
+    return rules
+
+
+def privacy_head():
+    desc = (f"What {SITE_NAME} keeps in your browser, how visits are counted and "
+            f"who else sees a request. It has no accounts.")
+    url = f"{SITE_URL}/privacy/"
+    title = f"Privacy | {SITE_NAME}"
+    return _head(title, desc, url,
+                 ld=[_page_ld(title, desc, url),
+                     _crumbs([(SITE_NAME, SITE_URL + "/"), ("Privacy", url)])])
+
+
+def privacy_body() -> str:
+    google = ""
+    if _ga():
+        google = (" Google Analytics also measures visits. It sets cookies in your "
+                  "browser, except for visitors in the European Union, the United "
+                  "Kingdom, Switzerland, Iceland, Liechtenstein and Norway, where it "
+                  "runs without them. <a href=\"https://policies.google.com/"
+                  "technologies/partner-sites\" rel=\"noopener\">How Google uses "
+                  "that data</a> is Google's to say.")
+    return f"""<h1>Privacy</h1>
+<p class="lead">{SITE_NAME} has no accounts and asks for nothing about you.</p>
+<h2>What stays in your browser</h2>
+<p>The team you picked and a few display settings are saved in your browser, so
+the site opens where you left it. They are not sent anywhere.</p>
+<h2>How visits are counted</h2>
+<p>The site is served by Cloudflare, which sees each request as any host does.
+Cloudflare Web Analytics counts page views without cookies.{google}</p>
+<h2>Live scores</h2>
+<p>While games are on, your browser asks ESPN for the scores directly, so ESPN
+receives that request as it would a visit to its own site.</p>
+<h2>Questions</h2>
+<p><a href="https://github.com/goodsellkai/cfb-rooting/issues" rel="noopener">Open
+an issue on GitHub</a>.</p>
 <p><a href="../">Back to the guide</a></p>"""
 
 
@@ -1149,7 +1247,7 @@ def sitemap(urls, cards=None) -> str:
     """
     cards = cards or {}
     day = datetime.now(timezone.utc).date().isoformat()
-    undated = {SITE_URL + "/how-it-works/"}
+    undated = {SITE_URL + "/how-it-works/", SITE_URL + "/privacy/"}
 
     def entry(u):
         art = (f"<image:image><image:loc>{html.escape(cards[u])}</image:loc>"
@@ -1178,7 +1276,7 @@ def headers() -> str:
     every visit goes uncounted.
     """
     # One rule per path, since a host that matches several applies them all.
-    return """/*
+    return _allow_ga("""/*
   Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\' https://static.cloudflareinsights.com; connect-src \'self\' https://site.api.espn.com https://cloudflareinsights.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
   Strict-Transport-Security: max-age=31536000
   X-Frame-Options: DENY
@@ -1196,7 +1294,7 @@ def headers() -> str:
   Cache-Control: public, max-age=300
 /conference/*
   Cache-Control: public, max-age=300
-"""
+""")
 
 
 def robots() -> str:
@@ -1571,12 +1669,13 @@ def _and(items) -> str:
 
 def conference_head(state, conf, rows, n_sims, pairs=None, card=None):
     url = f"{SITE_URL}/conference/{conf_slug(conf)}/"
-    title = f"{conf} title race {state.year}: clinching scenarios, odds and tiebreakers"
+    title = (f"{conf} championship game scenarios {state.year}: tiebreakers, "
+             f"clinching, odds")
     lead = (f"{rows[0]['team']} wins it in {_pct(rows[0]['p']['win_conference'])}. "
             if rows else "")
-    desc = (f"{lead}What every {conf} team needs to clinch a title game spot, its "
-            f"chance to win the conference, the likeliest matchups and how ties are "
-            f"broken, from {_sims(n_sims)} simulated seasons.")
+    desc = (f"{lead}What every {conf} team needs to reach the championship game, "
+            f"who can clinch or be eliminated this week, the {conf} tiebreakers and "
+            f"the likeliest matchups, from {_sims(n_sims)} simulated seasons.")
     page = _page_ld(title, desc, url)
     page["about"] = {"@type": "SportsOrganization", "name": conf,
                      "sport": "American football"}
@@ -2062,7 +2161,8 @@ def _clinch_html(race, rows, by_idx, fbs, week) -> str:
         f'<span>{label} <b>{_and(_team_link(names[i], fbs, 2) for i in teams)}</b></span>'
         for label, teams in (("Can clinch:", can_in), ("Can be eliminated:", can_out)) if teams)
     this = f'<p class="cg-wk"><b>Week {week}</b>{told}</p>\n' if told else ""
-    return f'<h2 id="clinching">Clinching scenarios</h2>\n{this}{legend}{out}'
+    conf = html.escape(by_idx[order[0]].conference) if order else ""
+    return f'<h2 id="clinching">{conf} clinching scenarios</h2>\n{this}{legend}{out}'
 
 
 def _clinch_rows(race, t, path, by_idx, names, name, href, steps) -> str:
@@ -2267,7 +2367,7 @@ from {_sims(n_sims)} simulated seasons.</p>
 {_clinch_html(race, rows, by_idx, fbs, week)}
 {matchups}
 {deciders}
-<h2 id="tiebreakers">How the {html.escape(conf)} breaks ties</h2>
+<h2 id="tiebreakers">{html.escape(conf)} tiebreaker rules</h2>
 {_tiebreak_html(conf, state.year, race, by_idx, fbs)}
 {_faq_html(conference_questions(state, conf, rows, pairs))}
 <p class="otherconfs">Other conferences: {others}</p>
@@ -2384,26 +2484,57 @@ def _committee_field(state, projection, ranks):
             "final": (projection or {}).get("final")}
 
 
+def rankings_questions(state, projection):
+    """The bracket in words, for the searches that ask who is in."""
+    ranks, _ = _cfp(state)
+    ahead = _ahead(state, projection)
+    if ranks and not ahead:
+        field = _committee_field(state, projection, ranks) if projection else None
+        basis = "the committee's latest ranking"
+    else:
+        field = projection
+        basis = "the model's projected ranking"
+    if not field or len(field.get("field") or []) != 12 or field.get("final"):
+        return []
+    names = {t.idx: t.school for t in state.teams}
+    seed = {f["seed"]: names[f["team"]] for f in field["field"]}
+    out = [("Who would make the College Football Playoff if the season ended today?",
+            f"On {basis}, with today's conference leaders as champions, "
+            f"{_and(seed[s] for s in (1, 2, 3, 4))} would be seeds 1 to 4 with "
+            f"first-round byes. The first round would be {seed[12]} at {seed[5]}, "
+            f"{seed[11]} at {seed[6]}, {seed[10]} at {seed[7]} and {seed[9]} at "
+            f"{seed[8]}.")]
+    outs = [names[i] for i in field.get("out") or [] if i in names]
+    if outs:
+        out.append(("Who are the first teams out of the College Football Playoff?",
+                    f"{_and(outs)}, in that order."))
+    return out
+
+
 def rankings_head(state, projection, n_sims, card=None):
     ranks, cfp_week = _cfp(state)
     url = f"{SITE_URL}/cfp-rankings/"
     if ranks and not _ahead(state, projection):
-        title = f"CFP rankings, week {cfp_week} ({state.year}) | {SITE_NAME}"
+        title = (f"CFP rankings, week {cfp_week} ({state.year}): top 25 and the "
+                 f"playoff bracket today")
         desc = (f"The College Football Playoff committee's top 25, week "
                 f"{cfp_week}, the field if the season ended today and each "
                 f"team's playoff odds from {_sims(n_sims)} simulated seasons.")
         name = f"CFP rankings, week {cfp_week}"
     else:
         week = (projection or {}).get("week") or state.current_week() - 1
-        title = f"Projected CFP rankings after week {week} ({state.year}) | {SITE_NAME}"
+        title = (f"Projected CFP rankings after week {week} ({state.year}): top 25 "
+                 f"and bracket")
         desc = (f"The College Football Playoff committee's top 25 as the model "
                 f"expects it after week {week}, the field if the season ended "
                 f"today and each team's playoff odds from {_sims(n_sims)} "
                 f"simulated seasons.")
         name = f"Projected CFP rankings, week {week}"
+    asked = rankings_questions(state, projection)
     return _head(title, desc, url, card=card, card_alt=name,
                  ld=[_page_ld(title, desc, url),
-                     _crumbs([(SITE_NAME, SITE_URL + "/"), ("CFP rankings", url)])])
+                     _crumbs([(SITE_NAME, SITE_URL + "/"), ("CFP rankings", url)])]
+                 + ([_faq_ld(asked)] if asked else []))
 
 
 def _field_html(projection, by_idx, fbs, depth=1) -> str:
@@ -2502,6 +2633,8 @@ played for the committee to rank teams.</p>
                 f"{', against its last ranking' if ahead else ''}. Updated "
                 f"{now:%B} {now.day}.")
 
+    asked = [(q, html.escape(a)) for q, a in rankings_questions(state, projection)]
+
     def move(i, n):
         was = ranks.get(i)
         if was is None:
@@ -2536,5 +2669,6 @@ played for the committee to rank teams.</p>
 <tbody>{rows}</tbody></table></div>
 {_field_html(field, by_idx, fbs) if field else ""}
 </div>
+{_faq_html(asked) if asked else ""}
 <p><a href="../teams/">Playoff odds for every team</a> &middot;
 <a href="../how-it-works/">Methodology</a></p>"""

@@ -147,6 +147,7 @@ def render(template: str, head: str, intro: str, depth: int,
                     .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
                     .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
                     .replace('href="/how-it-works/"', f'href="{base}how-it-works/"')
+                    .replace('href="/privacy/"', f'href="{base}privacy/"')
                     .replace('href="/teams/"', f'href="{base}teams/"')
                     .replace('href="/this-week/"', f'href="{base}this-week/"')
                     .replace('href="/cfp-rankings/"', f'href="{base}cfp-rankings/"')
@@ -207,6 +208,11 @@ def write_front(out: Path, state, teams, n_sims: int, standing,
     (how / "index.html").write_text(
         render(template, pages.how_head(state, n_sims, card),
                pages.how_body(state, n_sims), 1, info=True),
+        encoding="utf-8")
+    private = out / "privacy"
+    private.mkdir(exist_ok=True)
+    (private / "index.html").write_text(
+        render(template, pages.privacy_head(), pages.privacy_body(), 1, info=True),
         encoding="utf-8")
     ranked = out / "cfp-rankings"
     ranked.mkdir(exist_ok=True)

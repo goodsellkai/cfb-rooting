@@ -550,6 +550,12 @@ def _info_page(head: str, body: str) -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/privacy/", response_class=HTMLResponse)
+def privacy_page() -> HTMLResponse:
+    from . import pages
+    return _info_page(pages.privacy_head(), pages.privacy_body())
+
+
 @app.get("/conference/{name}/", response_class=HTMLResponse)
 def conference_page(name: str) -> HTMLResponse:
     """A conference's title race. The games that decide it come from every

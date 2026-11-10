@@ -252,7 +252,7 @@ def test_the_week_page_ranks_the_games_and_links_the_teams(season, payload):
     body = pages.this_week_body(season, 2_500_000, s)
     head = pages.this_week_head(season, 2_500_000)
     assert f"week {week}" in body
-    assert f"<title>Week {week} college football games" in head
+    assert f"<title>Week {week} college football rooting guide" in head
     if rows:
         assert body.count("<li>") == len(rows)
         assert 'href="../team/' in body
@@ -327,7 +327,7 @@ def test_a_conference_page_has_its_race_matchups_and_tiebreakers(season, payload
     # who wins it, as one bar with a slice for the favourite and a key under it
     assert "Who wins the SEC" in said and 'class="ts-seg"' in body
     assert f"{rows[0]['team']}" in text(body.split('class="ts-key"')[1].split("</ol>")[0])
-    assert "How the SEC breaks ties" in said and "Head-to-head" in said
+    assert "SEC tiebreaker rules" in said and "Head-to-head" in said
     assert "{" not in body and "}" not in body
     head = pages.conference_head(season, conf, rows, payload["n_sims"], pairs)
     kinds = {b["@type"] for b in blocks(head)}
@@ -688,3 +688,50 @@ def test_the_conference_page_folds_every_scenario_under_each_team(season):
     assert body.count('<details class="cg-more">') == len(alive)
     assert body.count('<ol class="cl-rows">') == len(alive)
     assert "<details class=\"cg-more\" open" not in body
+
+
+def test_analytics_is_off_until_it_is_given_an_id(monkeypatch):
+    assert pages.GA_ID == "" and pages._ga() == ""
+    assert "googletagmanager" not in pages.headers()
+    assert "googletagmanager" not in pages.privacy_head()
+    assert "Google Analytics" not in pages.privacy_body()
+    monkeypatch.setattr(pages, "GA_ID", "G-TEST123")
+    head = pages.privacy_head()
+    assert 'src="https://www.googletagmanager.com/gtag/js?id=G-TEST123"' in head
+    assert "gtag('config','G-TEST123')" in head
+    # no cookies where consent would be needed first, so no banner
+    assert "analytics_storage:'denied',region:[\"AT\"" in head
+    assert "analytics_storage:'granted'" in head
+    rules = pages.headers()
+    policy = next(line for line in rules.splitlines() if "Content-Security-Policy" in line)
+    parts = {p.split()[0]: p for p in policy.split(": ", 1)[1].split("; ")}
+    assert "https://www.googletagmanager.com" in parts["script-src"]
+    assert "https://*.google-analytics.com" in parts["connect-src"]
+    assert "https://*.google-analytics.com" in parts["img-src"]
+    assert "'self'" in parts["script-src"] and "espn" in parts["connect-src"]
+    assert "Google Analytics" in pages.privacy_body()
+    # an id that is not one is not written into a page
+    monkeypatch.setattr(pages, "GA_ID", "G-x\"><script>")
+    assert pages._ga() == "" and "googletagmanager" not in pages.headers()
+
+
+def test_the_rankings_page_says_the_bracket_in_words(season):
+    from cfbroot.sim.sample import committee_now
+    proj = committee_now(season)
+    asked = pages.rankings_questions(season, proj)
+    names = {t.idx: t.school for t in season.teams}
+    assert asked[0][0].startswith("Who would make the College Football Playoff")
+    for f in proj["field"]:
+        assert names[f["team"]] in asked[0][1]
+    assert "the model's projected ranking" in asked[0][1]
+    assert "FAQPage" in pages.rankings_head(season, proj, 2_500_000)
+    assert "<h2>Questions</h2>" in pages.rankings_body(season, proj, [])
+    assert pages.rankings_questions(season, dict(proj, final=True)) == []
+
+
+def test_a_team_is_asked_about_its_bowl_and_its_title_odds(season, payload):
+    team = next(t for t in season.fbs_teams if t.school == payload["team"])
+    asked = dict(pages.team_questions(season, team, payload, 1, plain=True))
+    assert any("chances" in q for q in asked)
+    bowl = [q for q in asked if "bowl eligible" in q]
+    assert len(bowl) == 1 and "six" in asked[bowl[0]]

@@ -45,6 +45,7 @@ jobs:
       - name: Rebuild the pages and deploy
         env:
           CFBROOT_SITE_URL: ${{ vars.SITE_URL }}
+          CFBROOT_GA_ID: ${{ vars.GA_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SOURCE: ${{ github.event.inputs.source }}

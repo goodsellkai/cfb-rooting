@@ -219,6 +219,19 @@ section that stays on screen after the app loads and is what crawlers read.
   `pages.yml` runs at 5pm and 6pm Central on Sundays to put it on the site.
   The loader looks for the newest poll from one week past the current one,
   since the poll after a week's games carries the next week's number.
+- **Titles and questions are worded as the searches that reach the site are.**
+  Search Console on 2026-11-10 had "[team] playoff odds" at position 40 to 65,
+  behind the sportsbooks, and "[team] chances of making playoffs", "can X make
+  the playoffs" and tiebreaker searches at 6 to 9. So a team's title opens on
+  "playoff chances", a conference's on "championship game scenarios", and the
+  questions include bowl eligibility and national championship odds. The week
+  in a title comes from the state at build time, like every number.
+- **Google Analytics is off until a build is given an id.** `CFBROOT_GA_ID`,
+  from the repository variable `GA_ID`, puts the tag in every head and lets
+  Google's origins through the Content-Security-Policy; without it neither
+  is written. Cookies are denied by default in the EU, the UK and Switzerland
+  (`GA_NO_COOKIES`), which is why there is no consent banner. `/privacy/` says
+  what is collected and mentions Google only while the tag is on.
 - **The model's record is private.** Each full build runs `cfbroot.track` into
   a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,
