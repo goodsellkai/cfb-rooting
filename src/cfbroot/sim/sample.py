@@ -470,8 +470,19 @@ def sample_season(state: SeasonState, seed: int | None = None,
 
     # The committee's weekly rankings, each from the games up to that week.
     # Early on there is little to go on, so the preseason poll carries part of
-    # the weight and fades out by week seven.
-    polls = {}
+    # the weight and fades out by week nine.
+    #
+    # A week that has really been played is ranked as it was, not by this
+    # season's committee: with the committee's own ranking where it has
+    # published one, and otherwise as committee_now() projects it, with no
+    # noise. The weeks after go on from there as in the rooting guide's
+    # simulations, the gap carried with less of it each week, and this
+    # season's committee noise on top.
+    played = -1 if from_start else seen_week(state)
+    real = {w - 1: ranks for w, ranks in (getattr(state, "cfp_polls", None) or {}).items()
+            if ranks and w - 1 <= played}
+    names = {t.idx: t.school for t in fbs}
+    polls, actual = {}, []
     for w, sysw in (weekly or {}).items():
         vals = _rate(sysw, ki, hpts, apts, mp, p)
         by_school = {t.school: float(vals[sysw.node[t.idx]]) for t in fbs}
@@ -483,10 +494,18 @@ def sample_season(state: SeasonState, seed: int | None = None,
             by_school = {t: (1 - a) * v + a * (mean + prior[t])
                          for t, v in by_school.items()}
         # The ranking after week w carries the number w + 1.
-        seen = lean(0 if known.week is None else abs(w + 1 - known.week))
+        steps = 0 if known.week is None else abs(w + 1 - known.week)
+        if w <= played:
+            carried = known.carried(steps)
+            seen = {t.school: carried.get(t.idx, 0.0) for t in fbs}
+        else:
+            seen = lean(steps)
         by_school = {t: v + seen[t] for t, v in by_school.items()}
-        rank = selection.rank_teams(sim, by_school, through_week=w)
-        polls[str(w)] = [by_name_idx[t] for t in rank.order[:POLL_DEPTH]]
+        order = selection.rank_teams(sim, by_school, through_week=w).order
+        if w in real:
+            order = Lean(poll=real[w]).settle(order, names)
+            actual.append(w)
+        polls[str(w)] = [by_name_idx[t] for t in order[:POLL_DEPTH]]
 
     # Selection Sunday: the rating, the committee's noise and rules, the field.
     c0, c1, loser = np.zeros(n), np.zeros(n), np.zeros(n, np.uint8)
@@ -557,6 +576,8 @@ def sample_season(state: SeasonState, seed: int | None = None,
         "rounds": rounds,
         "champion": champion,
         "polls": polls,
+        # The weeks whose ranking is the committee's own.
+        "polls_actual": actual,
     }
     out["games"] = [
         {"week": g["week"], "home": g["home_idx"], "away": g["away_idx"],

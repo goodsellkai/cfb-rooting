@@ -170,3 +170,29 @@ def test_the_final_ranking_stands_once_it_is_out(midseason):
     ranks = [int(np.argmax(league.rank_hist[col[i]])) for i in final]
     assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)
     assert all(league.rank_hist[col[i]].max() == 400 for i in final)
+
+
+def test_a_sample_season_ranks_the_weeks_played_as_they_were(midseason):
+    from cfbroot.sim.sample import sample_season, weekly_systems
+    played = lean.seen_week(midseason)            # the last week whose games are in
+    order = model_order(midseason, played - 1)
+    real = [order[3], order[0], order[2], order[1]] + order[4:25]
+    # The committee ranked the teams after the week before; the latest week is played.
+    state = with_poll(midseason, played, {i: k + 1 for k, i in enumerate(real)})
+    ki = state.kernel_inputs()
+    weekly = weekly_systems(state, ki)
+    proj = committee_now(state, ki, weekly)
+    assert proj["since"] == played
+    seasons = [sample_season(state, seed=s, ki=ki, weekly=weekly) for s in (1, 2, 3)]
+    for one in seasons:
+        assert one["polls_actual"] == [played - 1]
+        assert one["polls"][str(played - 1)] == real
+        # the week played since is the projection, the same in every season
+        assert one["polls"][str(played)] == proj["order"][:25]
+    # the weeks after go on from there, and differ from season to season
+    later = [str(w) for w in range(played + 1, played + 4) if str(w) in seasons[0]["polls"]]
+    assert later and any(seasons[0]["polls"][w] != seasons[1]["polls"][w] for w in later)
+    # a season replayed from the start takes none of it
+    fresh = sample_season(state, seed=1, from_start=True, ki=ki, weekly=weekly)
+    assert fresh["polls_actual"] == []
+    assert fresh["polls"][str(played - 1)] != real

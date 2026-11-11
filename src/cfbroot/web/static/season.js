@@ -240,13 +240,16 @@ function currentPoll(before = false) {
     label, teams: polls[weeks[i]],
     prev: i > 0 ? polls[weeks[i - 1]] : null,
   });
+  // The committee's own ranking, where it is one, says so.
+  const actual = new Set(SEASON.polls_actual || []);
+  const label = (w) => `through week ${w}${actual.has(w) ? ", actual" : ""}`;
   if (stage.kind === "week" && STAGE < stageIndex("selection")) {
     const i = weeks.findLastIndex(x => (before ? x < stage.week : x <= stage.week));
-    return i >= 0 ? at(i, `through week ${weeks[i]}`) : null;
+    return i >= 0 ? at(i, label(weeks[i])) : null;
   }
   if (stage.kind === "ccg" && weeks.length) {
     // Nothing is ranked between the last week and the title games.
-    return at(weeks.length - 1, `through week ${weeks[weeks.length - 1]}`);
+    return at(weeks.length - 1, label(weeks[weeks.length - 1]));
   }
   return { label: "final", teams: SEASON.ranking.slice(0, 25).map(r => r.team),
            prev: weeks.length ? polls[weeks[weeks.length - 1]] : null };
