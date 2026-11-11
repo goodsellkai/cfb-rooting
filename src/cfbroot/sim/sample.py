@@ -87,27 +87,31 @@ def _score(rng, mu, p) -> tuple[int, int]:
 FIRST_POLL_WEEK = 1
 POLL_DEPTH = 25             # it publishes a top 25
 
-# How much the preseason AP poll counts in the early rankings, and for how
-# many weeks. It stands in for everything known about a team that a game or
-# two cannot show, so it starts as most of what a team is judged on and is
-# gone by week seven.
+# How much the preseason AP poll counts in the early rankings, for how many
+# weeks, and the most it can say for any team. It stands in for everything
+# known about a team that a game or two cannot show, so it starts as most of
+# what a team is judged on and fades to nothing by week nine.
 #
-# Swept against the AP's own polls for 2023-26, scoring each week's ranking by
-# the mean place it differs by over the teams the AP ranked: with no prior the
-# gap is 16.6 places, at 0.55 it is 11.7, and at 0.85 it is 10.8 (14.9 in week
-# one, 10.1 by week three). Going the whole way to 1.00 is worse, 11.3, so
-# even one week of results is worth something.
+# Read off the bell curve, the poll's top few teams sat two and a half to
+# three spreads above the mean, so far that a loss barely moved them and they
+# then slid while winning as the poll faded. Held to two spreads and faded
+# over eight weeks rather than six, the first ten weeks of 2023-26 sit 4.14
+# places from the AP's own polls against 4.58, closer in every season. No
+# top-six team that lost early stays put (two of eight did), and a ranked
+# team that wins slides three places or more 9.2% of the time against 12.2%.
+# From python -m cfbroot.preseason.
 AP_PRIOR_WEIGHT = 0.85
-AP_PRIOR_WEEKS = 6
+AP_PRIOR_WEEKS = 8
+AP_PRIOR_TOP = 2.0
 
 
 def _preseason_prior(state, spread: float) -> dict:
     """The preseason AP poll as a rating, by school.
 
-    A rank becomes the rating a team at that place in the order would have:
-    first place sits about two and a half standard deviations above the mean,
-    25th about one. A team nobody ranked starts at the middle, which is what
-    not being ranked says about it.
+    A rank becomes the rating a team at that place in the order would have,
+    held to AP_PRIOR_TOP standard deviations above the mean: the top half
+    dozen share that, and 25th sits about one. A team nobody ranked starts at
+    the middle, which is what not being ranked says about it.
     """
     from scipy.stats import norm
 
@@ -116,8 +120,8 @@ def _preseason_prior(state, spread: float) -> dict:
     out = {t.school: 0.0 for t in state.fbs_teams}
     for idx, rank in ranked.items():
         if 0 <= idx < len(state.teams):
-            out[state.teams[idx].school] = spread * float(
-                norm.ppf(1.0 - (rank - 0.5) / n))
+            out[state.teams[idx].school] = spread * min(
+                float(norm.ppf(1.0 - (rank - 0.5) / n)), AP_PRIOR_TOP)
     return out
 
 

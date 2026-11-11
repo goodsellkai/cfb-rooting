@@ -34,6 +34,7 @@ python -m cfbroot.carry         # carry_gain and carry_offset
 python -m cfbroot.calibration   # home field, against closing lines
 python -m cfbroot.backtest      # the model against real committee polls
 python -m cfbroot.lean          # LEAN_SHARE and LEAN_SD, the committee's ranking carried in
+python -m cfbroot.preseason     # AP_PRIOR_*, the preseason poll in a sample season's early rankings
 ```
 
 Environment: `CFBROOT_SIMS`, `CFBROOT_REPLAY_SIMS`, `CFBROOT_SAMPLES`,

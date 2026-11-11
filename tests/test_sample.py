@@ -1,5 +1,7 @@
 """A sample season: one simulated season kept in full."""
 
+import dataclasses
+
 from cfbroot.sim.sample import sample_season
 
 
@@ -72,3 +74,19 @@ def test_a_sample_season_carries_a_ranking_for_each_week(midseason):
 
 def test_polls_are_left_out_when_no_weekly_systems_are_given(midseason):
     assert sample_season(midseason, seed=4)["polls"] == {}
+
+
+def test_the_preseason_poll_says_no_more_than_its_cap_for_any_team(midseason):
+    from cfbroot.sim import sample
+    state = dataclasses.replace(midseason, polls=dict(midseason.polls))
+    fbs = state.fbs_teams
+    state.polls["ap_preseason"] = {t.idx: k + 1 for k, t in enumerate(fbs[:25])}
+    prior = sample._preseason_prior(state, 1.0)
+    top = [prior[t.school] for t in fbs[:6]]
+    # the top of the poll shares the cap, so losing drops a team below the rest
+    assert max(top) == sample.AP_PRIOR_TOP and len(set(top)) < 6
+    assert prior[fbs[24].school] < sample.AP_PRIOR_TOP
+    assert prior[fbs[40].school] == 0.0
+    # it fades to nothing by the week after AP_PRIOR_WEEKS
+    assert sample._ap_weight(1) == sample.AP_PRIOR_WEIGHT
+    assert sample._ap_weight(sample.AP_PRIOR_WEEKS + 1) == 0.0
