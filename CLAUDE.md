@@ -145,7 +145,9 @@ section that stays on screen after the app loads and is what crawlers read.
   A team has clinched when it is in however they go and is out when it is in
   under none of them. A step the results cannot settle (the last rating step,
   the Big 12's total wins) could go any way, so no claim rests on it. A search
-  past `MAX_NODES` makes no claim either. `Race.path()` says what each final
+  past `MAX_NODES` makes no claim either, except that a week's scenario
+  that runs out is asked again with `MAX_WEEK_NODES`, since a way to
+  clinch left out is one a reader misses. `Race.path()` says what each final
   record takes, with the results spelled out once few enough games are in play
   (`MAX_HELP_GAMES`). "In if no more than one of these finishes 7-2 or better"
   is only the sure thing, so each row also says what happens past it

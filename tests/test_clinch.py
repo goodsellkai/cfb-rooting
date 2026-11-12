@@ -520,3 +520,27 @@ def test_short_conditions_hold_only_where_they_should():
     assert _short_cover(set(), 4) == []
     # a way that takes more results than are worth saying is left out
     assert _short_cover({(1, 1, 1, 1, 1)}, 5, most=4) == []
+
+
+def test_a_scenario_the_first_search_gives_up_on_is_asked_again(monkeypatch):
+    """With the first search starved, the week's ways are still the ones a
+    search with room to finish finds."""
+    from cfbroot.web import clinch
+    rng = random.Random(5)
+    races = [random_race(rng, n=6, played=rng.randint(4, 8), left=rng.randint(5, 8),
+                         rules=CR.title_rules("SEC", 2026)) for _ in range(40)]
+    roomy = []
+    for race in races:
+        week = race.left[0][0]
+        roomy.append({t: race.this_week(t, week) for t in race.teams
+                      if race.games[t] and not race.status(t)})
+    monkeypatch.setattr(clinch, "MAX_NODES", 3)
+    retried = 0
+    for race, want in zip(races, roomy):
+        race._memo.clear()
+        race._ran_out.clear()
+        week = race.left[0][0]
+        for t, ways in want.items():
+            assert race.this_week(t, week) == ways
+        retried += len(race._ran_out)
+    assert retried

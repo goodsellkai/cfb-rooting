@@ -30,6 +30,10 @@ MAX_HELP_GAMES = 8
 MAX_WAYS = 3
 MAX_WAY_RESULTS = 4
 MAX_NODES = 1_000
+# A week's scenario that ran out of MAX_NODES is asked again with this many,
+# since a scenario left out is one a reader misses: Georgia clinching with
+# Kentucky and Tennessee losing took 4,100 in week 11 of 2026.
+MAX_WEEK_NODES = 30_000
 MAX_OUT_NODES = 200    # for each way a week can go, when asking if it ends a team's race
 # Ties are worked out by name once this few teams can catch a finish or this few
 # games are left in the conference, and the ways they can tie fit in a short list.
@@ -141,6 +145,7 @@ class Race:
             ([] if divisions else list(range(n)))
             for i in range(n)]
         self._memo: dict = {}
+        self._ran_out: set = set()     # questions the search gave up on
         self._paths: dict = {}
         self._budget = 0
         self._totals_settled = False  # total wins, once no game can change them
@@ -548,13 +553,16 @@ class Race:
                 return True
         return False
 
-    def _ask(self, kind, i, fixed, budget=MAX_NODES):
+    def _ask(self, kind, i, fixed, budget=None):
+        budget = MAX_NODES if budget is None else budget
         key = (kind, i, tuple(sorted(fixed.items())), budget)
         if key not in self._memo:
             for k, w in fixed.items():
                 self._set(k, w)
             self._budget = budget
             self._memo[key] = (self._can_miss if kind == "miss" else self._can_make)(i)
+            if self._budget < 0:
+                self._ran_out.add(key)
             for k, w in fixed.items():
                 self._unset(k, w)
         return self._memo[key]
@@ -562,7 +570,7 @@ class Race:
     def _safe(self, i, fixed=None) -> bool:
         return not self._ask("miss", i, fixed or {})
 
-    def _dead(self, i, fixed=None, budget=MAX_NODES) -> bool:
+    def _dead(self, i, fixed=None, budget=None) -> bool:
         return not self._ask("make", i, fixed or {}, budget)
 
     # What the pages ask.
@@ -628,8 +636,14 @@ class Race:
         decide = self._deciding(i, now)
         if not decide or len(decide) > MAX_SCENARIO_GAMES:
             return []
-        hits = {bits for bits in product((0, 1), repeat=len(decide))
-                if self._safe(i, self._results(decide, bits))}
+        hits = set()
+        for bits in product((0, 1), repeat=len(decide)):
+            fixed = self._results(decide, bits)
+            if self._safe(i, fixed):
+                hits.add(bits)
+            elif ("miss", i, tuple(sorted(fixed.items())), MAX_NODES) in self._ran_out:
+                if not self._ask("miss", i, fixed, MAX_WEEK_NODES):
+                    hits.add(bits)
         return [self._way(decide, term) for term in _cover(hits, len(decide))]
 
     def out_this_week(self, t, week) -> list[list[tuple]]:
