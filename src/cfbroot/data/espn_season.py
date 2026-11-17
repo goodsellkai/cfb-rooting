@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,10 @@ SCOREBOARD = ("https://site.api.espn.com/apis/site/v2/sports/football/"
               "&seasontype=2&groups={group}&limit=500")
 FBS, FCS = 80, 81
 WEEKS = range(1, 18)
+# Conference championship week. Every regular season runs at least this far,
+# and Army-Navy can be the week after.
+LAST_FULL_WEEK = 14
+LAST_WEEK = 15
 # The site API refuses browser-like user agents and accepts plain ones.
 _HEADERS = {"User-Agent": "curl/8.9.1"}
 
@@ -69,7 +74,9 @@ def _events(year: int, week: int, group: int, *, live: bool, force: bool) -> lis
         for e in events)
     upcoming = any(not e["competitions"][0]["status"]["type"].get("completed")
                    for e in events)
-    if unsettled or upcoming:
+    # An empty week is more often ESPN answering badly than a week with no
+    # games, so it is not kept for long either.
+    if unsettled or upcoming or not events:
         # Something here can still change, so the long copy will not do.
         events = cache.get_or_fetch("espn_scoreboard", key,
                                     TTL_LIVE if live else TTL_IDLE, go)
@@ -115,6 +122,39 @@ def _game(e: dict, week: int) -> dict:
     }
 
 
+def _fill_gaps(year: int, results: list, *, live: bool, tries: int = 3,
+               pause: float = 5.0) -> list:
+    """Ask again for any FBS week that came back empty but should have games.
+
+    Every week from the first through conference championship week has FBS
+    games, and so does any week before one that has them. ESPN sometimes
+    answers a week with no events at all, and a season built on that ends
+    early with no error. A week still empty after a few tries is an error like
+    any failed request, so the loader turns to CFBD instead.
+    """
+    def missing(res, through):
+        have = {w for (w, g), ev in res if g == FBS and ev}
+        last = max(have | {through})
+        return [w for w in WEEKS if w <= last and w not in have]
+
+    for attempt in range(tries):
+        # Army-Navy's week can come after championship week, so it is asked
+        # for again too, though a season without it is allowed.
+        gaps = missing(results, LAST_WEEK)
+        if not gaps:
+            return results
+        if attempt:
+            time.sleep(pause)
+        again = {w: _events(year, w, FBS, live=live, force=True) for w in gaps}
+        results = [((w, g), again[w] if g == FBS and w in again else ev)
+                   for (w, g), ev in results]
+    gaps = missing(results, LAST_FULL_WEEK)
+    if gaps:
+        raise ESPNSeasonError(
+            f"ESPN sent no FBS games for week {', '.join(map(str, gaps))} of {year}")
+    return results
+
+
 def season(year: int, *, live: bool = False, force: bool = False) -> dict:
     """``{"teams", "conferences", "games", "fcs_games"}`` in CFBD's shapes."""
     jobs = [(w, g) for g in (FBS, FCS) for w in WEEKS]
@@ -122,6 +162,7 @@ def season(year: int, *, live: bool = False, force: bool = False) -> dict:
         results = list(pool.map(
             lambda job: (job, _events(year, job[0], job[1], live=live, force=force)),
             jobs))
+    results = _fill_gaps(year, results, live=live)
 
     games, fcs_games, teams = [], [], {}
     for (week, group), events in results:
