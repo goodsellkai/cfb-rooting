@@ -615,6 +615,7 @@ function renderStandings(recs) {
 /** A written page has no guide or season of its own, so its tabs lead back to
  * the app, which opens on the view picked. Neither is the page being read. */
 function pickTab(name) {
+  track("open_tab", { tab: name });
   if (!window.CFBROOT_INFO) { showTab(name); return; }
   try { localStorage.setItem("cfbroot.tab", name); } catch { /* private mode */ }
   location.href = BASE;
@@ -628,7 +629,7 @@ if (window.CFBROOT_INFO) {
     $(id).setAttribute("aria-selected", "false");
   }
 }
-$("s-new").addEventListener("click", newSeason);
+$("s-new").addEventListener("click", () => { track("new_season"); newSeason(); });
 $("s-fresh").addEventListener("change", newSeason);
 $("s-play").addEventListener("click", togglePlay);
 $("s-prev").addEventListener("click", () => { stopPlaying(); setStage(STAGE - 1); });

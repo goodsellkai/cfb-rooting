@@ -188,7 +188,22 @@ async function boot() {
     loadTeam(false);
   } else {
     setBand(null);
+    releaseView();
   }
+}
+
+/** Something the reader did, for Analytics, when the tag is on. */
+function track(name, params = {}) {
+  if (typeof gtag === "function") gtag("event", name, params);
+}
+
+/** The front page holds its view while it brings back a saved team, so the
+ * visit counts as the team's page (see pages._ga). If no team comes, the
+ * view is the front page's after all. */
+function releaseView() {
+  if (!window.CFBROOT_HELD) return;
+  window.CFBROOT_HELD = false;
+  track("page_view");
 }
 
 /** The strip of links says which page this is. */
@@ -865,6 +880,7 @@ function renderPath(grow) {
 function setMetric(key) {
   if (key === METRIC) return;
   METRIC = key;
+  track("switch_measure", { measure: key });
   try { localStorage.setItem("cfbroot.metric", key); } catch { /* private mode */ }
   render();
 }
@@ -903,6 +919,7 @@ async function loadTeam(picked = true) {
   let t = teamNamed($("team").value);
   if (!t || (RESULT && RESULT.team === t.name && WANTED === t.name)) return;
   WANTED = t.name;
+  if (picked) track("pick_team", { team: t.name });
   try { localStorage.setItem("cfbroot.team", t.name); } catch { /* private mode */ }
   setBand(t.idx);
   renderTeamLine(t.idx);
@@ -923,6 +940,7 @@ async function loadTeam(picked = true) {
       }
       showProgress(null);
       if (staleReload()) return;
+      releaseView();
       banner("The site has been updated since this page was opened. Reload for "
              + "the new numbers.", false);
       return;
@@ -935,6 +953,7 @@ async function loadTeam(picked = true) {
     }
     showProgress(null);
     if (!resp.ok) {
+      releaseView();
       banner("Could not load " + t.name + ": " + (body.detail || resp.statusText), false);
       return;
     }
@@ -951,11 +970,15 @@ async function loadTeam(picked = true) {
     // but still takes the team's written section.
     if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
       pinLinks();
+      // The team's text and title come before its address: Analytics counts
+      // the view as the address changes, and takes the title it finds then.
+      await loadWriteup(t);
+      if (WANTED !== t.name) return;
+      window.CFBROOT_HELD = false;
       // A team the reader picked is a step Back can undo. One the page brought
       // back by itself is not, or Back would only bring it again.
       history[picked ? "pushState" : "replaceState"](
         { team: t.name }, "", `${BASE}team/${t.slug}/`);
-      loadWriteup(t);
     } else if (!STATIC && t.slug) {
       loadWriteup(t);
     }
@@ -2286,6 +2309,7 @@ $("share").addEventListener("click", async () => {
   const text = race ? `${RESULT.team}: ${race}, and who to root for this week.`
                     : `${RESULT.team}: who to root for this week.`;
   const b = $("share");
+  track("share", { team: RESULT.team, method: navigator.share ? "share" : "copy" });
   if (navigator.share) {
     try { await navigator.share({ title: document.title, text, url }); } catch { /* closed */ }
     return;

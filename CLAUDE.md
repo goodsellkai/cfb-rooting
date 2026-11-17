@@ -234,7 +234,13 @@ section that stays on screen after the app loads and is what crawlers read.
   Google's origins through the Content-Security-Policy; without it neither
   is written. Cookies are denied by default in the EU, the UK and Switzerland
   (`GA_NO_COOKIES`), which is why there is no consent banner. `/privacy/` says
-  what is collected and mentions Google only while the tag is on.
+  what is collected and mentions Google only while the tag is on. Analytics
+  counts a page view when the address changes, so app.js loads a team's
+  title before it changes the address, and the front page holds its own view
+  while it brings back a saved team (`CFBROOT_HELD`, `releaseView()`), so a
+  visit counts once, as the team's page. `track()` sends `pick_team`,
+  `switch_measure`, `share`, `open_tab` and `new_season`. Any page opened with
+  `?me` stops that browser being counted; `?me=off` undoes it.
 - **The model's record is private.** Each full build runs `cfbroot.track` into
   a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,

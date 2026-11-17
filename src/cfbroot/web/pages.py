@@ -127,17 +127,32 @@ GA_HOSTS = {
 
 
 def _ga() -> str:
-    """The Analytics tag for a page's head, or nothing while it is off."""
+    """The Analytics tag for a page's head, or nothing while it is off.
+
+    Opening any page with ``?me`` stops that browser being counted, so Kai's
+    own visits stay out of the numbers; ``?me=off`` counts it again. The front
+    page holds its view while app.js brings back a saved team, so the visit
+    counts once, as the team's page (``CFBROOT_HELD``, released by app.js if
+    no team comes).
+    """
     if not re.fullmatch(r"G-[A-Z0-9]+", GA_ID):
         return ""
     denied = "ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'"
     return (f'\n<script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}">'
             "</script>\n<script>window.dataLayer=window.dataLayer||[];"
             "function gtag(){dataLayer.push(arguments);}"
+            "(function(){var p=location.pathname,q=location.search,h=false;try{"
+            "if(/[?&]me=off\\b/.test(q))localStorage.removeItem('cfbroot.me');"
+            "else if(/[?&]me\\b/.test(q))localStorage.setItem('cfbroot.me','1');"
+            f"if(localStorage.getItem('cfbroot.me'))window['ga-disable-{GA_ID}']=true;"
+            "h=p==='/'&&!!localStorage.getItem('cfbroot.team')"
+            "&&!sessionStorage.getItem('cfbroot.home');}catch(e){}"
+            "window.CFBROOT_HELD=h;"
             f"gtag('consent','default',{{{denied},analytics_storage:'denied',"
             f"region:{json.dumps(GA_NO_COOKIES, separators=(',', ':'))}}});"
             f"gtag('consent','default',{{{denied},analytics_storage:'granted'}});"
-            f"gtag('js',new Date());gtag('config','{GA_ID}');</script>")
+            "gtag('js',new Date());"
+            f"gtag('config','{GA_ID}',{{send_page_view:!h}});}})();</script>")
 
 
 # Where questions go: the privacy page and every footer.
@@ -2337,8 +2352,8 @@ def conference_body(state, conf, rows, n_sims, pairs=None, stakes=None):
         status = race.status(r["idx"]) if race and r["idx"] in race.wins else None
         mark = {"clinched": '<span class="cl in">Clinched</span>',
                 "out": '<span class="cl out">Out</span>'}.get(status, "")
-        body += (f'<tr><td><a href="../../team/{slug(r["team"])}/">{art}'
-                 f'{html.escape(r["team"])}</a>{mark}</td>'
+        body += (f'<tr><td><div class="tm"><a href="../../team/{slug(r["team"])}/">{art}'
+                 f'{html.escape(r["team"])}</a>{mark}</div></td>'
                  f'<td class="num">{r["conf_record"]}</td>'
                  f'<td class="num ovr">{r["record"]}</td>'
                  f'{_bar_cell(p["make_conf_title_game"], zero=True)}'

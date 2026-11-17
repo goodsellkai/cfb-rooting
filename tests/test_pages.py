@@ -698,7 +698,9 @@ def test_analytics_is_off_until_it_is_given_an_id(monkeypatch):
     monkeypatch.setattr(pages, "GA_ID", "G-TEST123")
     head = pages.privacy_head()
     assert 'src="https://www.googletagmanager.com/gtag/js?id=G-TEST123"' in head
-    assert "gtag('config','G-TEST123')" in head
+    assert "gtag('config','G-TEST123',{send_page_view:!h})" in head
+    # ?me keeps a browser out of the numbers
+    assert "window['ga-disable-G-TEST123']=true" in head
     # no cookies where consent would be needed first, so no banner
     assert "analytics_storage:'denied',region:[\"AT\"" in head
     assert "analytics_storage:'granted'" in head
