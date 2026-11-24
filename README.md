@@ -169,7 +169,8 @@ The site also plays out single simulated seasons: every score week by week,
 the standings, the title games, the committee's ranking, selection day and
 the bracket. Each one is a draw from the same distribution the odds come
 from, rated the same way. It can carry this season's results or replay the
-whole year from week 1.
+whole year from week 1. It is a tab on every page and has its own address,
+`/season-simulator/`.
 
 ## How well it does
 

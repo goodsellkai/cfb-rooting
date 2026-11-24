@@ -217,6 +217,10 @@ def home_questions(state, n_sims, race=()):
          f"simulated season is rated with Kenneth Massey's model, ranked by a "
          f"model of the selection committee and played through the 12-team "
          f"bracket."),
+        ("Can I simulate the rest of the season?",
+         "Yes. The season simulator plays out one simulated season at a "
+         "time, week by week, through the conference title games, selection "
+         "day and the 12-team bracket."),
     ]
 
 
@@ -479,15 +483,22 @@ def _needs_html(state, team, payload, fbs):
     return out
 
 
+# From this week, a team's title asks whether it can still make the playoffs.
+STILL_WEEK = 9
+
+
 def team_head(state, team, payload, week, card=None):
     h = payload["headline"]
     w, l, _, _, _ = record(state, team.idx)
     p = _pct(h["make_playoff"]["p"])
     url = f"{SITE_URL}/team/{slug(team.school)}/"
-    # Worded as the searches that find the page are: "chances of making the
-    # playoff" and "scenarios" reach it, where "playoff odds" goes to sportsbooks.
-    title = (f"{team.school} playoff chances {state.year}: scenarios, what it needs, "
-             f"who to root for")
+    # Worded as the searches that find the page are. They are questions, "can
+    # oklahoma still make the playoffs", and "still" once the season is well
+    # along; "playoff odds" goes to sportsbooks. No percentage: Google can show
+    # a title for days after the odds have moved.
+    still = " still" if (week or 0) >= STILL_WEEK else ""
+    title = (f"Can {team.school}{still} make the playoffs? {state.year} chances, "
+             f"scenarios, who to root for")
     desc = (f"{team.school}'s playoff chances are {p} at {w}-{l} going into week "
             f"{week}, from {_sims(payload['n_sims'])} simulated seasons. What it "
             f"needs, its scenarios and which games to root for.")
@@ -764,8 +775,11 @@ def team_writeup(state, team, payload, week):
 {title_path}
 {so_far}
 {race}
+<p>Play out the rest of {school}'s season, through selection day and the
+bracket, in the <a href="../../{SIM_PATH}">season simulator</a>.</p>
 {faq}
 <p><a href="../../teams/">All {len(league)} teams</a> &middot;
+<a href="../../{SIM_PATH}">Season simulator</a> &middot;
 <a href="../../how-it-works/">Methodology</a></p>"""
 
 
@@ -822,7 +836,8 @@ played through the 12-team bracket. <a href="how-it-works/">Methodology</a></spa
 {edge}
     </ol>
     <p class="foot"><a href="teams/">All {len(teams)} teams</a>
-    <a href="cfp-rankings/">CFP rankings</a></p>
+    <a href="cfp-rankings/">CFP rankings</a>
+    <a href="{SIM_PATH}">Season simulator</a></p>
   </div>
 </div>
 </div>
@@ -1224,6 +1239,8 @@ get byes.</p></li>
 site. A national champion here has won the bracket: three games for a team
 with a bye, four for everyone else.</p></li>
 </ol>
+<p>The <a href="../{SIM_PATH}">season simulator</a> plays out seasons like
+these one at a time, stage by stage.</p>
 
 <h2>What a game is worth</h2>
 <p>Every remaining game is played in every simulated season, so one game's
@@ -1242,6 +1259,108 @@ Football Playoff committee.</p>
 
 <p>The code is on <a href="https://github.com/goodsellkai/cfb-rooting">GitHub</a>.</p>
 <p><a href="../">Back to the guide</a></p>"""
+
+
+# The season simulator
+#
+# Sim a season at an address of its own, so a search can find it. Every page
+# has it as a tab, which on the app's own pages switches in place.
+
+SIM_PATH = "season-simulator/"
+
+
+def simulator_questions(state, n_sims):
+    return [
+        ("How does the college football season simulator work?",
+         f"It plays out one simulated {state.year} season. Every game left "
+         "gets a score, the standings are settled with each conference's "
+         "tiebreakers, the title games are played, the committee ranks the "
+         "teams, and selection day fills the 12-team bracket, which is played "
+         "to a national champion."),
+        ("Where do the simulated seasons come from?",
+         f"From the model behind the playoff odds on this site, which plays "
+         f"the rest of the season {_sims(n_sims)} times. Each season in the "
+         "simulator is a draw from it, rated and ranked the same way, so a "
+         "likely result comes up often and an upset now and then."),
+        ("Can I simulate the College Football Playoff?",
+         "Yes. Step past selection day to see the field and its seeds, then "
+         "play the first round, the quarterfinals, the semifinals and the "
+         "national championship game."),
+        ("Can I replay the season from week 1?",
+         "Yes. Tick From week 1 and every game is simulated from the start, "
+         "ignoring the real results. Leave it off and the games already "
+         "played keep their real scores."),
+        ("Can I follow my team?",
+         "Pick your team at the top. The simulator shows its results and "
+         "record in each season, and where it finishes."),
+    ]
+
+
+def simulator_head(state, n_sims, card=None):
+    url = f"{SITE_URL}/{SIM_PATH}"
+    title = (f"College football season simulator {state.year}: sim the season "
+             f"and the playoff")
+    desc = (f"Play out the rest of the {state.year} college football season: "
+            f"every game's score, the conference title games, the committee's "
+            f"top 25, selection day and the 12-team playoff bracket. Free, in "
+            f"the browser, from the model behind the playoff odds.")
+    app = {"@context": "https://schema.org", "@type": "WebApplication",
+           "name": "College football season simulator", "url": url,
+           "description": desc, "applicationCategory": "SportsApplication",
+           "operatingSystem": "Any", "browserRequirements": "Requires JavaScript",
+           "isAccessibleForFree": True, "author": AUTHOR,
+           "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
+    return _head(title, desc, url, card=card,
+                 card_alt="College football season simulator",
+                 ld=[_page_ld(title, desc, url), app,
+                     _crumbs([(SITE_NAME, SITE_URL + "/"),
+                              ("Season simulator", url)]),
+                     _faq_ld(simulator_questions(state, n_sims))])
+
+
+def simulator_top(state) -> str:
+    """The page's name, over the player."""
+    return (f'<div class="s-intro">\n<h1>College football season simulator</h1>\n'
+            f'<p>One simulated {state.year} season, played week by week through '
+            f'the title games, selection day and the playoff. Press Play, step '
+            f'through it, or start a new one.</p>\n</div>')
+
+
+def simulator_writeup(state, n_sims) -> str:
+    """What the page says under the player, which is what a crawler reads."""
+    return f"""<h2>What each season shows</h2>
+<ul>
+<li>Every game's score, week by week, with the upsets marked.</li>
+<li>The conference standings, settled with each conference's tiebreakers.</li>
+<li>Championship week and its title games.</li>
+<li>The committee's top 25 as the season goes.</li>
+<li>Selection Sunday: the 12-team field and its seeds.</li>
+<li>The bracket, through the national championship game.</li>
+</ul>
+{_faq_html(simulator_questions(state, n_sims))}
+<p><a href="../teams/">All teams</a> &middot;
+<a href="../cfp-rankings/">CFP rankings</a> &middot;
+<a href="../how-it-works/">Methodology</a></p>"""
+
+
+def simulator_shell(page: str, state, n_sims: int) -> str:
+    """The app's page opened on Sim a season, with the simulator's own words
+    in it. Run on the template before ``export.render``, which writes the two
+    slots empty on every other page."""
+    return (page
+            .replace("<body>", '<body class="seasontab">')
+            .replace('<div id="guideview">', '<div id="guideview" hidden>')
+            .replace('<div id="seasonview" hidden>', '<div id="seasonview">')
+            .replace('class="tab active" role="tab" aria-selected="true">',
+                     'class="tab" role="tab" aria-selected="false">')
+            .replace(f'class="tab" role="tab" aria-selected="false" href="/{SIM_PATH}">',
+                     f'class="tab active" role="tab" aria-selected="true" '
+                     f'href="/{SIM_PATH}">')
+            .replace("<!--SEASONHEAD-->", simulator_top(state))
+            .replace("<!--SEASONWRITEUP-->", simulator_writeup(state, n_sims))
+            .replace('<script src="/static/app.js',
+                     '<script>window.CFBROOT_TAB = "season";</script>'
+                     '<script src="/static/app.js'))
 
 
 def not_found_head() -> str:
@@ -1368,6 +1487,9 @@ def llms_txt(state, teams, n_sims) -> str:
         f"- [CFP rankings]({SITE_URL}/cfp-rankings/): the committee's top "
         f"25, or its next one as the model expects it once games have been "
         f"played since, and the field if the season ended today",
+        f"- [Season simulator]({SITE_URL}/{SIM_PATH}): plays out one "
+        f"simulated season week by week: every score, the standings, the "
+        f"title games, the committee's top 25, selection day and the bracket",
         f"- [Methodology]({SITE_URL}/how-it-works/): the simulation, the "
         f"rating, the committee model and the bracket",
         f"- [Every team]({SITE_URL}/teams/): links to all {len(teams)} team "

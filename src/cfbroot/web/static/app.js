@@ -38,6 +38,8 @@ const STATIC = !!window.CFBROOT_STATIC;
 // to the root. It is made absolute here, because picking a team moves the
 // address to that team's page and a relative path would move with it.
 const BASE = STATIC ? new URL(window.CFBROOT_BASE || "./", location.href).href : "/";
+// The simulator's own page, which opens on Sim a season and keeps its address.
+const SIM_PAGE = window.CFBROOT_TAB === "season";
 const URLS = STATIC
   ? { state: BASE + "data/state.json",
       team: (t) => `${BASE}data/team/${t.slug || slugOf(t.name)}.json` }
@@ -789,8 +791,9 @@ function setBand(idx) {
     plate.hidden = true;
   }
   if (t == null) {
-    $("teamline").textContent = "Every remaining game, ranked by its effect on your "
-      + "team's playoff odds.";
+    $("teamline").textContent = SIM_PAGE
+      ? "Pick a team to follow it through each simulated season."
+      : "Every remaining game, ranked by its effect on your team's playoff odds.";
   }
 }
 
@@ -1029,7 +1032,9 @@ async function loadTeam(picked = true) {
     placeClinch();
     // Each team has its own address on the hosted site, so a link to what
     // is on screen goes to the same place. The local app keeps its address
-    // but still takes the team's written section.
+    // but still takes the team's written section. The simulator's page keeps
+    // both: the team is only the one it follows.
+    if (SIM_PAGE) return;
     if (STATIC && t.slug && !location.pathname.endsWith(`/team/${t.slug}/`)) {
       pinLinks();
       // The team's text and title come before its address: Analytics counts

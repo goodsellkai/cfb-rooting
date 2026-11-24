@@ -115,6 +115,8 @@ a { color: inherit; }
 .tabs { display: flex; gap: 2px; }
 .tabs[hidden] { display: none; }
 .tab {
+  /* Sim a season is a link, to the simulator's own page, and looks the same */
+  display: inline-flex; align-items: center; text-decoration: none;
   background: none; border: 0; border-top: 3px solid transparent;
   border-bottom: 3px solid transparent; padding: 0 12px; cursor: pointer;
   color: rgba(255, 255, 255, .74); font: inherit; font-size: 14px;
@@ -1335,6 +1337,13 @@ ul.races { list-style: none; margin: 0; padding: 0; display: grid; font-stretch:
 body.seasontab .guideonly { display: none; }
 
 /* Sim a season */
+/* The simulator's own page names itself over the player. */
+.s-intro { max-width: var(--page); margin: 0 auto; padding: 24px var(--gutter) 14px; }
+.s-intro h1 { font-size: 34px; font-weight: 820; font-stretch: 72%; color: var(--ink);
+              letter-spacing: -.01em; margin: 0 0 6px; }
+.s-intro p { margin: 0; max-width: 68ch; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+#seasonwriteup { margin-top: 28px; }
+#seasonwriteup > h2:first-child { padding-top: 22px; border-top: 2px solid var(--ink); }
 .transport {
   position: sticky; top: 0; z-index: 20; background: var(--raise);
   border-bottom: 1px solid var(--rule);
@@ -1601,6 +1610,8 @@ body.seasontab .guideonly { display: none; }
 
   .intro { padding-top: 20px; }
   .intro h1 { font-size: 28px; }
+  .s-intro { padding-top: 18px; }
+  .s-intro h1 { font-size: 28px; }
   .stakes li { grid-template-columns: 1.2rem minmax(0, 1fr) auto; column-gap: 10px; }
   .stakes .kick { grid-column: 2 / -1; grid-row: 2; }
   .stakes .stake { grid-column: 3; grid-row: 1; }

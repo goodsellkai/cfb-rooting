@@ -20,7 +20,9 @@ const UPSET = 0.35;     // a win the model gave less than this is an upset
 
 // Tabs
 
-function showTab(name) {
+/** ``remember`` is false on the simulator's page, which opens on the season
+ * by itself; a team page visited later should still open on its guide. */
+function showTab(name, remember = true) {
   const season = name === "season";
   $("guideview").hidden = season;
   $("seasonview").hidden = !season;
@@ -30,7 +32,9 @@ function showTab(name) {
     $(id).classList.toggle("active", on);
     $(id).setAttribute("aria-selected", String(on));
   }
-  try { localStorage.setItem("cfbroot.tab", name); } catch { /* private mode */ }
+  if (remember) {
+    try { localStorage.setItem("cfbroot.tab", name); } catch { /* private mode */ }
+  }
   if (season && !SEASON) newSeason();
   if (!season) stopPlaying();
 }
@@ -612,17 +616,28 @@ function renderStandings(recs) {
 
 // Events
 
-/** A written page has no guide or season of its own, so its tabs lead back to
- * the app, which opens on the view picked. Neither is the page being read. */
-function pickTab(name) {
+/** The app's pages switch in place. A written page has neither view, so Sim a
+ * season follows its link to the simulator's page, and the guide goes to the
+ * front page, which brings back the saved team. The simulator's page sends
+ * the guide there too. */
+function pickTab(name, e) {
   track("open_tab", { tab: name });
-  if (!window.CFBROOT_INFO) { showTab(name); return; }
-  try { localStorage.setItem("cfbroot.tab", name); } catch { /* private mode */ }
+  if (name === "season" && window.CFBROOT_INFO) return;     // the link goes there
+  e.preventDefault();
+  if (!window.CFBROOT_INFO && !(SIM_PAGE && name === "guide")) {
+    showTab(name, !SIM_PAGE);
+    return;
+  }
+  try { localStorage.setItem("cfbroot.tab", "guide"); } catch { /* private mode */ }
   location.href = BASE;
 }
 
-$("tab-guide").addEventListener("click", () => pickTab("guide"));
-$("tab-season").addEventListener("click", () => pickTab("season"));
+$("tab-guide").addEventListener("click", (e) => pickTab("guide", e));
+$("tab-season").addEventListener("click", (e) => {
+  // The tab is a link, so it can still open the simulator's page in a new tab.
+  if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  pickTab("season", e);
+});
 if (window.CFBROOT_INFO) {
   for (const id of ["tab-guide", "tab-season"]) {
     $(id).classList.remove("active");
@@ -665,8 +680,12 @@ function onTeamChanged() {
   renderSeason();
 }
 
-try {
-  if (!window.CFBROOT_INFO && localStorage.getItem("cfbroot.tab") === "season") {
-    showTab("season");
-  }
-} catch { /* private mode */ }
+if (SIM_PAGE) {
+  showTab("season", false);
+} else {
+  try {
+    if (!window.CFBROOT_INFO && localStorage.getItem("cfbroot.tab") === "season") {
+      showTab("season");
+    }
+  } catch { /* private mode */ }
+}

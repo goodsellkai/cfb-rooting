@@ -73,9 +73,21 @@ def test_a_team_page_carries_its_structured_data(season, payload):
     head = pages.team_head(season, team, payload, season.current_week())
     kinds = {b["@type"] for b in blocks(head)}
     assert kinds == {"WebPage", "Article", "BreadcrumbList", "FAQPage"}
-    assert f"<title>{team.school} playoff chances" in head
-    assert "what it needs" in head
+    assert "What it needs, its scenarios" in head
     assert 'name="robots"' in head
+
+
+def test_a_team_title_asks_what_the_searches_ask(season, payload):
+    """Late in the year the searches are "can X still make the playoffs"."""
+    team = season.fbs_teams[0]
+    name = html.escape(team.school)
+    early = pages.team_head(season, team, payload, pages.STILL_WEEK - 1)
+    late = pages.team_head(season, team, payload, pages.STILL_WEEK)
+    assert f"<title>Can {name} make the playoffs? {season.year} chances" in early
+    assert f"<title>Can {name} still make the playoffs?" in late
+    # No percentage in a title, which Google can keep showing after it moves.
+    title = re.search(r"<title>(.*?)</title>", late).group(1)
+    assert "%" not in title
 
 
 def test_a_team_page_marks_up_no_events(season, payload):
@@ -460,7 +472,8 @@ def test_the_sitemap_lists_the_pages_the_build_wrote(season, payload, tmp_path):
     listed = _front(season, payload["league"], tmp_path)
     assert listed[0] == pages.SITE_URL + "/"
     assert pages.SITE_URL + "/team/some-team/" in listed
-    for page in ("this-week", "cfp-rankings", "how-it-works", "teams"):
+    for page in ("this-week", "cfp-rankings", "how-it-works", "teams",
+                 "season-simulator"):
         assert f"{pages.SITE_URL}/{page}/" in listed
     assert any("/conference/" in u for u in listed)
     assert not any("/data/" in u or "/static/" in u for u in listed)
@@ -468,6 +481,42 @@ def test_the_sitemap_lists_the_pages_the_build_wrote(season, payload, tmp_path):
     root = len(pages.SITE_URL) + 1
     assert all((tmp_path / u[root:] / "index.html").exists() for u in listed)
     assert len(listed) == len(list(tmp_path.rglob("index.html"))) - 2
+
+
+def test_the_simulator_has_a_page_that_opens_on_it(season, payload, tmp_path):
+    """Sim a season has an address a search can find, written open on the
+    season, while every other page keeps it as a tab that links there."""
+    _front(season, payload["league"], tmp_path)
+    page = (tmp_path / "season-simulator" / "index.html").read_text("utf-8")
+    assert "<title>College football season simulator" in page
+    assert f'<link rel="canonical" href="{pages.SITE_URL}/season-simulator/">' in page
+    kinds = {b["@type"] for b in blocks(page)}
+    assert {"WebApplication", "FAQPage", "BreadcrumbList"} <= kinds
+    assert '<body class="seasontab">' in page
+    assert '<div id="guideview" hidden>' in page
+    assert '<div id="seasonview">' in page
+    assert ('class="tab active" role="tab" aria-selected="true" '
+            'href="../season-simulator/">Sim a season') in page
+    assert 'aria-selected="false">Rooting guide' in page
+    assert 'window.CFBROOT_TAB = "season"' in page
+    assert "<h1>College football season simulator</h1>" in page
+    said = text(page)
+    assert "How does the college football season simulator work?" in said
+    assert "<!--SEASON" not in page
+    # Every other page links to it from the tab and the footer, at its depth.
+    other = (tmp_path / "how-it-works" / "index.html").read_text("utf-8")
+    assert other.count('href="../season-simulator/"') >= 2
+    assert 'class="tab" role="tab" aria-selected="false" href="../season-simulator/"' in other
+    assert "CFBROOT_TAB" not in other and "<!--SEASON" not in other
+    assert '<section id="seasonwriteup" class="writeup"></section>' in other
+    home = (tmp_path / "index.html").read_text("utf-8")
+    assert 'href="season-simulator/"' in home
+
+
+def test_a_team_page_links_to_the_simulator(season, payload):
+    team = season.fbs_teams[0]
+    body = pages.team_writeup(season, team, payload, season.current_week())
+    assert 'href="../../season-simulator/"' in body
 
 
 def test_the_sitemap_leaves_out_a_page_the_build_skipped(season, tmp_path):

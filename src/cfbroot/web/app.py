@@ -491,6 +491,19 @@ def how_it_works() -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/season-simulator/", response_class=HTMLResponse)
+def season_simulator() -> HTMLResponse:
+    """Sim a season at its own address, as the build writes it."""
+    from . import pages
+    state = store.get_season()
+    html = pages.simulator_shell(_shell(), state, store.sims)
+    html = html.replace("<!--HEAD-->", pages.simulator_head(state, store.sims))
+    token = _asset_token()
+    for name in VERSIONED:
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={token}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/teams/", response_class=HTMLResponse)
 def teams_page() -> HTMLResponse:
     from . import pages

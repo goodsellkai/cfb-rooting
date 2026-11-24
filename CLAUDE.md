@@ -256,10 +256,24 @@ section that stays on screen after the app loads and is what crawlers read.
 - **Titles and questions are worded as the searches that reach the site are.**
   Search Console on 2026-11-10 had "[team] playoff odds" at position 40 to 65,
   behind the sportsbooks, and "[team] chances of making playoffs", "can X make
-  the playoffs" and tiebreaker searches at 6 to 9. So a team's title opens on
-  "playoff chances", a conference's on "championship game scenarios", and the
-  questions include bowl eligibility and national championship odds. The week
-  in a title comes from the state at build time, like every number.
+  the playoffs" and tiebreaker searches at 6 to 9. On 2026-11-24 most of a
+  team page's impressions were questions ("can oklahoma still make the
+  playoffs", "does arizona have a chance to make the playoffs") with a click
+  rate of 1 to 2% at position 7. So a team's title asks "Can X make the
+  playoffs?", with "still" from week `STILL_WEEK`, and never carries a
+  percentage, which Google can show for days after it moves. A conference's
+  title opens on "championship game scenarios", and the questions include
+  bowl eligibility and national championship odds. The week in a title comes
+  from the state at build time, like every number.
+- **Sim a season has an address of its own, `/season-simulator/`,** so a search
+  can land on it. `pages.simulator_shell` turns the template into the app
+  opened on that view (`window.CFBROOT_TAB = "season"`, `SIM_PAGE` in app.js),
+  with an h1 over the player and a written section under it
+  (`<!--SEASONHEAD-->`, `<!--SEASONWRITEUP-->`, which `export.render` empties on
+  every other page). The tab is a link there: the app's pages still switch in
+  place, written pages follow it. The simulator's page keeps its address and
+  title when a team is picked, does not save the tab, and its Rooting guide tab
+  goes to the front page.
 - **Google Analytics is off until a build is given an id.** `CFBROOT_GA_ID`,
   from the repository variable `GA_ID`, puts the tag in every head and lets
   Google's origins through the Content-Security-Policy; without it neither

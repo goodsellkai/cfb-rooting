@@ -143,6 +143,9 @@ def render(template: str, head: str, intro: str, depth: int,
                              '<section id="band" class="band"'
                              + _band_style(color, photo) + '>')
                     .replace("<!--WRITEUP-->", writeup)
+                    # filled on the simulator's page (pages.simulator_shell)
+                    .replace("<!--SEASONHEAD-->", "")
+                    .replace("<!--SEASONWRITEUP-->", "")
                     .replace(INTRO_BLOCK, intro)
                     .replace('<script src="/static/app.js', boot + '<script src="/static/app.js')
                     .replace('href="/how-it-works/", ', f'href="{base}how-it-works/", ')
@@ -151,6 +154,7 @@ def render(template: str, head: str, intro: str, depth: int,
                     .replace('href="/teams/"', f'href="{base}teams/"')
                     .replace('href="/this-week/"', f'href="{base}this-week/"')
                     .replace('href="/cfp-rankings/"', f'href="{base}cfp-rankings/"')
+                    .replace(f'href="/{pages.SIM_PATH}"', f'href="{base}{pages.SIM_PATH}"')
                     .replace('href="/conference/', f'href="{base}conference/')
                     .replace('class="brand" href="/"',
                              f'class="brand" href="{base or "./"}"')
@@ -202,6 +206,12 @@ def write_front(out: Path, state, teams, n_sims: int, standing,
     (everyone / "index.html").write_text(
         render(template, pages.teams_head(state, n_sims, card),
                pages.teams_body(state, teams, standing), 1, info=True),
+        encoding="utf-8")
+    sim = out / pages.SIM_PATH
+    sim.mkdir(exist_ok=True)
+    (sim / "index.html").write_text(
+        render(pages.simulator_shell(template, state, n_sims),
+               pages.simulator_head(state, n_sims, card), "", 1),
         encoding="utf-8")
     how = out / "how-it-works"
     how.mkdir(exist_ok=True)
