@@ -35,6 +35,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write      # a game-day run starts the next one itself
 
 concurrency:
   group: pages
@@ -158,6 +159,22 @@ jobs:
               break
             fi
           done
+
+      # GitHub starts only a few of the scheduled runs a game day asks for: on
+      # 21 November 2026 one ended at 1pm Central and the next began after
+      # 2:45, so the noon games' results sat off the site for two hours. A run
+      # that stops on a game day starts the next one itself, until 2am Central
+      # on Sunday. It waits in the queue until this run is done, since both are
+      # in the pages group.
+      - name: Start the next game-day run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          day=$(date -u +%u); hour=$(date -u +%H)
+          if [ "$day" = "6" ] || { [ "$day" = "7" ] && [ "$hour" -lt 8 ]; }; then
+            gh workflow run "Publish site" --ref "${{ github.ref_name }}" -R "${{ github.repository }}"
+            echo "next run asked for"
+          fi
 
       # Once SITE_URL names the real domain, Cloudflare serves the site and
       # the GitHub Pages copy becomes a signpost to it, so old links and

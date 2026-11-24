@@ -643,7 +643,7 @@ def test_a_tie_worked_out_says_who_and_how():
     assert who == "behind Gamma, level with Alpha" and why == "in with Beta beating Gamma, otherwise out"
     own = dict(tied, ways=[[(7, 2)], [(3, 1), (2, 7)]], **{"else": "open"})
     assert pages._tie_parts(own, str, names | {7: "Team"}, steps)[1] == (
-        "in with a win over Beta; or with Gamma beating Alpha and a loss to Beta, "
+        "in with a win over Beta; or with a loss to Beta and Gamma beating Alpha, "
         "otherwise it comes down to the last step")
     unsaid = dict(tied, ways=None)
     assert pages._tie_parts(unsaid, str, names, steps)[1] == "depends on other results"
@@ -659,12 +659,34 @@ def test_a_week_says_what_every_way_shares_once():
         "with a win over Duke, North Carolina beating Louisville, and either "
         "Georgia Tech beating Clemson or Wake Forest beating SMU")
     assert pages._week_text([[(1, 2)]], 1, str, names) == "with a win over Duke"
-    assert pages._week_text([[(2, 1)], [(3, 4)]], 1, str, names, more=True) == (
-        "with either a loss to Duke or Georgia Tech beating Clemson; or in other ways")
+    assert pages._week_text([[(2, 1)], [(3, 4)]], 1, str, names) == (
+        "with either a loss to Duke or Georgia Tech beating Clemson")
     # nothing shared: each way stands alone
     assert pages._week_text([[(1, 2), (3, 4)], [(5, 6), (7, 8)]], 1, str, names) == (
         "with a win over Duke and Georgia Tech beating Clemson; or with "
         "North Carolina beating Louisville and Wake Forest beating SMU")
+
+
+def test_a_week_says_two_of_three_and_gathers_ways_that_differ_in_one_result():
+    names = {1: "Miami", 2: "Duke", 3: "Georgia Tech", 4: "Clemson", 5: "North Carolina",
+             6: "Louisville", 7: "Wake Forest", 8: "SMU", 9: "Pitt", 10: "Syracuse"}
+    a, b, c = (3, 4), (5, 6), (7, 8)
+    assert pages._week_text([[a, b], [a, c], [b, c]], 1, str, names) == (
+        "with any two of Georgia Tech beating Clemson, North Carolina beating "
+        "Louisville and Wake Forest beating SMU")
+    # two of three alongside a way of its own
+    assert pages._week_text([[(1, 2)], [a, b], [a, c], [b, c]], 1, str, names) == (
+        "with a win over Duke; or with any two of Georgia Tech beating Clemson, "
+        "North Carolina beating Louisville and Wake Forest beating SMU")
+    # a result and its opposite are never two of a kind
+    assert "any two" not in pages._week_text(
+        [[a, b], [a, (4, 3)], [b, (4, 3)]], 1, str, names)
+    # the same two results with any one of three more
+    ways = [[(1, 2), a, b], [(1, 2), a, c], [(1, 2), a, (9, 10)], [(2, 1), (6, 5)]]
+    assert pages._week_text(ways, 1, str, names) == (
+        "with a win over Duke, Georgia Tech beating Clemson and one of North Carolina "
+        "beating Louisville, Wake Forest beating SMU or Pitt beating Syracuse; or with "
+        "a loss to Duke and Louisville beating North Carolina")
 
 
 def test_a_week_is_drawn_as_results_with_the_either_ones_boxed(season):

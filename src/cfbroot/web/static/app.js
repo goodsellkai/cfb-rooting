@@ -164,6 +164,8 @@ async function boot() {
   focusableTeams();
   if (window.CFBROOT_INFO) {          // a page that is only words
     if ($("didyoumean")) suggestTeam();
+    // Its games show their scores, and a week's scenarios go once decided.
+    if (document.querySelector("time.kick[data-game], .recipe[data-games]")) watchLive();
     return;
   }
   try {
@@ -329,6 +331,7 @@ function pollTag(idx) {
 // so rather than looking like it is still to come.
 
 const LIVE = new Map();
+let FINALS = 0;          // games the scoreboard has as over, so records know to recount
 const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/"
   + "college-football/scoreboard?groups=80&limit=400";
 
@@ -469,23 +472,33 @@ function startedGames() {
 }
 
 /** Your odds with today's results. Only games that are over count: a game
- * still being played moves its own tile, not this number. Each one moves the
- * build's number from the pregame chance to the result, times what it is
- * worth to you. Exact for one game; for several it adds their effects, which
- * holds closely while their results do not lean on each other. */
+ * still being played moves its own tile, not this number. Each result moves
+ * the build's number to what the simulations gave with that result, and the
+ * moves are added as log-odds. Exact for one game. For several it assumes
+ * their effects do not lean on each other, and on this scale a loss that
+ * leaves a team needing a miracle shrinks what every later result can take
+ * away, where adding the changes themselves would run it below zero. */
+const logit = (p) => Math.log(p / (1 - p));
+const ODDS_EDGE = 1e-6;
+const clampOdds = (p) => Math.min(1 - ODDS_EDGE, Math.max(ODDS_EDGE, p));
+
 function liveOdds() {
   const key = METRIC;
   const base = RESULT.headline[key].p;
-  let p = base, n = 0;
+  if (base <= 0 || base >= 1) return null;     // settled, and no result moves it
+  let x = logit(clampOdds(base)), n = 0;
   for (const { g, l } of startedGames()) {
     if (l.state !== "post") continue;
-    const q = liveWin(g, l);
-    if (q == null) continue;
     const s = g.swings[key];
-    p += (q - g.p_home_win) * (s.p_if_home - s.p_if_away);
+    if (!s || l.hp === l.ap) continue;
+    const after = l.hp > l.ap ? s.p_if_home : s.p_if_away;
+    x += logit(clampOdds(after)) - logit(clampOdds(base));
     n++;
   }
-  return n ? { p: Math.min(1, Math.max(0, p)), base, n } : null;
+  if (!n) return null;
+  const p = 1 / (1 + Math.exp(-x));
+  // Off the ends of the scale is where the sums stop meaning anything.
+  return { p: p < 2 * ODDS_EDGE ? 0 : p > 1 - 2 * ODDS_EDGE ? 1 : p, base, n };
 }
 
 // The teams whose score changed on the last poll, by plain name, so the
@@ -510,15 +523,35 @@ async function refreshLive() {
       if (was && was.hp !== s.hp) SCORED.add(plainName(s.home));
       if (was && was.ap !== s.ap) SCORED.add(plainName(s.away));
     }
+    FINALS = [...LIVE.values()].filter(l => l.state === "post").length;
   } catch { /* offline, or ESPN is having a day; the page still works */ }
 }
 
-/** Every fifteen seconds while a game is on, so the clock on screen is never
- * far behind the one on TV; every few minutes otherwise. ESPN holds the
- * scoreboard for two seconds, so asking more often than this buys nothing
- * a reader would see. Paused while the tab is hidden. */
+/** Every fifteen seconds while a game this page cares about is on, so the
+ * clock on screen is never far behind the one on TV. The scoreboard is the
+ * whole of FBS, about 80 KB a time, so while only other games are on it is
+ * asked once a minute, and every few minutes when nothing is. ESPN holds it
+ * for two seconds, so asking more often buys nothing a reader would see.
+ * Paused while the tab is hidden. */
 const LIVE_EVERY = 15000;
+const OTHERS_EVERY = 60000;
 const IDLE_EVERY = 180000;
+
+/** How long to wait before asking again. A team's page cares about its own
+ * game and the ones that move its odds; a page of words, the games it lists. */
+function liveWait() {
+  if (![...LIVE.values()].some(isLive)) return IDLE_EVERY;
+  let mine = true;                    // a team page still loading its team
+  if (RESULT) {
+    mine = liveGames().big.length > 0;
+  } else if (window.CFBROOT_INFO) {
+    mine = [...document.querySelectorAll("time.kick[data-game]")].some(el => {
+      const [home, away] = el.dataset.game.split("|");
+      return isLive(liveOf({ home, away }));
+    });
+  }
+  return mine ? LIVE_EVERY : OTHERS_EVERY;
+}
 
 function watchLive() {
   let timer = 0;
@@ -526,10 +559,9 @@ function watchLive() {
     clearTimeout(timer);
     await refreshLive();
     if (RESULT) renderLive();
+    else if (window.CFBROOT_INFO) { renderKickScores(); retireScenarios(); }
     SCORED = new Set();
-    const busy = [...LIVE.values()].some(isLive);
-    timer = setTimeout(() => { if (!document.hidden) tick(); },
-                       busy ? LIVE_EVERY : IDLE_EVERY);
+    timer = setTimeout(() => { if (!document.hidden) tick(); }, liveWait());
   };
   tick();
   let away = 0;
@@ -764,13 +796,28 @@ function setBand(idx) {
 
 /** Wins and losses so far, overall and in conference. Worked out once for
  * every team, since a slate asks for over a hundred of them at a time. */
-let RECORDS = null, RECORDS_FROM = null;
+let RECORDS = null, RECORDS_FROM = null, RECORDS_FINALS = -1;
+
+/** A game the build left to play that the scoreboard says is over, as the
+ * build's own home and away score it. */
+function freshFinal(g) {
+  const l = liveOf({ home: team(g.home).name, away: team(g.away).name });
+  return l && l.state === "post" && Number.isFinite(l.hp) && l.hp !== l.ap
+    ? { home_points: l.hp, away_points: l.ap } : null;
+}
 
 function recordOf(idx) {
-  if (RECORDS_FROM !== STATE.played) {
+  if (RECORDS_FROM !== STATE.played || RECORDS_FINALS !== FINALS) {
     RECORDS = new Map();
     RECORDS_FROM = STATE.played;
-    for (const g of STATE.played || []) {
+    RECORDS_FINALS = FINALS;
+    // Today's finals count as soon as they end, so a record never disagrees
+    // with the W or L the season row already shows.
+    const fresh = FINALS ? (STATE.upcoming || []).map(g => {
+      const f = freshFinal(g);
+      return f && { ...g, ...f };
+    }).filter(Boolean) : [];
+    for (const g of (STATE.played || []).concat(fresh)) {
       for (const me of [g.home, g.away]) {
         if (!RECORDS.has(me)) RECORDS.set(me, { w: 0, l: 0, cw: 0, cl: 0 });
         const r = RECORDS.get(me);
@@ -781,6 +828,21 @@ function recordOf(idx) {
     }
   }
   return RECORDS.get(idx) || { w: 0, l: 0, cw: 0, cl: 0 };
+}
+
+/** Projected wins, moved by each of the team's games over since the build:
+ * a win adds what it was not expected to be, a loss takes off what it was. */
+function projectedWins() {
+  let wins = RESULT.expected_wins;
+  const me = teamIdx();
+  for (const g of RESULT.own_games) {
+    const done = finalOf(g);
+    if (!done || !done.fresh || g.p_home_win == null) continue;
+    const home = g.home_idx === me;
+    const won = home === (done.home > done.away);
+    wins += (won ? 1 : 0) - (home ? g.p_home_win : 1 - g.p_home_win);
+  }
+  return wins;
 }
 
 /** A team's record beside its name. Not for FCS sides: the build only holds
@@ -808,7 +870,7 @@ function renderTeamLine(idx) {
   const pr = pollRank(idx);
   if (pr.best) bits.push(`<span>${pr.kind} No. ${pr.best}</span>`);
   if (RESULT && RESULT.team === t.name) {
-    bits.push(`<span><b>${num(RESULT.expected_wins)}</b> projected wins</span>`);
+    bits.push(`<span><b>${num(projectedWins())}</b> projected wins</span>`);
   }
   $("teamline").innerHTML = bits.join(" &nbsp; ");
   if (RESULT && RESULT.team === t.name) renderSeasonRow();
@@ -1854,7 +1916,40 @@ function renderLive() {
   renderNeeds();
   renderOwnGames();
   renderRootList();
-  renderSeasonRow();
+  renderTeamLine(teamIdx());
+  retireScenarios();
+}
+
+/** A week's clinching scenarios are worked out before its games, and once
+ * one of the games they name is over they describe a week that has moved on.
+ * They go until the next build works the race out again. */
+function retireScenarios() {
+  for (const el of document.querySelectorAll(".recipe[data-games]")) {
+    const over = el.dataset.games.split(";").some(pair => {
+      const [home, away] = pair.split("|");
+      const l = LIVE.get(gameKey({ home, away }));
+      return l && l.state === "post";
+    });
+    const box = el.closest("p, .cg-week") || el;
+    box.hidden = over;
+    const week = box.closest(".cl-week");
+    if (week) week.hidden = [...week.querySelectorAll(".recipe")].every(r => (r.closest("p") || r).hidden);
+  }
+}
+
+/** On a page of words, the kickoff beside each game becomes its score once
+ * it starts: the clock and who leads, then the final. */
+function renderKickScores() {
+  for (const el of document.querySelectorAll("time.kick[data-game]")) {
+    const [home, away] = el.dataset.game.split("|");
+    const l = liveOf({ home, away });
+    if (!l || l.state === "pre") continue;
+    const lead = l.hp === l.ap ? "tied" : (l.hp > l.ap ? home : away);
+    const hi = Math.max(l.hp, l.ap), lo = Math.min(l.hp, l.ap);
+    const score = lead === "tied" ? `tied ${hi}-${lo}` : `${lead} ${hi}-${lo}`;
+    el.textContent = l.state === "post" ? `Final, ${score}` : `${liveClock(l)}, ${score}`;
+    el.classList.toggle("on", l.state === "in");
+  }
 }
 
 const KEY_HTML = `<p class="key">

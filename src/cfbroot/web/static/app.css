@@ -800,6 +800,7 @@ ol.stakes { list-style: none; margin: 2px 0 0; padding: 0; font-stretch: 88%; ma
 .stakes .side img, .stakes .noart { width: 22px; height: 22px; object-fit: contain; flex: none; }
 .stakes .match i { font-style: normal; font-size: 12.5px; color: var(--muted); }
 .stakes .kick { font-size: 13px; color: var(--muted); }
+.stakes .kick.on { color: var(--ink); font-weight: 650; }
 .stakes .stake { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
 .stakes .barline { display: block; width: 72px; height: 6px; }
 .stakes .barline i { display: block; height: 100%; background: var(--ink-2); }

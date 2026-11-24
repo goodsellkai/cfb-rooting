@@ -27,8 +27,13 @@ MAX_SCENARIO_GAMES = 10
 # The same for the results a team needs from other games, over all that are left.
 MAX_HELP_GAMES = 8
 # The most a scenario can ask before a list of results stops being readable.
-MAX_WAYS = 3
-MAX_WAY_RESULTS = 4
+# One long way is still worth spelling out: a team that needs eight results
+# on the last Saturday wants to know which eight.
+MAX_WAYS = 4
+MAX_WAY_RESULTS = 8
+# Tries at the fewest conditions that say a set of outcomes, before the best
+# found so far is kept.
+COVER_NODES = 5_000
 MAX_NODES = 1_000
 # A week's scenario that ran out of MAX_NODES is asked again with this many,
 # since a scenario left out is one a reader misses: Georgia clinching with
@@ -43,8 +48,8 @@ MAX_TIE_LINES = 24
 MAX_TIE_NODES = 3_000
 # The most a tie's own conditions can ask before "depends on other results" is
 # the clearer thing to say.
-MAX_TIE_WAYS = 3
-MAX_TIE_RESULTS = 3
+MAX_TIE_WAYS = 4
+MAX_TIE_RESULTS = 4
 
 
 class _Need(Exception):
@@ -634,7 +639,14 @@ class Race:
         i = self.ix[t]
         now = [k for k in range(len(self.slate)) if self.week_of[k] == week]
         decide = self._deciding(i, now)
-        if not decide or len(decide) > MAX_SCENARIO_GAMES:
+        if not decide:
+            return []
+        # A game between two teams that cannot catch it can still settle a
+        # tie, on common opponents or the next team down, so the whole week is
+        # played while it is small enough.
+        if len(now) <= MAX_SCENARIO_GAMES:
+            decide = now
+        elif len(decide) > MAX_SCENARIO_GAMES:
             return []
         hits = set()
         for bits in product((0, 1), repeat=len(decide)):
@@ -668,7 +680,7 @@ class Race:
                 continue
             if self._dead(i, self._results(now, bits), MAX_OUT_NODES):
                 hits.add(bits)
-        return [self._way(now, term) for term in _short_cover(hits, len(now))]
+        return [self._way(now, term) for term in _cover(hits, len(now))]
 
     def _chasers(self, i, final, own_sets):
         """Who can finish level with ``final`` wins or better in any of these
@@ -693,8 +705,15 @@ class Race:
         taken = set(own_sets[0])
         rest = [k for k in range(len(self.slate)) if k not in taken]
         final = self.w[i] + sum(1 for w in own_sets[0].values() if w == i)
-        chasing, _ = self._chasers(i, final, own_sets)
-        ks = [k for k in rest if set(chasing) & set(self.slate[k])]
+        chasing, already = self._chasers(i, final, own_sets)
+        # Those already level with it count as much as those who can catch it:
+        # it needs some of them to lose. And while few games are left, every
+        # one is played, since any of them can settle a tie.
+        if len(rest) <= MAX_HELP_GAMES:
+            ks = rest
+        else:
+            racing = set(chasing) | set(already)
+            ks = [k for k in rest if racing & set(self.slate[k])]
         if not ks or len(ks) > MAX_HELP_GAMES:
             return None
         hits = set()
@@ -853,15 +872,17 @@ class Race:
                 if shows[0] and all(s == shows[0] for s in shows):
                     entry["shown"] = {self.teams[j]: v for j, v in shows[0].items()}
             return entry
-        # The results it turns on: the games settled in every way to this tie,
-        # leaving out those it forces, since those go with the tie itself.
-        common = set.intersection(*(set(d) for d, _, _, _ in leaves))
-        ks = sorted(k for k in common if len({d[k] for d, _, _, _ in leaves}) > 1)
-        yes = [d for d, v, _, _ in leaves if v == "in"]
-        no = [d for d, v, _, _ in leaves if v != "in"]
-        if not yes or not ks or len(ks) > MAX_SCENARIO_GAMES:
-            return entry
-        picked = _separate(yes, no, ks)
+        picked = self._tie_ways(leaves)
+        if picked is None:
+            # The results it turns on: the games settled in every way to this
+            # tie, leaving out those it forces, since those go with the tie.
+            common = set.intersection(*(set(d) for d, _, _, _ in leaves))
+            ks = sorted(k for k in common if len({d[k] for d, _, _, _ in leaves}) > 1)
+            yes = [d for d, v, _, _ in leaves if v == "in"]
+            no = [d for d, v, _, _ in leaves if v != "in"]
+            if not yes or not ks or len(ks) > MAX_SCENARIO_GAMES:
+                return entry
+            picked = _separate(yes, no, ks)
         if picked:
             ways = []
             for way in picked:
@@ -873,6 +894,42 @@ class Race:
             entry["ways"] = ways
             entry["else"] = "open" if "open" in verdicts else "out"
         return entry
+
+    def _tie_ways(self, leaves):
+        """The fewest results that put a team in where a tie can go either way,
+        each way as (game, winner) pairs, or None where too many games are in
+        play to try. Each way the search reached the tie fixes some games and
+        leaves the rest to go either way; an outcome no way reaches is one the
+        tie cannot happen in, so a condition is free to take it in. That is
+        what lets "in if Maryland beats Penn State" stand without the results
+        that make the tie, which go with the tie itself."""
+        games = sorted(set().union(*(set(d) for d, _, _, _ in leaves)))
+        if not games or len(games) > MAX_SCENARIO_GAMES + 2:
+            return None
+        at = {k: x for x, k in enumerate(games)}
+        yes, no = set(), set()
+        for d, verdict, _, _ in leaves:
+            loose = [k for k in games if k not in d]
+            for bits in product((0, 1), repeat=len(loose)):
+                out = [0] * len(games)
+                for k, w in d.items():
+                    out[at[k]] = int(w == self.slate[k][0])
+                for k, b in zip(loose, bits):
+                    out[at[k]] = b
+                (yes if verdict == "in" else no).add(tuple(out))
+        if not yes or yes & no:
+            return None
+        free = set(product((0, 1), repeat=len(games))) - yes - no
+        ways = []
+        for term in _cover(yes, len(games), free=free):
+            way = [(games[x], self.slate[games[x]][0 if v else 1])
+                   for x, v in enumerate(term) if v is not None]
+            if not way:
+                return None
+            ways.append(way)
+        if len(ways) > MAX_TIE_WAYS or any(len(w) > MAX_TIE_RESULTS for w in ways):
+            return None
+        return ways
 
     def met(self, t, other) -> tuple:
         """What ``t`` has done against ``other`` so far: wins, then losses."""
@@ -1057,59 +1114,107 @@ def _threshold(hits, n):
     return least if every == set(hits) else None
 
 
-def _cover(hits, n):
-    """The fewest broadest conditions that cover every outcome in ``hits``:
-    each a tuple of 0, 1 or None, None meaning either result."""
-    if not hits:
-        return []
-    terms = {tuple(h) for h in hits}
-    primes = set()
-    while terms:
-        merged, used = set(), set()
-        listed = sorted(terms, key=lambda x: tuple(-1 if v is None else v for v in x))
-        for i, x in enumerate(listed):
-            for y in listed[i + 1:]:
-                diff = [k for k in range(n) if x[k] != y[k]]
-                if len(diff) == 1 and x[diff[0]] is not None and y[diff[0]] is not None:
-                    merged.add(x[:diff[0]] + (None,) + x[diff[0] + 1:])
-                    used.update((x, y))
-        primes |= terms - used
-        terms = merged
-    covered = lambda imp, h: all(v is None or v == h[k] for k, v in enumerate(imp))
-    left, chosen = set(hits), []
-    while left:
-        best = max(primes, key=lambda p: (sum(covered(p, h) for h in left),
-                                           -sum(v is not None for v in p)))
-        chosen.append(best)
-        left = {h for h in left if not covered(best, h)}
-    return sorted(chosen, key=lambda p: sum(v is not None for v in p))
+def _primes(hits, n, free=()) -> list:
+    """Every condition that holds only for outcomes in ``hits`` or ``free`` and
+    is as broad as it can be, each a tuple of 0, 1 or None, None meaning
+    either result. ``free`` are outcomes that cannot happen where the
+    condition is asked, so a condition may take them in.
 
-
-def _short_cover(hits, n, most=MAX_WAY_RESULTS):
-    """The conditions of up to ``most`` results that hold only for outcomes in
-    ``hits``, fewest results first, each a tuple like `_cover`'s. A week can
-    end a team's race in hundreds of ways, which `_cover` takes minutes to
-    boil down; anything that needs more results than this is not worth
-    saying, so it is left out and the list is not the whole of ``hits``."""
-    if not hits:
-        return []
-    table = np.array(sorted(hits), dtype=np.int8)
-    found, lits = [], []
-    for size in range(1, min(most, n) + 1):
-        full = 2 ** (n - size)
+    The outcomes go into a table with an axis per game. A condition on some of
+    the games holds throughout when the table, folded over the other games,
+    is true there, so one fold per set of games settles every condition on it.
+    It is broadest when dropping any one of its results breaks it."""
+    table = np.zeros((2,) * n, dtype=bool)
+    for h in hits:
+        table[tuple(h)] = True
+    for h in free:
+        table[tuple(h)] = True
+    holds = {}
+    for size in range(n + 1):
         for spots in combinations(range(n), size):
-            cols = table[:, spots]
-            for vals in product((0, 1), repeat=size):
-                said = set(zip(spots, vals))
-                if any(have <= said for have in lits):
-                    continue        # a shorter condition already says it
-                if int((cols == vals).all(axis=1).sum()) == full:
-                    lits.append(said)
-                    term = [None] * n
-                    for x, v in said:
-                        term[x] = v
-                    found.append(tuple(term))
-    return found
+            rest = tuple(x for x in range(n) if x not in spots)
+            holds[spots] = table.all(axis=rest) if rest else table
+    out = []
+    for spots, ok in holds.items():
+        if not ok.any():
+            continue
+        broadest = ok.copy()
+        for p in range(len(spots)):
+            broadest &= ~np.expand_dims(holds[spots[:p] + spots[p + 1:]], p)
+        for vals in np.argwhere(broadest):
+            term = [None] * n
+            for x, v in zip(spots, vals):
+                term[x] = int(v)
+            out.append(tuple(term))
+    return out
+
+
+def _cover(hits, n, nodes=COVER_NODES, free=()):
+    """The fewest conditions that between them hold for exactly the outcomes
+    in ``hits``, each a tuple like `_primes`'s, fewest results first.
+
+    None is one the others already cover, which a reader would take for a
+    separate way: "A and B, or B and C, or not-C and A" says the same as its
+    last two. The fewest is found by trying them, which a week's games allow;
+    past ``nodes`` tries it keeps the best found, starting from the greedy
+    choice with anything covered twice taken out. Outcomes in ``free`` may be
+    taken in or left out, whichever says it shorter."""
+    hits = sorted({tuple(h) for h in hits})
+    if not hits:
+        return []
+    primes = _primes(hits, n, free)
+    table = np.array(hits, dtype=np.int8).reshape(len(hits), n)
+
+    def reach(term):
+        mask = np.ones(len(hits), dtype=bool)
+        for x, v in enumerate(term):
+            if v is not None:
+                mask &= table[:, x] == v
+        return int.from_bytes(np.packbits(mask, bitorder="little").tobytes(), "little")
+
+    cover = [reach(p) for p in primes]
+    size = [sum(v is not None for v in p) for p in primes]
+    full = (1 << len(hits)) - 1
+    score = lambda chosen: (len(chosen), sum(size[j] for j in chosen))
+
+    chosen, left = [], full
+    while left:
+        j = max(range(len(primes)), key=lambda j: ((cover[j] & left).bit_count(), -size[j]))
+        chosen.append(j)
+        left &= ~cover[j]
+    for j in sorted(chosen, key=lambda j: -size[j]):
+        rest = 0
+        for o in chosen:
+            if o != j:
+                rest |= cover[o]
+        if not cover[j] & ~rest:
+            chosen.remove(j)
+    best, best_score = chosen, score(chosen)
+
+    by_hit = [[j for j in range(len(primes)) if cover[j] >> h & 1] for h in range(len(hits))]
+    budget = [nodes]
+
+    def search(picked, left):
+        nonlocal best, best_score
+        budget[0] -= 1
+        if budget[0] < 0:
+            return
+        if not left:
+            if score(picked) < best_score:
+                best, best_score = picked[:], score(picked)
+            return
+        if len(picked) + 1 > best_score[0]:
+            return
+        h = (left & -left).bit_length() - 1
+        for j in sorted(by_hit[h], key=lambda j: (-(cover[j] & left).bit_count(), size[j])):
+            picked.append(j)
+            search(picked, left & ~cover[j])
+            picked.pop()
+
+    search([], full)
+    return sorted((primes[j] for j in best),
+                  key=lambda p: (sum(v is not None for v in p),
+                                 tuple(-1 if v is None else v for v in p)))
 
 
 def _games(state, conf):

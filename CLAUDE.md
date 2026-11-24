@@ -123,16 +123,26 @@ section that stays on screen after the app loads and is what crawlers read.
   decimals, so a figure on a display boundary can land a hundredth of a point
   either way of a fresh build. A model change still goes through `export`.
 - **Live scores never touch the build.** The browser reads ESPN's scoreboard
-  itself: every fifteen seconds while a game is on, every three minutes
-  otherwise, paused in a hidden tab. `liveOf()` turns ESPN's home and away to
+  itself, paused in a hidden tab. `liveOf()` turns ESPN's home and away to
   match the build's, which can differ at a neutral site. The clock is built
   from ESPN's period and clock fields, not its summary line. A live game's win
   chance is the random-walk model of a score (Stern, 1994) on the build's own
   pregame chance and measured `sigma`, so at kickoff it equals the build's.
-  "Odds with today's results" moves the build's number by each game finished
-  since the build, its result against its pregame chance times its swing.
-  Games still on do not count until they end (Kai asked for that). It adds
-  games' effects, so it is an estimate, and the next build replaces it.
+  "Odds with today's results" moves the build's number to what the
+  simulations gave with each game finished since the build, and adds those
+  moves as log-odds. Adding the changes themselves ran Ohio State below zero
+  after its loss on 21 November 2026 and showed "<0.01%" for about 1%. Games
+  still on do not count until they end (Kai asked for that). It is an
+  estimate, and the next build replaces it. A finished game also counts at
+  once in every record on the page and in projected wins (`recordOf`,
+  `projectedWins`), so a record never disagrees with the season row's W or L.
+  A week's clinching scenarios hide once a game they name is over
+  (`retireScenarios`, which reads the `data-games` on each `.recipe`). Pages
+  of words run the same loop: the This week list and a conference's games
+  show the score where the kickoff was (`renderKickScores`, `data-game` on
+  each `time.kick`). The scoreboard is the whole of FBS, about 80 KB, so it
+  is asked every fifteen seconds only while a game the page cares about is
+  on, once a minute while other games are, and every three minutes otherwise.
 - **The front page and `/this-week/` go out after the team pages.** They rank
   the week's games by the playoff places each is expected to move, which is
   gathered from every team's guide as the loop writes it (`pages.Stakes`). Each
@@ -147,7 +157,21 @@ section that stays on screen after the app loads and is what crawlers read.
   the Big 12's total wins) could go any way, so no claim rests on it. A search
   past `MAX_NODES` makes no claim either, except that a week's scenario
   that runs out is asked again with `MAX_WEEK_NODES`, since a way to
-  clinch left out is one a reader misses. `Race.path()` says what each final
+  clinch left out is one a reader misses. A week small enough
+  (`MAX_SCENARIO_GAMES`) is played whole, not just the games of teams that
+  can catch the team: a game between two teams out of reach can still
+  settle a tie on common opponents, which is how Ohio State's clinching
+  scenario before rivalry week 2026 (Maryland and Rutgers winning) was
+  missed. For the same reason `_help` plays every game left while there are
+  few, and counts the teams already level with it as well as those catching
+  up. `_cover` turns the outcomes that do it into the fewest conditions that
+  say exactly those outcomes: every one as broad as it can be, and none that
+  the others already cover (the greedy cover once listed "Purdue and
+  Washington" beside the two ways that already said it). It folds a table of
+  the outcomes once per set of games, so a whole week takes well under a
+  second. A tie that can go either way is worked out the same way
+  (`_tie_ways`), with the outcomes that cannot reach the tie left free, so
+  its condition names only what decides it. `Race.path()` says what each final
   record takes, with the results spelled out once few enough games are in play
   (`MAX_HELP_GAMES`). "In if no more than one of these finishes 7-2 or better"
   is only the sure thing, so each row also says what happens past it
@@ -156,9 +180,10 @@ section that stays on screen after the app loads and is what crawlers read.
   each tie by name instead: who is level, in or out, and on which step. The conference page draws it as a grid, with
   every record a team can finish with folded under its row (`_clinch_rows`, shared with the team's panel). A week that
   can settle a team is drawn as results to look for (`pages._recipe`): what every way needs said once, then a dashed
-  box of the ones any one of which finishes it (Kai asked for the factoring). `Race.out_this_week()` is the same for
-  a team the week can put out. It asks all of a week's outcomes, so it uses `_short_cover`, which only looks for
-  conditions of four results or fewer; `_cover` took over a minute on a nine-game Big Ten week. A team's page
+  box of the ones any one of which finishes it (Kai asked for the factoring). `pages._gather` says ways together where
+  it can: every two of a few results as "any two of" (only where that is exactly true; a result and its opposite are
+  never two of a kind), and ways the same but for one result as what they share plus "one of". `Race.out_this_week()`
+  is the same for a team the week can put out, and uses the same `_cover`. A team's page
   writes it into the written section, and `placeClinch()` in app.js moves it up
   beside the team's season; a team that is in, is out or has no race gets no
   panel, and only a clinched team gets a question. `state.json` carries
@@ -217,6 +242,12 @@ section that stays on screen after the app loads and is what crawlers read.
   keeps the rating it was last ranked on plus its whole gap, and only the
   teams in a title game move. Once the last ranking is out (`Lean.final`) its
   order stands in every simulated season, so the field is the real one.
+- **A game-day run starts the next one itself.** GitHub starts only a few of
+  the half-hourly Saturday runs `pages.yml` asks for, and on 21 November 2026
+  the noon games' results sat off the site for two hours between runs. So a
+  run that stops on its Saturday budget dispatches the next (`actions:
+  write`), until 2am Central on Sunday; it queues behind the running one in
+  the `pages` group.
 - **Sunday has a build after the AP poll, Tuesday one after the committee's.**
   The AP's is shown and never used; it lands on Sunday afternoon, so
   `pages.yml` runs at 5pm and 6pm Central on Sundays to put it on the site.

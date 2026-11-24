@@ -510,16 +510,66 @@ def test_every_way_out_ends_the_race_whatever_else_happens():
     assert said > 10
 
 
-def test_short_conditions_hold_only_where_they_should():
-    from cfbroot.web.clinch import _short_cover
-    hits = {b for b in product((0, 1), repeat=4) if b[0] == 1 or (b[1] == 0 and b[2] == 1)}
-    terms = _short_cover(hits, 4)
-    assert (1, None, None, None) in terms and (None, 0, 1, None) in terms
-    # nothing said twice, and nothing that reaches outside
-    assert len(terms) == 2
-    assert _short_cover(set(), 4) == []
-    # a way that takes more results than are worth saying is left out
-    assert _short_cover({(1, 1, 1, 1, 1)}, 5, most=4) == []
+def test_no_way_is_one_the_others_already_cover():
+    # Iowa before rivalry week: P and W, P and U, or W without U. The first is
+    # covered by the other two, so it is not a way of its own.
+    hits = {b for b in product((0, 1), repeat=3)
+            if (b[0] and b[1]) or (b[0] and b[2]) or (b[1] and not b[2])}
+    assert sorted(_cover(hits, 3), key=str) == [(1, None, 1), (None, 1, 0)]
+    assert _cover(set(), 4) == []
+    # every outcome said, and nothing outside them
+    rng = random.Random(3)
+    for _ in range(200):
+        n = rng.randint(1, 6)
+        hits = {b for b in product((0, 1), repeat=n) if rng.random() < 0.4}
+        terms = _cover(hits, n)
+        said = {b for b in product((0, 1), repeat=n)
+                if any(all(v is None or v == b[x] for x, v in enumerate(t)) for t in terms)}
+        assert said == hits
+        for t in terms:
+            rest = [o for o in terms if o != t]
+            alone = {b for b in said if all(v is None or v == b[x] for x, v in enumerate(t))}
+            assert any(not any(all(v is None or v == b[x] for x, v in enumerate(o)) for o in rest)
+                       for b in alone)
+
+
+def test_the_last_week_lists_every_way_and_no_other():
+    """With one week left, the ways to clinch and to go out are exactly the
+    outcomes that do it: none missed, as a tiebreaker game between two teams
+    out of reach once was, and none wrong."""
+    rng = random.Random(23)
+    checked = 0
+    for _ in range(80):
+        race = random_race(rng, n=6, played=rng.randint(8, 14), left=3,
+                           rules=CR.title_rules("Big Ten", 2026))
+        week = race.left[0][0]
+        now = list(range(len(race.slate)))
+        for t in race.teams:
+            if not race.games[t] or race.status(t):
+                continue
+            i = race.ix[t]
+            sure, gone = set(), set()
+            for chosen in play_out(race):
+                bits = tuple(chosen[k] for k in now)
+                seats = race._seats(i)
+                if all(i in s for s in seats):
+                    sure.add(bits)
+                if not any(i in s for s in seats):
+                    gone.add(bits)
+
+            def said(ways):
+                out = set()
+                for bits in product(*[race.slate[k] for k in now]):
+                    for way in ways:
+                        if all(bits[k] == race.ix[w] for w, l in way for k in now
+                               if set(race.slate[k]) == {race.ix[w], race.ix[l]}):
+                            out.add(bits)
+                return out
+
+            assert said(race.this_week(t, week)) == sure, (race._done, race.left, t)
+            assert said(race.out_this_week(t, week)) == gone, (race._done, race.left, t)
+            checked += 1
+    assert checked > 20
 
 
 def test_a_scenario_the_first_search_gives_up_on_is_asked_again(monkeypatch):

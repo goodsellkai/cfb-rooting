@@ -12,7 +12,10 @@ import json
 import os
 import re
 import unicodedata
+from collections import Counter
 from datetime import datetime, timedelta, timezone
+from itertools import combinations
+from math import comb
 
 SITE_NAME = "CFB Rooting Guide"
 # What a page shows before its script runs, which the intro replaces.
@@ -983,7 +986,10 @@ def _kick_html(g) -> str:
         return '<span class="kick"></span>'
     tba = ' data-tba="1"' if g.get("time_set") is False else ""
     tv = f' data-tv="{html.escape(g["broadcast"])}"' if g.get("broadcast") else ""
-    return (f'<time class="kick" datetime="{html.escape(g["start_date"])}"{tba}{tv}>'
+    # The teams, so the page can put the score in its place once it starts.
+    game = (f' data-game="{html.escape(g["home"])}|{html.escape(g["away"])}"'
+            if g.get("home") and g.get("away") else "")
+    return (f'<time class="kick" datetime="{html.escape(g["start_date"])}"{tba}{tv}{game}>'
             f'{text}</time>')
 
 
@@ -1781,26 +1787,132 @@ def _rec(record) -> str:
     return f"{record[0]}-{record[1]}"
 
 
-MAX_WEEK_WAYS = 3       # ways a week can do it that are spelled out
-MAX_WEEK_EITHER = 5     # or single results, any one of which finishes it
+MAX_WEEK_WAYS = 4       # ways a week can do it that are spelled out
+MAX_WEEK_EITHER = 8     # or single results, any one of which finishes it
+_COUNT = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 
 
 def _factor(ways, t) -> tuple:
     """A week's ways as the results every one of them needs, the team's own
-    game first, and what each needs past those. Said once, "a win over Duke"
-    does not have to open every way."""
+    game first, then the options past those. Said once, "a win over Duke"
+    does not have to open every way.
+
+    Each option is ``(results, any_of, k)``. Plain, it is the results it
+    needs. Where several ways differ in one result only, ``any_of`` holds the
+    results any one of which will do with them. Where several are every two
+    (or three) of a few results, ``k`` says how many and ``any_of`` which."""
     if not ways:
         return [], []
     common = [r for r in ways[0] if all(r in w for w in ways[1:])]
     common.sort(key=lambda r: t not in r)
     rest = [sorted((r for r in w if r not in common), key=lambda r: t not in r)
             for w in ways]
-    return common, rest if all(rest) else []
+    if not all(rest):
+        return common, []
+    return common, _gather(rest, t)
 
 
-def _week_text(ways, t, name, names, more=False) -> str:
-    """The results that do it for a team this week: "with a win over X".
-    ``more`` says the ways given are not all there are."""
+def _k_of(options):
+    """The biggest set of these options that is every k of some results, for k
+    of two or more and at least one more result than k: ``(k, results,
+    places)`` with the options' places in the list, or None. A result and its
+    opposite are never two of a kind."""
+    best = None
+    for k in sorted({len(o) for o in options if len(o) >= 2}):
+        sized = {frozenset(o): x for x, o in enumerate(options) if len(o) == k}
+        seen = Counter(r for o in sized for r in o)
+        for p in range(k + 1, len(seen) + 1):
+            need = comb(p, k)
+            if need > len(sized):
+                break
+            each = comb(p - 1, k - 1)
+            pool = sorted(r for r, n in seen.items() if n >= each)
+            for picked in combinations(pool, p):
+                if len({frozenset(r) for r in picked}) != p:
+                    continue
+                subsets = [frozenset(c) for c in combinations(picked, k)]
+                if all(c in sized for c in subsets):
+                    if best is None or need > len(best[2]):
+                        best = (k, list(picked), sorted(sized[c] for c in subsets))
+    return best
+
+
+def _gather(options, t) -> list:
+    """Ways said together where they can be: every two of a few results as
+    "any two of", then ways the same but for one result as what they share
+    and the results any one of which will do. Each keeps the place of its
+    first way."""
+    left = [list(o) for o in options]
+    out = []
+    grouped = _k_of(left)
+    if grouped:
+        k, pool, places = grouped
+        out.append((places[0], [], pool, k))
+        left = [None if x in places else o for x, o in enumerate(left)]
+    while True:
+        alike: dict = {}
+        for x, o in enumerate(left):
+            if o is None or len(o) < 2:
+                continue
+            for r in o:
+                alike.setdefault(frozenset(o) - {r}, []).append((x, r))
+        groups = [(k, v) for k, v in alike.items() if len(v) >= 2]
+        if not groups:
+            break
+        shared, members = max(groups, key=lambda kv: (len(kv[1]), len(kv[0]), -kv[1][0][0]))
+        out.append((min(x for x, _ in members), sorted(shared, key=lambda r: t not in r),
+                    [r for _, r in members], None))
+        gone = {x for x, _ in members}
+        left = [None if x in gone else o for x, o in enumerate(left)]
+    out += [(x, o, None, None) for x, o in enumerate(left) if o is not None]
+    return [o[1:] for o in sorted(out, key=lambda o: o[0])]
+
+
+def _plain(option) -> bool:
+    """A single result, with nothing to choose between."""
+    results, any_of, _ = option
+    return len(results) == 1 and not any_of
+
+
+def _phrase(common, options, said, others=0) -> str:
+    """A week's ways in words, after "with": what every way needs, then the
+    options. ``others`` counts options left unsaid."""
+    parts = [said(*r) for r in common]
+    tail = f"; or in {others} other {'way' if others == 1 else 'ways'}" if others else ""
+
+    def told(results, any_of, k):
+        if k:
+            return f"any {_COUNT.get(k, k)} of " + _and(said(*r) for r in any_of)
+        words = [said(*r) for r in results]
+        if any_of:
+            words.append("one of " + _or(said(*r) for r in any_of))
+        return _and(words)
+
+    if not options:
+        return _and(parts) + tail
+    alts = [told(*o) for o in options]
+    if len(options) == 1:
+        either = alts[0]
+    elif all(_plain(o) for o in options):
+        either = ("either " if len(alts) == 2 and not others else "one of ") + _or(alts)
+    elif parts:
+        either = "either " + "; or ".join(alts)
+    else:
+        either = "; or with ".join(alts)
+    if not parts:
+        return either + tail
+    return ", ".join(parts) + f", and {either}{tail}"
+
+
+def _shown(options):
+    """The options worth listing, and how many are left over."""
+    single = all(_plain(o) for o in options)
+    keep = options[:MAX_WEEK_EITHER if single else MAX_WEEK_WAYS]
+    return keep, len(options) - len(keep)
+
+
+def _week_text(ways, t, name, names) -> str:
+    """The results that do it for a team this week: "with a win over X"."""
     def said(w, l):
         if w == t:
             return f"a win over {name(names[l])}"
@@ -1809,27 +1921,8 @@ def _week_text(ways, t, name, names, more=False) -> str:
         return f"{name(names[w])} beating {name(names[l])}"
 
     common, options = _factor(ways, t)
-    parts = [said(w, l) for w, l in common]
-    single = all(len(o) == 1 for o in options)
-    shown = options[:MAX_WEEK_EITHER if single else MAX_WEEK_WAYS]
-    alts = [" and ".join(said(w, l) for w, l in o) for o in shown]
-    others = len(options) - len(shown)
-    tail = ""
-    if others:
-        tail = f"; or in {others} other {'way' if others == 1 else 'ways'}"
-    elif more:
-        tail = "; or in other ways"
-    if not alts:
-        return "with " + _and(parts) + tail
-    if single:
-        either = ("either " if len(alts) == 2 else "one of ") + _or(alts)
-    elif parts:
-        either = "either " + "; or ".join(alts)
-    else:
-        either = "; or with ".join(alts)
-    if not parts:
-        return f"with {either}{tail}"
-    return "with " + ", ".join(parts) + f", and {either}{tail}"
+    shown, others = _shown(options)
+    return "with " + _phrase(common, shown, said, others)
 
 
 def _or(items) -> str:
@@ -1837,9 +1930,10 @@ def _or(items) -> str:
     return items[0] if len(items) < 2 else ", ".join(items[:-1]) + " or " + items[-1]
 
 
-def _recipe(ways, t, by_idx, href, more=False) -> str:
+def _recipe(ways, t, by_idx, href) -> str:
     """The same week as a row of results to look for: what every way needs,
-    then a box of the ones any one of which finishes it."""
+    then a box of the ones any one of which finishes it. The games it names
+    ride along, so the page can put it away once one of them is over."""
     def side(i):
         team = by_idx[i]
         art = (f'<img src="{html.escape(team.logo)}" alt="" width="16" height="16">'
@@ -1852,30 +1946,45 @@ def _recipe(ways, t, by_idx, href, more=False) -> str:
         return (f'<span class="rs{" own" if t in (w, l) else ""}">{side(w)}'
                 f'<i>over</i>{side(l)}</span>')
 
+    def any_box(label, results, extra=""):
+        return (f'<span class="rs-any"><em>{label}</em>'
+                + "".join(result(*r) for r in results) + f"{extra}</span>")
+
+    def choice(any_of, k, lead=""):
+        said = f"any {_COUNT.get(k, k)} of" if k else "one of"
+        return any_box(lead + said, any_of)
+
+    def option(results, any_of, k):
+        bits = [result(*r) for r in results]
+        if any_of:
+            bits.append(choice(any_of, k))
+        if len(bits) == 1:
+            return bits[0]
+        return '<span class="rs-all">' + "<b>+</b>".join(bits) + "</span>"
+
     common, options = _factor(ways, t)
-    single = all(len(o) == 1 for o in options)
-    shown = options[:MAX_WEEK_EITHER if single else MAX_WEEK_WAYS]
-    out = "".join(result(w, l) for w, l in common)
-    if shown:
-        boxes = "".join(
-            result(*o[0]) if len(o) == 1
-            else '<span class="rs-all">' + "<b>+</b>".join(result(w, l) for w, l in o) + "</span>"
-            for o in shown)
-        others = len(options) - len(shown)
-        extra = (f'<small>or {others} more</small>' if others
-                 else "<small>or other ways</small>" if more else "")
+    out = "".join(result(*r) for r in common)
+    if len(options) == 1:
+        results, any_of, k = options[0]
+        out += "".join(result(*r) for r in results)
+        if any_of:
+            out += choice(any_of, k, "and " if common or results else "")
+    elif options:
+        shown, others = _shown(options)
+        extra = f"<small>or {others} more</small>" if others else ""
         label = ("and " if common else "") + ("either" if len(shown) == 2 and not others
-                                               else "one of")
-        out += f'<span class="rs-any"><em>{label}</em>{boxes}{extra}</span>'
-    elif more:
-        out += '<span class="rs-any"><small>or other ways</small></span>'
-    return f'<span class="recipe">{out}</span>'
+                                              else "one of")
+        out += (f'<span class="rs-any"><em>{label}</em>'
+                + "".join(option(*o) for o in shown) + f"{extra}</span>")
+    games = sorted({"|".join(sorted((by_idx[w].school, by_idx[l].school)))
+                    for way in ways for w, l in way})
+    return (f'<span class="recipe" data-games="{html.escape(";".join(games))}">'
+            f'{out}</span>')
 
 
-def _out_ways(path) -> tuple:
-    """The shortest ways this week ends a team's race, and whether there are more."""
-    ways = sorted(path.get("out_week") or [], key=len)
-    return ways[:MAX_WEEK_WAYS], len(ways) > MAX_WEEK_WAYS
+def _out_ways(path) -> list:
+    """The ways this week ends a team's race, the shortest first."""
+    return sorted(path.get("out_week") or [], key=len)
 
 
 def _lead_text(path, name, names) -> str:
@@ -1902,14 +2011,6 @@ def _lead_text(path, name, names) -> str:
     return "Needs help even if it wins out."
 
 
-def _way_text(way, watching, name, names) -> str:
-    def said(w, l):
-        if l in watching:
-            return f"{name(names[l])} losing to {name(names[w])}"
-        return f"{name(names[w])} beating {name(names[l])}"
-    return " and ".join(said(w, l) for w, l in way)
-
-
 def _tie_parts(tie, name, names, step_name, values=False) -> tuple:
     """One way a team can tie, in words: who with, and how it comes out."""
     def label(code):
@@ -1932,8 +2033,8 @@ def _tie_parts(tie, name, names, step_name, values=False) -> tuple:
             return f"{name(names[w])} beating {name(names[l])}"
 
         if tie["ways"]:
-            told = "; or with ".join(" and ".join(result(w, l) for w, l in way)
-                                     for way in tie["ways"])
+            common, options = _factor(tie["ways"], tie["team"])
+            told = _phrase(common, options, result)
             rest = ("otherwise out" if tie["else"] == "out"
                     else "otherwise it comes down to the last step")
             why = f"in with {told}, {rest}"
@@ -2008,8 +2109,15 @@ def _need_text(row, spots, name, names, chips=None, step_name=None) -> str:
     ways = row.get("ways")
     beyond = row.get("beyond")
     if ways:
-        told = "; or with ".join(_way_text(w, set(chasing) | set(already), name, names)
-                                 for w in ways)
+        watching = set(chasing) | set(already)
+
+        def result(w, l):
+            if l in watching:
+                return f"{name(names[l])} losing to {name(names[w])}"
+            return f"{name(names[w])} beating {name(names[l])}"
+
+        common, options = _factor(ways, None)
+        told = _phrase(common, options, result)
         last = " It can also get in if a tie reaches the last step." if beyond else ""
         return f"{first}In with {told}.{last}" + (spelled("How the ties go") if chips else "")
     room = spots - 1 - len(already)
@@ -2120,10 +2228,10 @@ def _clinch_group(race, teams, by_idx, fbs, week, names) -> str:
         if p["week"]:
             say += (f'<div class="cg-week"><b>Clinches this week with</b>'
                     f'{_recipe(p["week"], t, by_idx, href)}</div>')
-        gone, more = _out_ways(p)
+        gone = _out_ways(p)
         if gone:
             say += (f'<div class="cg-week out"><b>Out this week with</b>'
-                    f'{_recipe(gone, t, by_idx, href, more)}</div>')
+                    f'{_recipe(gone, t, by_idx, href)}</div>')
         rows = _clinch_rows(race, t, p, by_idx, names, name, href, steps)
         say += (f'<details class="cg-more"><summary>Every scenario</summary>'
                 f'<ol class="cl-rows">\n{rows}</ol></details>')
@@ -2254,7 +2362,7 @@ def clinch_panel(state, team, week) -> str:
     href = lambda other: f"../{slug(other)}/"
     rows = _clinch_rows(race, t, path, by_idx, names, name, href, steps)
     lead = _lead_text(path, name, names)
-    gone, more = _out_ways(path)
+    gone = _out_ways(path)
     week_line = ""
     if path["week"] or gone:
         week_line = f'<div class="cl-week"><b>Week {week}</b>'
@@ -2263,7 +2371,7 @@ def clinch_panel(state, team, week) -> str:
                           f'{_recipe(path["week"], t, by_idx, href)}</p>')
         if gone:
             week_line += (f'<p><span class="cl-wk out">Out with</span>'
-                          f'{_recipe(gone, t, by_idx, href, more)}</p>')
+                          f'{_recipe(gone, t, by_idx, href)}</p>')
         week_line += "</div>"
     left = len(path["games"])
     games = (f"{left} conference {'game' if left == 1 else 'games'} left" if left
@@ -2320,10 +2428,10 @@ def clinch_question(state, team, week, name):
         answer += f" At {_rec(alive[0]['record'])}: {_lower(need)}"
     if path["week"]:
         answer += f" It clinches this week {_week_text(path['week'], team.idx, name, names)}."
-    gone, more = _out_ways(path)
+    gone = _out_ways(path)
     if gone:
         answer += (f" It is out of the race this week "
-                   f"{_week_text(gone, team.idx, name, names, more)}.")
+                   f"{_week_text(gone, team.idx, name, names)}.")
     if len(alive) > 1:
         answer += f" It can still get in at {_rec(alive[-1]['record'])}."
     return (f"How can {team.school} clinch a spot in the {team.conference} championship game?",
