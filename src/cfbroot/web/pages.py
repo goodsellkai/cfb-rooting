@@ -165,6 +165,11 @@ CONTACT = "goodsellkai@gmail.com"
 AUTHOR = {"@type": "Person", "name": "Kai Goodsell",
           "url": "https://github.com/goodsellkai"}
 
+# Impact (the affiliate network) checks the front page for this tag, written
+# exactly as Impact gave it.
+IMPACT_VERIFY = ("<meta name='impact-site-verification' "
+                 "value='6568a9c6-9439-48bf-8608-35318a6709f8'>")
+
 
 def _head(title, description, url, extra="", ld=None, card=None, card_alt="",
           index=True):
@@ -241,8 +246,8 @@ def home_head(state, n_sims, race=(), card=None):
            "browserRequirements": "Requires JavaScript",
            "isAccessibleForFree": True, "author": AUTHOR,
            "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
-    return _head(title, desc, SITE_URL + "/", card=card,
-                 card_alt=f"Who to root for, week {week}",
+    return _head(title, desc, SITE_URL + "/", extra="\n" + IMPACT_VERIFY,
+                 card=card, card_alt=f"Who to root for, week {week}",
                  ld=[site, page, app,
                      _faq_ld(home_questions(state, n_sims, race))])
 

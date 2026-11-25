@@ -199,6 +199,7 @@ def test_the_home_page_answers_its_own_questions(season):
     for entry in faq["mainEntity"]:
         assert entry["name"] in said
     assert "{" not in body and "}" not in body
+    assert pages.IMPACT_VERIFY in head
 
 
 def test_every_team_is_listed_and_linked(season):
