@@ -125,7 +125,12 @@ committee polls in 2014-25 that takes the model from 3.1 places off the
 committee's next ranking to 1.6, and from 3.0 to 2.5 five rankings on, with
 the share for each season picked on the others. The noise goes with it: 0.06
 with one ranking to come and 0.10 with five, which is what gives the best
-odds of a team finishing inside the playoff places.
+odds of a team finishing inside the playoff places. The last ranking comes
+after the title games and moves only the teams that played one, so on
+selection day a team in no title game has the noise of one ranking fewer,
+none at all in championship week, and a team in a title game has 0.10 more.
+Over the seven seasons whose title games the data marks, that scores better
+than the same noise on every team in six of them.
 
 In championship week only the title games are played, and the committee does
 not rank the other teams again. A team in no title game keeps the place it

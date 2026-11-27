@@ -114,9 +114,11 @@ class KernelInputs:
     massey: SimSystem               # the rating system fitted to this schedule
 
     # The committee's latest ranking against the model's, as it counts on
-    # selection day, and the committee noise left once that is known.
+    # selection day, and the committee noise left once that is known: for
+    # every team, and on top of that for a team in a title game.
     lean: np.ndarray
     committee_sd: float
+    title_sd: float
     h2h_depth: int
     # Championship week: a team in no title game is rated as it was when the
     # committee last ranked, which is held; hold says whether that is on.
@@ -348,7 +350,8 @@ class SeasonState:
             conf_ccg_pts=conf_ccg_pts, conf_ccg_home=conf_ccg_home,
             conf_tb2=conf_tb2, conf_tbm=conf_tbm, conf_tbflags=conf_tbflags,
             massey=msys,
-            lean=lean, committee_sd=known.sd(p.committee_sd), h2h_depth=h2h_depth,
+            lean=lean, committee_sd=known.sd(p.committee_sd),
+            title_sd=known.title_sd(p.committee_sd), h2h_depth=h2h_depth,
             held=held, hold=bool(known.holds),
             n_teams=n_teams, n_conf=n_conf,
         )

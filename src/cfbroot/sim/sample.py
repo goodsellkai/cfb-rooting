@@ -528,6 +528,12 @@ def sample_season(state: SeasonState, seed: int | None = None,
                    else known.rated.get(t.idx, ratings[t.school]) for t in fbs}
     last = lean(None)
     ratings = {t: v + last[t] for t, v in ratings.items()}
+    # A title game is read afresh on selection day, as in the kernel.
+    title_sd = 0.0 if from_start else ki.title_sd
+    if title_sd > 0:
+        for g in title_games:
+            for i in (g["home"], g["away"]):
+                ratings[teams[i].school] += title_sd * rng.normal()
     ranking = selection.rank_teams(sim, ratings,
                                    through_week=massey.selection_week(sim))
     if known.final:

@@ -257,7 +257,21 @@ LEAN_SD = (0.0, 0.06, 0.07, 0.08, 0.08, 0.10)
 # and the teams in them move by what the game does to their ratings. That is
 # 0.93 places off the last ranking over the seven seasons with title games
 # marked, against 1.02 for the ranking before it left as it was and 1.06 for
-# the carry above. The same noise suits it, 0.06, flat from 0.04 to 0.08.
+# the carry above.
+#
+# The noise follows the same split. The committee does not rank the other
+# teams again that week, so on selection day a team in no title game has the
+# noise of one ranking fewer than are left, and none at all once only the
+# title games are. The teams in a title game get TITLE_GAME_SD on top, for how
+# the committee reads the game. Over those seven seasons, one and two
+# rankings out, that scores 260 on the odds of finishing inside the cut lines
+# against 293 for LEAN_SD on every team alike, better in six of the seven;
+# the best is 0.12, and 0.106 picked on the other seasons. With noise on
+# every team, the teams in no title game moved about five places in title
+# game week where the committee moves them one at most, and a four-loss team
+# from outside the field could get in, which the committee has not done in
+# any ranking since 2014. python -m cfbroot.lean --last.
+TITLE_GAME_SD = 0.10
 
 # Worst loss and best win, the way the committee talks about bad losses and
 # quality wins. Both use the same curve and the same size:

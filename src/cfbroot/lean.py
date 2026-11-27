@@ -99,12 +99,20 @@ class Lean:
         return {i: s * v for i, v in self.gap.items()}
 
     def sd(self, base: float) -> float:
-        """Committee noise on selection day. ``base`` is the setting without a
-        poll, and scales the answer, so a caller that switched it off keeps
-        it off."""
+        """Committee noise on selection day for a team in no title game.
+        The last ranking comes after the title games and ranks only the teams
+        in them again, so the rest have one ranking fewer to move in. ``base``
+        is the setting without a poll, and scales the answer, so a caller
+        that switched it off keeps it off."""
         if self.week is None or selection.COMMITTEE_SD <= 0:
             return base
-        return base * noise(self.left) / selection.COMMITTEE_SD
+        return base * noise(self.left - 1) / selection.COMMITTEE_SD
+
+    def title_sd(self, base: float) -> float:
+        """What a title game adds to a team's noise, on top of ``sd()``."""
+        if self.week is None or self.final or selection.COMMITTEE_SD <= 0:
+            return 0.0
+        return base * selection.TITLE_GAME_SD / selection.COMMITTEE_SD
 
 
 def seen_week(state) -> int:
@@ -165,7 +173,7 @@ def for_state(state) -> Lean:
 
 LAMS = [round(float(x), 2) for x in np.arange(0.0, 1.21, 0.1)]
 SDS = (0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12)
-LAST_SDS = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08)
+TITLE_SDS = (0.0, 0.03, 0.06, 0.08, 0.10, 0.12, 0.15)
 CUTS = (4, 8, 12, 16, 25)       # places whose odds the noise is scored on
 
 
@@ -193,15 +201,22 @@ def _places_off(order: list, poll: dict) -> tuple[float, int]:
 
 
 def _log_loss(state, vals: dict, through: int, poll: dict, sd: float,
-              draws: int, rng) -> float:
+              draws: int, rng, title=(), title_sd: float = 0.0) -> float:
     """How well the odds of finishing inside each cut line come out with
-    that much committee noise, as a log loss over the teams near the lines."""
+    that much committee noise, as a log loss over the teams near the lines.
+    The teams in ``title`` get ``title_sd`` more."""
     names = sorted(vals, key=lambda t: -vals[t])[:60]
     col = {t: j for j, t in enumerate(names)}
     hit = np.zeros((len(CUTS), len(names)))
     for _ in range(draws):
-        order = selection.rank_teams(state, vals, rng=rng, committee_sd=sd,
-                                     through_week=through).order
+        if title:
+            noisy = {t: v + sd * rng.normal()
+                     + (title_sd * rng.normal() if t in title else 0.0)
+                     for t, v in vals.items()}
+            order = selection.rank_teams(state, noisy, through_week=through).order
+        else:
+            order = selection.rank_teams(state, vals, rng=rng, committee_sd=sd,
+                                         through_week=through).order
         for c, cut in enumerate(CUTS):
             for t in order[:cut]:
                 if t in col:
@@ -300,15 +315,20 @@ def measure_last(years: list[int], draws: int, rng) -> None:
     """The step into the last ranking, where only the title games are played:
     holding every other team where the committee had it, against carrying
     the gap as in any other week, and against the committee's ranking left
-    as it was. Seasons whose title games the data does not mark are left out."""
-    same, carry, hold, loss = [], [], [], []
+    as it was. Then the noise on selection day, from one ranking out and
+    from two: the teams in no title game with the noise of one ranking fewer
+    and the teams in one with ``TITLE_GAME_SD`` more, against ``LEAN_SD`` on
+    every team alike. Seasons whose title games the data does not mark are
+    left out."""
+    same, carry, hold, split, alike, years_in = [], [], [], [], [], []
     for year in years:
         state, polls, rated = _season(year)
         weeks = sorted(polls)
         a, b = weeks[-2], weeks[-1]
         played = {t for pair in selection.title_game_pairs(state, b - 1) for t in pair}
-        if not played:
+        if not played or len(weeks) < 3:
             continue
+        years_in.append(year)
         then, final = rated[a], rated[b]
         g = gaps(selection.rank_teams(state, then, through_week=a - 1).ratings, polls[a])
         same.append(float(np.mean([abs(polls[a].get(t, DEPTH + 1) - r)
@@ -318,16 +338,36 @@ def measure_last(years: list[int], draws: int, rng) -> None:
         for vals, out in ((usual, carry), (held, hold)):
             out.append(_places_off(
                 selection.rank_teams(state, vals, through_week=b - 1).order, polls[b])[0])
-        loss.append([_log_loss(state, held, b - 1, polls[b], sd, draws, rng)
-                     for sd in LAST_SDS])
+        # Two rankings out: the gap from the one before, carried as usual.
+        a2 = weeks[-3]
+        g2 = gaps(selection.rank_teams(state, rated[a2], through_week=a2 - 1).ratings,
+                  polls[a2])
+        two = {t: v + share(2) * g2.get(t, 0.0) for t, v in final.items()}
+        split.append([_log_loss(state, held, b - 1, polls[b], noise(0), draws, rng,
+                                played, s)
+                      + _log_loss(state, two, b - 1, polls[b], noise(1), draws, rng,
+                                  played, s)
+                      for s in TITLE_SDS])
+        alike.append(_log_loss(state, held, b - 1, polls[b], noise(1), draws, rng)
+                     + _log_loss(state, two, b - 1, polls[b], noise(2), draws, rng))
     print(f"\nInto the last ranking, places off it ({len(same)} seasons with title games marked)")
     print(f"   the ranking before it, left as it was   {np.mean(same):.2f}")
     print(f"   the gap carried as in any other week    {np.mean(carry):.2f}")
     print(f"   teams without a title game held         {np.mean(hold):.2f}")
-    total = np.mean(loss, axis=0)
-    print("   noise  " + "  ".join(f"{sd:.3f}" for sd in LAST_SDS))
-    print("   loss   " + "  ".join(f"{v:5.1f}" for v in total)
-          + f"   best {LAST_SDS[int(np.argmin(total))]:.3f}")
+    total = np.sum(split, axis=0)
+    held_out = [TITLE_SDS[int(np.argmin(np.sum([r for y, r in zip(years_in, split)
+                                                 if y != out], axis=0)))]
+                for out in years_in]
+    print("Selection day noise, log loss from one ranking out and two")
+    print(f"   LEAN_SD on every team alike             {np.sum(alike):.1f}")
+    print("   title game noise " + "  ".join(f"{s:.2f}" for s in TITLE_SDS))
+    print("   loss             " + "  ".join(f"{v:5.1f}" for v in total)
+          + f"   best {TITLE_SDS[int(np.argmin(total))]:.2f}, "
+          f"picked on the other seasons {np.mean(held_out):.3f}")
+    better = sum(1 for r, a_ in zip(split, alike)
+                 if r[TITLE_SDS.index(selection.TITLE_GAME_SD)] < a_)
+    print(f"   seasons better at {selection.TITLE_GAME_SD:.2f} than alike   "
+          f"{better} of {len(split)}")
 
 
 def main(argv=None) -> int:
@@ -337,8 +377,13 @@ def main(argv=None) -> int:
     ap.add_argument("--years", type=int, nargs="+",
                     default=[y for y in range(2014, 2026) if y != 2020])
     ap.add_argument("--draws", type=int, default=60)
+    ap.add_argument("--last", action="store_true",
+                    help="only the step into the last ranking and selection day noise")
     args = ap.parse_args(argv)
-    measure(args.years, args.draws)
+    if args.last:
+        measure_last(args.years, args.draws, np.random.default_rng(1))
+    else:
+        measure(args.years, args.draws)
     return 0
 
 

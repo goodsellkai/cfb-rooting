@@ -242,6 +242,13 @@ section that stays on screen after the app loads and is what crawlers read.
   keeps the rating it was last ranked on plus its whole gap, and only the
   teams in a title game move. Once the last ranking is out (`Lean.final`) its
   order stands in every simulated season, so the field is the real one.
+  The noise follows the same split (`Lean.sd`, `Lean.title_sd`,
+  `TITLE_GAME_SD`): a team in no title game gets the noise of one ranking
+  fewer than are left, so none in championship week, and a team in one gets
+  0.10 more. With the same noise on every team, a 4-loss team ranked 17th
+  had about a 2% chance of an at-large bid at 8-4, which Kai flagged on
+  2026-11-27; the committee has never ranked a 4-loss team in its top 12.
+  `python -m cfbroot.lean --last` measures it.
 - **A game-day run starts the next one itself.** GitHub starts only a few of
   the half-hourly Saturday runs `pages.yml` asks for, and on 21 November 2026
   the noon games' results sat off the site for two hours between runs. So a

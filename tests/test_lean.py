@@ -76,9 +76,47 @@ def test_less_of_a_gap_is_carried_the_more_polls_are_left():
 
 def test_noise_switched_off_stays_off():
     known = lean.Lean(week=11, gap={}, left=3)
-    assert known.sd(0.0) == 0.0
-    assert np.isclose(known.sd(selection.COMMITTEE_SD), lean.noise(3))
+    assert known.sd(0.0) == 0.0 and known.title_sd(0.0) == 0.0
     assert lean.Lean().sd(0.05) == 0.05     # no ranking, no change
+    assert lean.Lean().title_sd(0.05) == 0.0
+
+
+def test_the_last_ranking_moves_only_the_title_game_teams():
+    # Its noise is that of one ranking fewer for everyone else, and a title
+    # game adds its own.
+    base = selection.COMMITTEE_SD
+    for left in (1, 2, 3):
+        known = lean.Lean(week=11, gap={}, left=left)
+        assert np.isclose(known.sd(base), lean.noise(left - 1))
+        assert np.isclose(known.title_sd(base), selection.TITLE_GAME_SD)
+    assert lean.Lean(week=11, gap={}, left=1).sd(base) == 0.0
+    final = lean.Lean(week=15, gap={}, left=0, final=True)
+    assert final.sd(base) == 0.0 and final.title_sd(base) == 0.0
+
+
+def test_in_title_game_week_only_the_title_game_teams_move(midseason):
+    # The committee ranked everyone before the title games. The teams in
+    # none of them keep their order however the games go, give or take a
+    # head to head swap the moved teams open up (with noise on every team
+    # they were five places out, up to ten); the teams in one move about.
+    from cfbroot.sim.sample import sample_season
+    before, cut, order = championship_week(midseason, played=False)
+    poll = {i: k + 1 for k, i in enumerate(order[:25])}
+    state = dataclasses.replace(before, cfp_polls={cut: poll})
+    assert lean.for_state(state).holds
+    ki = state.kernel_inputs()
+    assert ki.committee_sd == 0.0 and ki.title_sd > 0
+    moved = False
+    for seed in range(8):
+        one = sample_season(state, seed=seed, ki=ki)
+        title = {i for g in one["title_games"] for i in (g["home"], g["away"])}
+        ranked = [r["team"] for r in one["ranking"]][:30]
+        rest = [i for i in ranked if i not in title]
+        want = sorted(rest, key=order.index)
+        assert max(abs(rest.index(t) - want.index(t)) for t in rest) <= 2
+        moved |= [i for i in ranked if i in title] != sorted(
+            (i for i in ranked if i in title), key=order.index)
+    assert moved
 
 
 def test_the_projection_gives_the_committees_order_back_until_games_are_played(midseason):
