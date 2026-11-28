@@ -18,6 +18,9 @@ from itertools import combinations
 from math import comb
 
 SITE_NAME = "CFB Rooting Guide"
+# The basketball guide, which every page points to, and the name it goes by.
+CBB_URL = "https://cbb.cfbroot.com"
+CBB_NAME = "CBB Rooting Guide"
 # What a page shows before its script runs, which the intro replaces.
 INTRO_BLOCK = "<!--INTRO--><h2>Choose a team</h2><!--/INTRO-->"
 # An unset variable arrives as an empty string from the build, which would
@@ -65,7 +68,10 @@ def subnav(teams) -> str:
     links = [("/this-week/", "This week"), ("/cfp-rankings/", "CFP rankings")]
     links += [(f"/conference/{conf_slug(c)}/", _SHORT_CONF.get(c, c)) for c in confs]
     links.append(("/teams/", "All teams"))
-    return "".join(f'<a href="{href}">{html.escape(name)}</a>' for href, name in links)
+    # First in the strip, so it is on screen on a phone too: the other sport.
+    sport = (f'<a class="sport" href="{CBB_URL}/" data-from="subnav">'
+             f'College basketball</a>')
+    return sport + "".join(f'<a href="{href}">{html.escape(name)}</a>' for href, name in links)
 
 
 def _now() -> str:
@@ -826,6 +832,9 @@ playing in.</p>
 number, each one rated, ranked the way the selection committee works and
 played through the 12-team bracket. <a href="how-it-works/">Methodology</a></span></p>
 <p class="cta"><a href="#team">Pick your team</a> or start with one of these.</p>
+<p class="xsport">College basketball is under way. The <a href="{CBB_URL}/"
+data-from="home">{CBB_NAME}</a> has every team's NCAA tournament odds and the games to
+root for, updated every hour.</p>
 </div>
 
 <div class="boards">
@@ -1431,7 +1440,7 @@ def headers() -> str:
     """
     # One rule per path, since a host that matches several applies them all.
     return _allow_ga("""/*
-  Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\' https://static.cloudflareinsights.com; connect-src \'self\' https://site.api.espn.com https://cloudflareinsights.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
+  Content-Security-Policy: default-src \'self\'; img-src \'self\' data: https://a.espncdn.com https://*.espncdn.com; style-src \'self\' \'unsafe-inline\'; script-src \'self\' \'unsafe-inline\' https://static.cloudflareinsights.com; connect-src \'self\' https://site.api.espn.com https://cloudflareinsights.com https://cbb.cfbroot.com; frame-ancestors \'none\'; base-uri \'self\'; form-action \'none\'
   Strict-Transport-Security: max-age=31536000
   X-Frame-Options: DENY
 /data/*

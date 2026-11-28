@@ -856,6 +856,37 @@ function recTag(idx) {
   return `<span class="rec">${r.w}-${r.l}</span>`;
 }
 
+// The same school in the basketball guide: its chance of making the NCAA
+// tournament, linked to its page there. ESPN keeps a school's team id across
+// sports, and the id is in the logo's address. The guide's summary is read
+// once a page, and a team it does not have gets nothing.
+const CBB_URL = "https://cbb.cfbroot.com";
+let cbbSummary = null;
+
+function loadCbb() {
+  cbbSummary = cbbSummary || fetch(`${CBB_URL}/data/summary.json`)
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return cbbSummary;
+}
+
+async function cbbBit(idx) {
+  const id = ((team(idx).logo || "").match(/\/(\d+)\.png/) || [])[1];
+  if (!id) return;
+  const s = await loadCbb();
+  const row = s && s.teams && s.teams[id];
+  const line = $("teamline");
+  if (!row || line.dataset.team !== String(idx) || line.querySelector(".cbbbit")) return;
+  line.insertAdjacentHTML("beforeend", ` &nbsp; <a class="cbbbit" data-from="team"
+    href="${CBB_URL}/team/${encodeURIComponent(row[0])}/">Basketball: <b>${pct(row[1])}</b>
+    to make the NCAA tournament</a>`);
+}
+
+// Every way over to the basketball guide is counted, by where it was.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest(`a[href^="${CBB_URL}"]`);
+  if (a) track("open_cbb", { from: a.dataset.from || "link" });
+});
+
 function renderTeamLine(idx) {
   const t = team(idx);
   const r = recordOf(idx);
@@ -876,6 +907,8 @@ function renderTeamLine(idx) {
     bits.push(`<span><b>${num(projectedWins())}</b> projected wins</span>`);
   }
   $("teamline").innerHTML = bits.join(" &nbsp; ");
+  $("teamline").dataset.team = String(idx);
+  cbbBit(idx);
   if (RESULT && RESULT.team === t.name) renderSeasonRow();
   else $("season").innerHTML = "";
 }
