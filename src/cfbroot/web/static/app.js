@@ -877,8 +877,18 @@ async function cbbBit(idx) {
   const line = $("teamline");
   if (!row || line.dataset.team !== String(idx) || line.querySelector(".cbbbit")) return;
   line.insertAdjacentHTML("beforeend", ` &nbsp; <a class="cbbbit" data-from="team"
-    href="${CBB_URL}/team/${encodeURIComponent(row[0])}/">Basketball: <b>${pct(row[1])}</b>
-    to make the NCAA tournament</a>`);
+    href="${CBB_URL}/team/${encodeURIComponent(row[0])}/"><span class="bball" aria-hidden="true"></span>${esc(team(idx).name)} basketball
+    <b>${pct(row[1])}</b><span>NCAA odds</span></a>`);
+}
+
+// The basketball bar closes for two weeks.
+{
+  const x = document.getElementById("xbarclose");
+  if (x) x.addEventListener("click", () => {
+    document.getElementById("xbar").hidden = true;
+    try { localStorage.setItem("cfbroot.xbar", String(Date.now())); } catch { /* private mode */ }
+    track("close_cbb_bar");
+  });
 }
 
 // Every way over to the basketball guide is counted, by where it was.

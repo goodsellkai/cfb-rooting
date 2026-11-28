@@ -68,10 +68,7 @@ def subnav(teams) -> str:
     links = [("/this-week/", "This week"), ("/cfp-rankings/", "CFP rankings")]
     links += [(f"/conference/{conf_slug(c)}/", _SHORT_CONF.get(c, c)) for c in confs]
     links.append(("/teams/", "All teams"))
-    # First in the strip, so it is on screen on a phone too: the other sport.
-    sport = (f'<a class="sport" href="{CBB_URL}/" data-from="subnav">'
-             f'College basketball</a>')
-    return sport + "".join(f'<a href="{href}">{html.escape(name)}</a>' for href, name in links)
+    return "".join(f'<a href="{href}">{html.escape(name)}</a>' for href, name in links)
 
 
 def _now() -> str:
@@ -832,9 +829,6 @@ playing in.</p>
 number, each one rated, ranked the way the selection committee works and
 played through the 12-team bracket. <a href="how-it-works/">Methodology</a></span></p>
 <p class="cta"><a href="#team">Pick your team</a> or start with one of these.</p>
-<p class="xsport">College basketball is under way. The <a href="{CBB_URL}/"
-data-from="home">{CBB_NAME}</a> has every team's NCAA tournament odds and the games to
-root for, updated every hour.</p>
 </div>
 
 <div class="boards">

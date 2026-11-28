@@ -15,6 +15,18 @@
 </head>
 <body>
 
+<!-- The basketball guide, on every page until a reader closes it. -->
+<aside id="xbar" class="xbar" aria-label="The basketball guide">
+  <div class="xbar-in">
+    <span class="bball" aria-hidden="true"></span>
+    <p><span class="xb-k">Also check out</span>
+      <a href="https://cbb.cfbroot.com/" data-from="bar">College basketball</a>
+      <span class="xb-d">Every team's NCAA tournament odds and who to root for</span></p>
+    <button id="xbarclose" class="xb-x" type="button" aria-label="Hide this">&times;</button>
+  </div>
+</aside>
+<script>try{if(Date.now()-(+localStorage.getItem("cfbroot.xbar")||0)<12096e5)document.getElementById("xbar").hidden=true}catch(e){}</script>
+
 <header class="mast">
   <div class="mast-in">
     <a class="brand" href="/" aria-label="CFB Rooting Guide">
