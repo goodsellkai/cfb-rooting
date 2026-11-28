@@ -293,6 +293,15 @@ section that stays on screen after the app loads and is what crawlers read.
   visit counts once, as the team's page. `track()` sends `pick_team`,
   `switch_measure`, `share`, `open_tab` and `new_season`. Any page opened with
   `?me` stops that browser being counted; `?me=off` undoes it.
+- **Every page points at the basketball guide** (Kai asked, 2026-11-27, to carry
+  the football traffic over as the season ends). The CBB Rooting Guide is a
+  separate repository and Pages project at `cbb.cfbroot.com`
+  (`pages.CBB_URL`). The subnav opens with College basketball, the front page
+  has a line about it (`.xsport`), and `cbbBit()` in app.js adds the same
+  school's NCAA tournament chance to a team's line in the band, read from
+  `cbb.cfbroot.com/data/summary.json` and matched by the ESPN team id in the
+  logo's address. The security policy's `connect-src` lets that one origin
+  through. Each click over is the `open_cbb` event, with where it was.
 - **The model's record is private.** Each full build runs `cfbroot.track` into
   a private repository (`TRACK_TOKEN` secret, `TRACK_REPO` variable, default
   `goodsellkai/cfbroot-tracking`): every game's last chance before kickoff,
